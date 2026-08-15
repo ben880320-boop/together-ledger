@@ -1,11 +1,23 @@
-import { eq } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lt, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
-import { ENV } from './_core/env';
+import {
+  InsertUser,
+  User,
+  budgets,
+  categories,
+  ledgerMembers,
+  ledgers,
+  paymentMethods,
+  recurringTransactions,
+  settlements,
+  transactionSplits,
+  transactions,
+  users,
+} from "../drizzle/schema";
+import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
@@ -18,75 +30,312 @@ export async function getDb() {
   return _db;
 }
 
-export async function upsertUser(user: InsertUser): Promise<void> {
-  if (!user.openId) {
-    throw new Error("User openId is required for upsert");
-  }
+function requireDb() {
+  if (!_db) throw new Error("Database is not available");
+  return _db;
+}
 
+export async function upsertUser(user: InsertUser): Promise<void> {
+  if (!user.openId) throw new Error("User openId is required for upsert");
   const db = await getDb();
   if (!db) {
     console.warn("[Database] Cannot upsert user: database not available");
     return;
   }
 
-  try {
-    const values: InsertUser = {
-      openId: user.openId,
-    };
-    const updateSet: Record<string, unknown> = {};
-
-    const textFields = ["name", "email", "loginMethod"] as const;
-    type TextField = (typeof textFields)[number];
-
-    const assignNullable = (field: TextField) => {
-      const value = user[field];
-      if (value === undefined) return;
-      const normalized = value ?? null;
-      values[field] = normalized;
-      updateSet[field] = normalized;
-    };
-
-    textFields.forEach(assignNullable);
-
-    if (user.lastSignedIn !== undefined) {
-      values.lastSignedIn = user.lastSignedIn;
-      updateSet.lastSignedIn = user.lastSignedIn;
+  const values: InsertUser = { openId: user.openId };
+  const updateSet: Record<string, unknown> = {};
+  const textFields = ["name", "email", "loginMethod"] as const;
+  for (const field of textFields) {
+    if (user[field] !== undefined) {
+      values[field] = user[field] ?? null;
+      updateSet[field] = user[field] ?? null;
     }
-    if (user.role !== undefined) {
-      values.role = user.role;
-      updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = 'admin';
-      updateSet.role = 'admin';
-    }
-
-    if (!values.lastSignedIn) {
-      values.lastSignedIn = new Date();
-    }
-
-    if (Object.keys(updateSet).length === 0) {
-      updateSet.lastSignedIn = new Date();
-    }
-
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
-      set: updateSet,
-    });
-  } catch (error) {
-    console.error("[Database] Failed to upsert user:", error);
-    throw error;
   }
+  if (user.lastSignedIn !== undefined) {
+    values.lastSignedIn = user.lastSignedIn;
+    updateSet.lastSignedIn = user.lastSignedIn;
+  }
+  if (user.role !== undefined) {
+    values.role = user.role;
+    updateSet.role = user.role;
+  } else if (user.openId === ENV.ownerOpenId) {
+    values.role = "admin";
+    updateSet.role = "admin";
+  }
+  if (!values.lastSignedIn) values.lastSignedIn = new Date();
+  if (Object.keys(updateSet).length === 0) updateSet.lastSignedIn = new Date();
+
+  await db.insert(users).values(values).onDuplicateKeyUpdate({ set: updateSet });
 }
 
 export async function getUserByOpenId(openId: string) {
   const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot get user: database not available");
-    return undefined;
-  }
-
+  if (!db) return undefined;
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
-
   return result.length > 0 ? result[0] : undefined;
 }
 
-// TODO: add feature queries here as your schema grows.
+export async function listLedgersForUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({ ledger: ledgers, member: ledgerMembers })
+    .from(ledgerMembers)
+    .innerJoin(ledgers, eq(ledgerMembers.ledgerId, ledgers.id))
+    .where(eq(ledgerMembers.userId, userId))
+    .orderBy(desc(ledgers.createdAt));
+}
+
+export async function getLedgerAccess(ledgerId: number, userId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db
+    .select({ ledger: ledgers, member: ledgerMembers })
+    .from(ledgerMembers)
+    .innerJoin(ledgers, eq(ledgerMembers.ledgerId, ledgers.id))
+    .where(and(eq(ledgerMembers.ledgerId, ledgerId), eq(ledgerMembers.userId, userId)))
+    .limit(1);
+  return result[0];
+}
+
+export async function createLedger(input: {
+  name: string;
+  type: "couple" | "roommate" | "family" | "travel" | "custom";
+  createdBy: number;
+  inviteCode: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const result = await db.insert(ledgers).values(input);
+  const ledgerId = Number(result[0].insertId);
+  await db.insert(ledgerMembers).values({ ledgerId, userId: input.createdBy, role: "admin" });
+  await db.insert(categories).values([
+    { ledgerId, name: "飲食", type: "expense", icon: "🍜", color: "#D47762" },
+    { ledgerId, name: "交通", type: "expense", icon: "🚗", color: "#6387A8" },
+    { ledgerId, name: "生活", type: "expense", icon: "⌂", color: "#7E8D70" },
+    { ledgerId, name: "購物", type: "expense", icon: "◌", color: "#B88C5E" },
+    { ledgerId, name: "情侶", type: "expense", icon: "♡", color: "#BE7181" },
+    { ledgerId, name: "薪資", type: "income", icon: "↗", color: "#7E8D70" },
+  ]);
+  await db.insert(paymentMethods).values([
+    { ledgerId, name: "現金", icon: "現" },
+    { ledgerId, name: "信用卡", icon: "卡" },
+    { ledgerId, name: "電子支付", icon: "支" },
+    { ledgerId, name: "銀行轉帳", icon: "銀" },
+  ]);
+  return (await getLedgerAccess(ledgerId, input.createdBy))?.ledger;
+}
+
+export async function joinLedgerByInviteCode(inviteCode: string, userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const result = await db.select().from(ledgers).where(eq(ledgers.inviteCode, inviteCode)).limit(1);
+  const ledger = result[0];
+  if (!ledger) return undefined;
+  await db.insert(ledgerMembers).values({ ledgerId: ledger.id, userId, role: "member" }).onDuplicateKeyUpdate({ set: { role: "member" } });
+  return ledger;
+}
+
+export async function getLedgerMembers(ledgerId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({ member: ledgerMembers, user: users })
+    .from(ledgerMembers)
+    .innerJoin(users, eq(ledgerMembers.userId, users.id))
+    .where(eq(ledgerMembers.ledgerId, ledgerId))
+    .orderBy(asc(ledgerMembers.joinedAt));
+}
+
+export async function getCategories(ledgerId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(categories).where(eq(categories.ledgerId, ledgerId)).orderBy(asc(categories.name));
+}
+
+export async function createCategory(input: { ledgerId: number; parentCategoryId?: number; name: string; type: "expense" | "income"; icon: string; color: string }) {
+  const db = requireDb();
+  const result = await db.insert(categories).values({
+    ledgerId: input.ledgerId,
+    parentCategoryId: input.parentCategoryId ?? 0,
+    name: input.name,
+    type: input.type,
+    icon: input.icon,
+    color: input.color,
+  });
+  return Number(result[0].insertId);
+}
+
+export async function getPaymentMethods(ledgerId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(paymentMethods).where(eq(paymentMethods.ledgerId, ledgerId)).orderBy(asc(paymentMethods.id));
+}
+
+export async function getTransactions(ledgerId: number, limit = 100) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(transactions).where(eq(transactions.ledgerId, ledgerId)).orderBy(desc(transactions.date)).limit(limit);
+}
+
+export async function createTransaction(input: {
+  ledgerId: number;
+  userId: number;
+  payerId: number;
+  amount: number;
+  type: "expense" | "income" | "transfer";
+  categoryId: number;
+  paymentMethodId: number;
+  date: Date;
+  note?: string;
+  splitType: "equal" | "custom" | "amount";
+  splits: Array<{ userId: number; shareAmount: number }>;
+}) {
+  const db = requireDb();
+  const result = await db.insert(transactions).values({
+    ledgerId: input.ledgerId,
+    userId: input.userId,
+    payerId: input.payerId,
+    amount: input.amount,
+    type: input.type,
+    categoryId: input.categoryId,
+    paymentMethodId: input.paymentMethodId,
+    date: input.date,
+    note: input.note,
+    splitType: input.splitType,
+  });
+  const transactionId = Number(result[0].insertId);
+  if (input.splits.length > 0) {
+    await db.insert(transactionSplits).values(input.splits.map(split => ({ transactionId, ...split })));
+  }
+  return transactionId;
+}
+
+export async function getCalendarTransactions(ledgerId: number, start: Date, end: Date) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(transactions).where(and(eq(transactions.ledgerId, ledgerId), gte(transactions.date, start), lt(transactions.date, end))).orderBy(asc(transactions.date));
+}
+
+export async function getAnalytics(ledgerId: number, start: Date, end: Date) {
+  const db = await getDb();
+  if (!db) return { income: 0, expense: 0, balance: 0, categories: [] };
+  const rows = await db
+    .select({
+      type: transactions.type,
+      categoryId: transactions.categoryId,
+      categoryName: categories.name,
+      categoryColor: categories.color,
+      total: sql<number>`COALESCE(SUM(${transactions.amount}), 0)`,
+    })
+    .from(transactions)
+    .leftJoin(categories, eq(transactions.categoryId, categories.id))
+    .where(and(eq(transactions.ledgerId, ledgerId), gte(transactions.date, start), lt(transactions.date, end)))
+    .groupBy(transactions.type, transactions.categoryId, categories.name, categories.color);
+
+  let income = 0;
+  let expense = 0;
+  const categoryMap = new Map<number, { id: number; name: string; color: string; amount: number }>();
+  for (const row of rows) {
+    const total = Number(row.total || 0);
+    if (row.type === "income") income += total;
+    if (row.type === "expense") {
+      expense += total;
+      const previous = categoryMap.get(row.categoryId) ?? { id: row.categoryId, name: row.categoryName ?? "未分類", color: row.categoryColor ?? "#B56C78", amount: 0 };
+      previous.amount += total;
+      categoryMap.set(row.categoryId, previous);
+    }
+  }
+  return { income, expense, balance: income - expense, categories: Array.from(categoryMap.values()).sort((a, b) => b.amount - a.amount) };
+}
+
+export type SettlementRow = { transactionId: number; payerId: number; splitUserId: number; amount: number; shareAmount: number };
+
+export function calculateSettlement(rows: SettlementRow[]) {
+  const balances = new Map<number, number>();
+  const countedTransactions = new Set<number>();
+  for (const row of rows) {
+    if (!countedTransactions.has(row.transactionId)) {
+      balances.set(row.payerId, (balances.get(row.payerId) ?? 0) + Number(row.amount));
+      countedTransactions.add(row.transactionId);
+    }
+    balances.set(row.splitUserId, (balances.get(row.splitUserId) ?? 0) - Number(row.shareAmount));
+  }
+  const sorted = Array.from(balances.entries()).sort((a, b) => b[1] - a[1]);
+  const receiver = sorted[0];
+  const payer = sorted[sorted.length - 1];
+  const amount = receiver ? Math.max(0, Math.round(receiver[1])) : 0;
+  return {
+    balances: sorted.map(([userId, net]) => ({ userId, net })),
+    settlement: receiver && payer && receiver[0] !== payer[0] && amount > 0 ? { fromUserId: payer[0], toUserId: receiver[0], amount } : null,
+  };
+}
+
+export async function getSettlementSummary(ledgerId: number) {
+  const db = await getDb();
+  if (!db) return { balances: [], settlement: null };
+  const rows = await db
+    .select({ transactionId: transactions.id, payerId: transactions.payerId, splitUserId: transactionSplits.userId, amount: transactions.amount, shareAmount: transactionSplits.shareAmount })
+    .from(transactions)
+    .innerJoin(transactionSplits, eq(transactions.id, transactionSplits.transactionId))
+    .where(and(eq(transactions.ledgerId, ledgerId), eq(transactions.type, "expense")));
+  return calculateSettlement(rows);
+}
+
+export async function listSettlements(ledgerId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(settlements).where(eq(settlements.ledgerId, ledgerId)).orderBy(desc(settlements.settledAt));
+}
+
+export async function createSettlement(input: { ledgerId: number; fromUserId: number; toUserId: number; amount: number; month: string }) {
+  const db = requireDb();
+  const result = await db.insert(settlements).values({ ...input, status: "settled" });
+  return Number(result[0].insertId);
+}
+
+export async function listBudgets(ledgerId: number, month: string) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(budgets).where(and(eq(budgets.ledgerId, ledgerId), eq(budgets.month, month))).orderBy(asc(budgets.categoryId));
+}
+
+export async function upsertBudget(input: { ledgerId: number; categoryId: number; amount: number; month: string }) {
+  const db = requireDb();
+  const existing = await db.select().from(budgets).where(and(eq(budgets.ledgerId, input.ledgerId), eq(budgets.categoryId, input.categoryId), eq(budgets.month, input.month))).limit(1);
+  if (existing[0]) {
+    await db.update(budgets).set({ amount: input.amount }).where(eq(budgets.id, existing[0].id));
+    return existing[0].id;
+  }
+  const result = await db.insert(budgets).values(input);
+  return Number(result[0].insertId);
+}
+
+export async function listRecurring(ledgerId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(recurringTransactions).where(eq(recurringTransactions.ledgerId, ledgerId)).orderBy(asc(recurringTransactions.dayOfMonth));
+}
+
+export async function createRecurring(input: {
+  ledgerId: number;
+  userId: number;
+  title: string;
+  amount: number;
+  type: "expense" | "income";
+  categoryId: number;
+  paymentMethodId: number;
+  frequency: "weekly" | "monthly" | "yearly";
+  dayOfMonth: number;
+}) {
+  const db = requireDb();
+  const result = await db.insert(recurringTransactions).values(input);
+  return Number(result[0].insertId);
+}
+
+export async function seedDemoLedgerForPreview(user: User) {
+  if (!process.env.DATABASE_URL) return undefined;
+  const ledgersForUser = await listLedgersForUser(user.id);
+  return ledgersForUser[0]?.ledger;
+}
