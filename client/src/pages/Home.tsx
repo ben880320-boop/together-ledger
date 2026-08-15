@@ -143,7 +143,7 @@ function DonutChart({ values }: { values: { value: number; color: string }[] }) 
 }
 
 export default function Home() {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
   const [activeNav, setActiveNav] = useState<NavKey>("overview");
   const [transactions, setTransactions] = useState(initialTransactions);
   const [budgets, setBudgets] = useState(initialBudgets);
@@ -154,6 +154,8 @@ export default function Home() {
   const [showLedgerMenu, setShowLedgerMenu] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [hasLedger, setHasLedger] = useState(false);
   const [showAddRecurring, setShowAddRecurring] = useState(false);
   const [month, setMonth] = useState("2026-08");
   const [budgetEdit, setBudgetEdit] = useState<number | null>(null);
@@ -200,6 +202,10 @@ export default function Home() {
   const copyInvite = async () => { try { await navigator.clipboard.writeText("A7K29X"); } catch { /* clipboard may be unavailable in preview */ } setCopied(true); setTimeout(() => setCopied(false), 1800); };
   const changeMonth = (delta: number) => { const [year, m] = month.split("-").map(Number); const next = new Date(year, m - 1 + delta, 1); setMonth(`${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`); };
 
+  if (loading) return <LoginLanding onLogin={() => startLogin()} />;
+  if (!user) return <LoginLanding onLogin={() => startLogin()} />;
+  if (!hasLedger) return <EmptyLedgerLanding onCreate={() => setHasLedger(true)} onJoin={() => setHasLedger(true)} />;
+
   return (
     <div className="min-h-screen bg-[#FBF7F3] text-[#3A2F2B]">
       <div className="flex min-h-screen">
@@ -220,7 +226,8 @@ export default function Home() {
         </aside>
 
         <main className="min-w-0 flex-1">
-          <header className="sticky top-0 z-20 border-b border-[#EFE2DB]/80 bg-[#FBF7F3]/90 px-5 py-4 backdrop-blur-xl sm:px-8 lg:px-10"><div className="mx-auto flex max-w-[1400px] items-center justify-between"><div className="flex items-center gap-3"><button className="rounded-xl p-2 text-[#8E7A72] hover:bg-white lg:hidden"><Menu size={20} /></button><div className="lg:hidden"><div className="font-serif text-xl">共帳</div></div><div className="hidden lg:block"><div className="text-[11px] tracking-[0.17em] text-[#B39D94]">2026 年 8 月 · 共同財務</div><h1 className="mt-1 font-serif text-2xl text-[#42332F]">{activeNav === "overview" ? "早安，小辰" : navItems.find(item => item.key === activeNav)?.label}</h1></div></div><div className="flex items-center gap-2"><button onClick={() => setShowNotifications(prev => !prev)} className="relative rounded-xl p-2.5 text-[#937E75] transition hover:bg-white"><Bell size={18} strokeWidth={1.7} />{!settled && <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-[#C46A79]" />}</button><button onClick={() => setShowInvite(true)} className="hidden items-center gap-2 rounded-xl border border-[#EAD9D1] bg-white px-3 py-2 text-xs font-medium text-[#715D55] shadow-sm transition hover:border-[#D6B7B0] sm:flex"><Users size={15} /> 邀請成員</button><Button onClick={() => setShowAdd(true)} className="h-10 rounded-xl bg-[#B56C78] px-4 text-xs font-semibold text-white shadow-[0_8px_20px_rgba(181,108,120,0.18)] hover:bg-[#A55D6A]"><Plus size={16} className="mr-1.5" /> 新增記錄</Button></div></div></header>
+          <header className="sticky top-0 z-20 border-b border-[#EFE2DB]/80 bg-[#FBF7F3]/90 px-5 py-4 backdrop-blur-xl sm:px-8 lg:px-10"><div className="mx-auto flex max-w-[1400px] items-center justify-between"><div className="flex items-center gap-3"><button aria-label="開啟選單" onClick={() => setShowMobileMenu(true)} className="rounded-xl p-2 text-[#8E7A72] transition hover:bg-white active:scale-95 lg:hidden"><Menu size={20} /></button><div className="lg:hidden"><div className="font-serif text-xl">共帳</div></div><div className="hidden lg:block"><div className="text-[11px] tracking-[0.17em] text-[#B39D94]">2026 年 8 月 · 共同財務</div><h1 className="mt-1 font-serif text-2xl text-[#42332F]">{activeNav === "overview" ? "早安，小辰" : navItems.find(item => item.key === activeNav)?.label}</h1></div></div><div className="flex items-center gap-2"><button onClick={() => setShowNotifications(prev => !prev)} className="relative rounded-xl p-2.5 text-[#937E75] transition hover:bg-white"><Bell size={18} strokeWidth={1.7} />{!settled && <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-[#C46A79]" />}</button><button onClick={() => setShowInvite(true)} className="hidden items-center gap-2 rounded-xl border border-[#EAD9D1] bg-white px-3 py-2 text-xs font-medium text-[#715D55] shadow-sm transition hover:border-[#D6B7B0] sm:flex"><Users size={15} /> 邀請成員</button><Button onClick={() => setShowAdd(true)} className="h-10 rounded-xl bg-[#B56C78] px-4 text-xs font-semibold text-white shadow-[0_8px_20px_rgba(181,108,120,0.18)] hover:bg-[#A55D6A]"><Plus size={16} className="mr-1.5" /> 新增記錄</Button></div></div></header>
+          {showMobileMenu && <div className="fixed inset-0 z-50 flex lg:hidden"><button aria-label="關閉選單" onClick={() => setShowMobileMenu(false)} className="flex-1 bg-[#3A2F2B]/25" /><aside className="w-[280px] bg-[#FFFCF9] p-5 shadow-2xl"><div className="flex items-center justify-between"><div className="flex items-center gap-2"><div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#F6E5E5] text-[#B56C78]"><Heart size={17} fill="currentColor" /></div><span className="font-serif text-xl text-[#483833]">共帳</span></div><button aria-label="關閉選單" onClick={() => setShowMobileMenu(false)} className="rounded-lg p-2 text-[#8E7A72] hover:bg-[#FBF5F1]"><X size={18} /></button></div><div className="mt-8 space-y-1.5">{navItems.map(item => { const Icon = item.icon; const active = activeNav === item.key; return <button key={item.key} onClick={() => { setActiveNav(item.key); setShowMobileMenu(false); }} className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm ${active ? "bg-[#F6E6E6] font-semibold text-[#A65D6E]" : "text-[#8F7C74] hover:bg-[#FBF5F1]"}`}><Icon size={17} /><span>{item.label}</span></button>; })}</div></aside></div>}
           {showNotifications && <div className="absolute right-5 top-[76px] z-30 w-[300px] rounded-2xl border border-[#EFE2DB] bg-white p-4 shadow-[0_18px_50px_rgba(77,51,42,0.14)] sm:right-8"><div className="flex items-center justify-between"><span className="text-sm font-semibold">通知</span><button onClick={() => setShowNotifications(false)}><X size={15} className="text-[#A08D84]" /></button></div><div className="mt-4 rounded-xl bg-[#FFF7EC] p-3 text-xs text-[#977257]"><CircleAlert size={16} className="mb-2 text-[#C48B50]" /><b>生活預算已接近上限</b><p className="mt-1 leading-relaxed text-[#A78368]">本月生活類別已使用 103%，記得一起檢視支出。</p></div>{!settled && <div className="mt-2 rounded-xl bg-[#FBF0F2] p-3 text-xs text-[#9E6570]"><HandCoins size={16} className="mb-2" /><b>還有一筆待結算</b><p className="mt-1 leading-relaxed text-[#A4757D]">安安應支付給小辰 {money(settlementAmount)}。</p></div>}</div>}
 
           <div className="mx-auto max-w-[1400px] px-5 py-7 pb-28 sm:px-8 lg:px-10 lg:py-9 lg:pb-10">
@@ -238,6 +245,14 @@ export default function Home() {
       {showInvite && <InviteModal copied={copied} onCopy={copyInvite} onClose={() => setShowInvite(false)} />}
     </div>
   );
+}
+
+function LoginLanding({ onLogin }: { onLogin: () => void }) {
+  return <div className="flex min-h-screen items-center justify-center bg-[#FBF7F3] px-5 py-10"><div className="w-full max-w-md rounded-[28px] border border-[#EFE2DB] bg-[#FFFCF9] p-7 text-center shadow-[0_18px_50px_rgba(77,51,42,0.08)]"><div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#F6E5E5] text-[#B56C78]"><Heart size={26} fill="currentColor" /></div><div className="mt-4 font-serif text-2xl text-[#483833]">共帳</div><div className="mt-1 text-[10px] tracking-[0.22em] text-[#B69E94]">TOGETHER LEDGER</div><h1 className="mt-10 font-serif text-3xl leading-tight text-[#3A2F2B]">和重要的人，<br />一起把生活記清楚。</h1><p className="mt-4 text-sm leading-7 text-[#927E75]">請先登入，之後再建立或加入共同帳本。</p><Button onClick={onLogin} className="mt-7 h-11 w-full rounded-xl bg-[#B56C78] text-sm font-semibold text-white hover:bg-[#A55D6A]">登入／註冊</Button></div></div>;
+}
+
+function EmptyLedgerLanding({ onCreate, onJoin }: { onCreate: () => void; onJoin: () => void }) {
+  return <div className="flex min-h-screen items-center justify-center bg-[#FBF7F3] px-5 py-10"><div className="w-full max-w-lg rounded-[28px] border border-[#EFE2DB] bg-[#FFFCF9] p-8 text-center shadow-[0_18px_50px_rgba(77,51,42,0.08)]"><div className="mx-auto flex h-20 w-20 items-center justify-center rounded-3xl bg-[#F6E5E5] text-[#B56C78]"><Heart size={34} fill="currentColor" /></div><h1 className="mt-6 font-serif text-3xl text-[#3A2F2B]">目前還沒有帳本</h1><p className="mx-auto mt-3 max-w-sm text-sm leading-7 text-[#927E75]">建立一個新的共同帳本，或使用邀請碼加入伴侶、室友或家人的帳本。</p><div className="mt-7 flex flex-col gap-3 sm:flex-row sm:justify-center"><Button onClick={onCreate} className="h-11 rounded-xl bg-[#B56C78] px-5 text-sm font-semibold text-white hover:bg-[#A55D6A]"><Plus size={16} className="mr-2" />建立第一個帳本</Button><Button onClick={onJoin} variant="outline" className="h-11 rounded-xl border-[#E3C3C4] bg-white px-5 text-sm font-semibold text-[#B56C78]"><Users size={16} className="mr-2" />使用邀請碼加入</Button></div></div></div>;
 }
 
 function OverviewPage({ totalIncome, totalExpense, balance, expenses, categoryTotals, netBalance, owingMember, receivingMember, settlementAmount, settled, onSettle, onAdd, onInvite, onNav }: { totalIncome: number; totalExpense: number; balance: number; expenses: Transaction[]; categoryTotals: { name: CategoryName; value: number }[]; netBalance: Record<Member, number>; owingMember: Member; receivingMember: Member; settlementAmount: number; settled: boolean; onSettle: () => void; onAdd: () => void; onInvite: () => void; onNav: (key: NavKey) => void }) {

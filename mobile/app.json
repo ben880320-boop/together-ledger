@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "共帳 Together Ledger",
+    "slug": "together-ledger",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "togetherledger",
+    "userInterfaceStyle": "light",
+    "android": {
+      "package": "com.togetherledger.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#F6E5E5"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      "expo-web-browser"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
