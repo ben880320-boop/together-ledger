@@ -25,6 +25,10 @@ const checks = [
   ["分類與支付方式自訂", app.includes('api.ledger.createCategory.mutate') && app.includes('api.ledger.createPaymentMethod.mutate')],
   ["多人 admin/member/viewer 角色管理", app.includes('api.ledger.updateMemberRole.mutate') && app.includes('設為管理員') && app.includes('允許編輯') && app.includes('改檢視') && app.includes('不提供任意自訂權限組合')],
   ["固定收支週期欄位", app.includes('frequency') && app.includes('dayOfMonth') && db.includes('syncDueRecurring') && db.includes('recurring.frequency')],
+  ["邀請碼可點擊複製", app.includes('Clipboard.setStringAsync') && app.includes('複製邀請碼') && app.includes('點擊複製')],
+  ["帳本可退出返回我的帳本", app.includes('setLedgerHome(true)') && app.includes('返回我的帳本') && app.includes('我的帳本')],
+  ["帳本底部快捷分頁列", app.includes('function QuickNav') && app.includes('QuickNav active={activeAction}') && app.includes('切換至${item.label}')],
+  ["個人化主題字體與文字大小設定", app.includes('AppearanceProvider') && app.includes('appearanceStorageKey') && app.includes('App 主題') && app.includes('字體') && app.includes('文字大小')],
 ];
 
 const failed = checks.filter(([, passed]) => !passed).map(([label]) => label);

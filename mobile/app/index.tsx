@@ -2,11 +2,15 @@ import { makeRedirectUri } from "expo-auth-session";
 import * as Linking from "expo-linking";
 import * as Crypto from "expo-crypto";
 import * as WebBrowser from "expo-web-browser";
+import * as Clipboard from "expo-clipboard";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { encode as encodeBase64 } from "base-64";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import QRCode from "react-native-qrcode-svg";
 import {
+  createContext,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useState,
@@ -22,9 +26,10 @@ import {
   ScrollView,
   Share,
   StyleSheet,
-  Text,
+  Text as NativeTextComponent,
   TextInput,
   View,
+  type TextProps,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import {
@@ -48,6 +53,151 @@ const colors = {
   orange: "#C98558",
   blue: "#6D8EA8",
 };
+
+type AppearanceTheme = "rose" | "graphite" | "latte" | "mint";
+type AppearanceFont = "system" | "rounded" | "serif";
+type AppearanceScale = "small" | "standard" | "large";
+type AppearancePreferences = {
+  theme: AppearanceTheme;
+  font: AppearanceFont;
+  scale: AppearanceScale;
+};
+
+const appearanceDefaults: AppearancePreferences = {
+  theme: "rose",
+  font: "system",
+  scale: "standard",
+};
+const appearanceStorageKey = "together-ledger-appearance-v1";
+const appearancePalettes: Record<AppearanceTheme, typeof colors> = {
+  rose: colors,
+  graphite: {
+    ...colors,
+    background: "#F4F5F7",
+    surface: "#FFFFFF",
+    ink: "#252A31",
+    muted: "#6B7280",
+    border: "#E1E5EA",
+    rose: "#58677A",
+    roseSoft: "#E8EDF3",
+    burgundy: "#303844",
+  },
+  latte: {
+    ...colors,
+    background: "#F8F1E8",
+    surface: "#FFF9F1",
+    ink: "#4A392E",
+    muted: "#927765",
+    border: "#E8D7C6",
+    rose: "#B87955",
+    roseSoft: "#F4E1D1",
+    burgundy: "#684A3A",
+  },
+  mint: {
+    ...colors,
+    background: "#F0F7F4",
+    surface: "#FBFFFD",
+    ink: "#29443D",
+    muted: "#6D8C82",
+    border: "#D6E7E0",
+    rose: "#4D9381",
+    roseSoft: "#DDEFE8",
+    burgundy: "#315F55",
+  },
+};
+
+const appearanceScaleMap: Record<AppearanceScale, number> = {
+  small: 0.9,
+  standard: 1,
+  large: 1.12,
+};
+const appearanceFontMap: Record<AppearanceFont, string> = {
+  system: Platform.select({ android: "sans-serif", ios: "System" }) || "sans-serif",
+  rounded:
+    Platform.select({ android: "sans-serif-rounded", ios: "System" }) ||
+    "sans-serif",
+  serif: Platform.select({ android: "serif", ios: "Times New Roman" }) || "serif",
+};
+
+type AppearanceContextValue = {
+  preferences: AppearancePreferences;
+  palette: typeof colors;
+  updatePreferences: (patch: Partial<AppearancePreferences>) => void;
+};
+const AppearanceContext = createContext<AppearanceContextValue>({
+  preferences: appearanceDefaults,
+  palette: colors,
+  updatePreferences: () => undefined,
+});
+
+function AppearanceProvider({ children }: { children: ReactNode }) {
+  const [preferences, setPreferences] = useState<AppearancePreferences>(
+    appearanceDefaults
+  );
+  useEffect(() => {
+    AsyncStorage.getItem(appearanceStorageKey).then(value => {
+      if (!value) return;
+      try {
+        const saved = JSON.parse(value) as Partial<AppearancePreferences>;
+        setPreferences({ ...appearanceDefaults, ...saved });
+      } catch {
+        // Ignore malformed local preferences and keep the defaults.
+      }
+    });
+  }, []);
+  const updatePreferences = useCallback(
+    (patch: Partial<AppearancePreferences>) => {
+      setPreferences(current => {
+        const next = { ...current, ...patch };
+        void AsyncStorage.setItem(appearanceStorageKey, JSON.stringify(next));
+        return next;
+      });
+    },
+    []
+  );
+  const value = useMemo(
+    () => ({
+      preferences,
+      palette: appearancePalettes[preferences.theme],
+      updatePreferences,
+    }),
+    [preferences, updatePreferences]
+  );
+  return (
+    <AppearanceContext.Provider value={value}>
+      <View style={{ flex: 1, backgroundColor: value.palette.background }}>
+        {children}
+      </View>
+    </AppearanceContext.Provider>
+  );
+}
+function useAppearance() {
+  return useContext(AppearanceContext);
+}
+
+function AppText({ style, ...props }: TextProps) {
+  const { preferences } = useAppearance();
+  const flattened = StyleSheet.flatten(style) || {};
+  const baseSize = typeof flattened.fontSize === "number" ? flattened.fontSize : 14;
+  const baseLineHeight =
+    typeof flattened.lineHeight === "number" ? flattened.lineHeight : undefined;
+  const scale = appearanceScaleMap[preferences.scale];
+  return (
+    <NativeTextComponent
+      {...props}
+      style={[
+        style,
+        {
+          fontSize: baseSize * scale,
+          ...(baseLineHeight ? { lineHeight: baseLineHeight * scale } : {}),
+          fontFamily: appearanceFontMap[preferences.font],
+        },
+      ]}
+    />
+    );
+}
+const Text = AppText;
+
 type DrawerAction =
   | "overview"
   | "calendar"
@@ -178,6 +328,15 @@ async function loginWithManus(mode: "signIn" | "signUp" = "signIn") {
 }
 
 export default function IndexScreen() {
+  return (
+    <AppearanceProvider>
+      <AppContent />
+    </AppearanceProvider>
+  );
+}
+
+function AppContent() {
+  const { palette } = useAppearance();
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [ledgers, setLedgers] = useState<Ledger[]>([]);
@@ -212,6 +371,7 @@ export default function IndexScreen() {
   const [pendingInviteCode, setPendingInviteCode] = useState("");
   const [ledgerType, setLedgerType] = useState<"couple" | "roommate" | "family">("couple");
   const [activeAction, setActiveAction] = useState<DrawerAction>("overview");
+  const [ledgerHome, setLedgerHome] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -271,6 +431,7 @@ export default function IndexScreen() {
       const rows = (await api.ledger.list.query()) as Array<{ ledger: Ledger }>;
       const nextLedgers = rows.map(row => row.ledger);
       setLedgers(nextLedgers);
+      setLedgerHome(false);
       const nextLedger = nextLedgers[0] ?? null;
       setActiveLedger(nextLedger);
       if (nextLedger) await reloadLedger(nextLedger.id);
@@ -329,6 +490,7 @@ export default function IndexScreen() {
   }, [ready, user, pendingInviteCode, ledgerModal]);
 
   const selectLedger = async (ledger: Ledger) => {
+    setLedgerHome(false);
     setActiveLedger(ledger);
     setDrawerOpen(false);
     setBusy(true);
@@ -343,6 +505,12 @@ export default function IndexScreen() {
     } finally {
       setBusy(false);
     }
+  };
+
+  const leaveLedger = () => {
+    setLedgerHome(true);
+    setDrawerOpen(false);
+    setError("");
   };
 
   const refresh = async () => {
@@ -493,6 +661,56 @@ export default function IndexScreen() {
       </>
     );
 
+  if (ledgerHome)
+    return (
+      <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "bottom"]}>
+        <AppHeader
+          title="我的帳本"
+          caption="選擇要進入的共同空間"
+          onMenu={() => setDrawerOpen(true)}
+          action={
+            <Pressable onPress={logout} style={styles.headerBackButton} accessibilityLabel="登出">
+              <MaterialCommunityIcons name="logout" size={19} color={colors.muted} />
+            </Pressable>
+          }
+        />
+        <LedgerHome
+          ledgers={ledgers}
+          onSelect={selectLedger}
+          onCreate={() => {
+            setError("");
+            setLedgerModal("create");
+          }}
+          onJoin={() => {
+            setError("");
+            setLedgerModal("join");
+          }}
+        />
+        <Drawer
+          open={drawerOpen}
+          active={activeAction}
+          onSelect={() => setDrawerOpen(false)}
+          onLogout={logout}
+        />
+        <LedgerModal
+          mode={ledgerModal}
+          ledgerName={ledgerName}
+          inviteCode={inviteCode}
+          ledgerType={ledgerType}
+          error={error}
+          busy={busy}
+          setLedgerName={setLedgerName}
+          setInviteCode={setInviteCode}
+          setLedgerType={setLedgerType}
+          onClose={() => {
+            setError("");
+            setLedgerModal(null);
+          }}
+          onSubmit={finishLedgerAction}
+        />
+      </SafeAreaView>
+    );
+
   const content =
     activeAction === "overview" ? (
       <Overview
@@ -570,22 +788,38 @@ export default function IndexScreen() {
     );
 
   return (
-    <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+    <SafeAreaView
+      style={[styles.screen, { backgroundColor: palette.background }]}
+      edges={["top", "bottom"]}
+    >
       <AppHeader
         title={actionLabel(activeAction)}
         caption={activeLedger?.name || "共同帳本"}
         onMenu={() => setDrawerOpen(true)}
         action={
-          <Pressable onPress={refresh} style={styles.headerAddButton}>
-            <MaterialCommunityIcons
-              name={busy ? "sync" : "refresh"}
-              size={19}
-              color="#FFFFFF"
-            />
-          </Pressable>
+          <View style={styles.headerActions}>
+            <Pressable
+              accessibilityLabel="返回我的帳本"
+              accessibilityRole="button"
+              onPress={leaveLedger}
+              style={styles.headerBackButton}
+            >
+              <MaterialCommunityIcons name="arrow-left" size={19} color={colors.muted} />
+            </Pressable>
+            <Pressable onPress={refresh} style={styles.headerAddButton} accessibilityLabel="重新整理">
+              <MaterialCommunityIcons
+                name={busy ? "sync" : "refresh"}
+                size={19}
+                color="#FFFFFF"
+              />
+            </Pressable>
+          </View>
         }
       />
-      <ScrollView contentContainerStyle={styles.pageContent}>
+      <ScrollView
+        style={{ backgroundColor: palette.background }}
+        contentContainerStyle={styles.pageContent}
+      >
         <LedgerSelector
           ledgers={ledgers}
           activeLedgerId={activeLedger!.id}
@@ -594,6 +828,7 @@ export default function IndexScreen() {
         {!!error && <Text style={styles.globalError}>{error}</Text>}
         {content}
       </ScrollView>
+      <QuickNav active={activeAction} onSelect={setActiveAction} />
       <Drawer
         open={drawerOpen}
         active={activeAction}
@@ -719,8 +954,9 @@ function LoginScreen({
   busy: boolean;
   onLogin: (mode: "signIn" | "signUp") => void;
 }) {
+  const { palette } = useAppearance();
   return (
-    <SafeAreaView style={styles.screen} edges={["top", "bottom"]}>
+    <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "bottom"]}>
       <ScrollView contentContainerStyle={styles.loginContent}>
         <View style={styles.brandMark}>
           <MaterialCommunityIcons name="heart" size={28} color={colors.rose} />
@@ -792,9 +1028,10 @@ function AppHeader({
   onMenu: () => void;
   action?: ReactNode;
 }) {
+  const { palette } = useAppearance();
   return (
-    <SafeAreaView edges={["top"]} style={styles.headerSafe}>
-      <View style={styles.appHeader}>
+    <SafeAreaView edges={["top"]} style={[styles.headerSafe, { backgroundColor: palette.surface }]}>
+      <View style={[styles.appHeader, { borderBottomColor: palette.border }]}>
         <Pressable
           accessibilityLabel="開啟側邊選單"
           accessibilityRole="button"
@@ -860,6 +1097,58 @@ function LedgerSelector({
   );
 }
 
+function LedgerHome({
+  ledgers,
+  onSelect,
+  onCreate,
+  onJoin,
+}: {
+  ledgers: Ledger[];
+  onSelect: (ledger: Ledger) => void;
+  onCreate: () => void;
+  onJoin: () => void;
+}) {
+  return (
+    <ScrollView contentContainerStyle={styles.ledgerHomeContent}>
+      <SectionIntro
+        eyebrow="MY LEDGERS"
+        title="選擇共同帳本"
+        body="先選擇要進入的空間，也可以建立新的帳本或使用邀請碼加入。"
+      />
+      {ledgers.map(ledger => (
+        <Pressable
+          key={ledger.id}
+          onPress={() => onSelect(ledger)}
+          style={({ pressed }) => [styles.ledgerHomeCard, pressed && styles.pressed]}
+        >
+          <View style={styles.ledgerHomeIcon}>
+            <MaterialCommunityIcons
+              name={ledger.type === "couple" ? "heart-outline" : "account-group-outline"}
+              size={23}
+              color={colors.rose}
+            />
+          </View>
+          <View style={styles.memberPaymentName}>
+            <Text style={styles.cardTitle}>{ledger.name}</Text>
+            <Text style={styles.rowSubtitle}>點擊進入共同帳本</Text>
+          </View>
+          <MaterialCommunityIcons name="chevron-right" size={22} color={colors.muted} />
+        </Pressable>
+      ))}
+      <View style={styles.actionRow}>
+        <Pressable onPress={onCreate} style={styles.actionButton}>
+          <MaterialCommunityIcons name="plus" size={19} color="#FFFFFF" />
+          <Text style={styles.actionButtonText}>建立帳本</Text>
+        </Pressable>
+        <Pressable onPress={onJoin} style={styles.secondaryActionButton}>
+          <MaterialCommunityIcons name="account-multiple-plus-outline" size={19} color={colors.rose} />
+          <Text style={styles.secondaryActionButtonText}>加入帳本</Text>
+        </Pressable>
+      </View>
+    </ScrollView>
+  );
+}
+
 function EmptyLedger({
   error,
   onCreate,
@@ -869,8 +1158,9 @@ function EmptyLedger({
   onCreate: () => void;
   onJoin: () => void;
 }) {
+  const { palette } = useAppearance();
   return (
-    <SafeAreaView style={styles.screen} edges={["bottom"]}>
+    <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["bottom"]}>
       <ScrollView contentContainerStyle={styles.emptyContent}>
         <View style={styles.emptyIllustration}>
           <MaterialCommunityIcons
@@ -1496,6 +1786,84 @@ function PlanningSection({
   );
 }
 
+function AppearanceSettingsCard() {
+  const { preferences, palette, updatePreferences } = useAppearance();
+  const themes: Array<{ key: AppearanceTheme; label: string; color: string }> = [
+    { key: "rose", label: "玫瑰", color: "#B56C78" },
+    { key: "graphite", label: "石墨", color: "#58677A" },
+    { key: "latte", label: "拿鐵", color: "#B87955" },
+    { key: "mint", label: "薄荷", color: "#4D9381" },
+  ];
+  const fonts: Array<{ key: AppearanceFont; label: string; preview: string }> = [
+    { key: "system", label: "系統", preview: "Aa" },
+    { key: "rounded", label: "圓體", preview: "Aa" },
+    { key: "serif", label: "襯線", preview: "Aa" },
+  ];
+  const scales: Array<{ key: AppearanceScale; label: string }> = [
+    { key: "small", label: "小" },
+    { key: "standard", label: "標準" },
+    { key: "large", label: "大" },
+  ];
+  return (
+    <View style={styles.card}>
+      <View style={styles.cardHeading}>
+        <View style={styles.personalizationHeading}>
+          <MaterialCommunityIcons name="tune-variant" size={19} color={palette.rose} />
+          <Text style={styles.cardTitle}>個人化外觀</Text>
+        </View>
+        <Text style={styles.cardHint}>自動保存</Text>
+      </View>
+      <Text style={styles.personalizationLabel}>App 主題</Text>
+      <View style={styles.optionRow}>
+        {themes.map(theme => (
+          <Pressable
+            key={theme.key}
+            onPress={() => updatePreferences({ theme: theme.key })}
+            style={[
+              styles.appearanceOption,
+              preferences.theme === theme.key && styles.appearanceOptionActive,
+            ]}
+          >
+            <View style={[styles.themeDot, { backgroundColor: theme.color }]} />
+            <Text style={styles.appearanceOptionText}>{theme.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <Text style={styles.personalizationLabel}>字體</Text>
+      <View style={styles.optionRow}>
+        {fonts.map(font => (
+          <Pressable
+            key={font.key}
+            onPress={() => updatePreferences({ font: font.key })}
+            style={[
+              styles.appearanceOption,
+              preferences.font === font.key && styles.appearanceOptionActive,
+            ]}
+          >
+            <Text style={[styles.fontPreview, { fontFamily: appearanceFontMap[font.key] }]}>{font.preview}</Text>
+            <Text style={styles.appearanceOptionText}>{font.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <Text style={styles.personalizationLabel}>文字大小</Text>
+      <View style={styles.optionRow}>
+        {scales.map(scale => (
+          <Pressable
+            key={scale.key}
+            onPress={() => updatePreferences({ scale: scale.key })}
+            style={[
+              styles.appearanceOption,
+              preferences.scale === scale.key && styles.appearanceOptionActive,
+            ]}
+          >
+            <Text style={styles.appearanceOptionText}>{scale.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
+  );
+}
+
 function SettingsSection({
   ledger,
   user,
@@ -1527,6 +1895,10 @@ function SettingsSection({
     await Share.share({
       message: `加入我的共帳「${ledger.name}」\n邀請碼：${ledger.inviteCode}\n邀請連結：${inviteLink}`,
     });
+  };
+  const copyInviteCode = async () => {
+    await Clipboard.setStringAsync(ledger.inviteCode);
+    Alert.alert("已複製", `邀請碼 ${ledger.inviteCode} 已複製到剪貼簿。`);
   };
   const addPresets = async () => {
     const presets = [
@@ -1576,6 +1948,7 @@ function SettingsSection({
         title="把共同空間設定好"
         body="帳本不會預先建立交易、預算或固定收支；分類與支付方式支援完整自訂或重置。"
       />
+      <AppearanceSettingsCard />
       <View style={styles.card}>
         <View style={styles.cardHeading}>
           <Text style={styles.cardTitle}>邀請成員</Text>
@@ -1587,7 +1960,18 @@ function SettingsSection({
             />
           </Pressable>
         </View>
-        <Text style={styles.inviteCodeLarge}>{ledger.inviteCode}</Text>
+        <Pressable
+          accessibilityLabel="複製邀請碼"
+          accessibilityRole="button"
+          onPress={copyInviteCode}
+          style={({ pressed }) => [styles.inviteCodeCopy, pressed && styles.pressed]}
+        >
+          <Text style={styles.inviteCodeLarge}>{ledger.inviteCode}</Text>
+          <View style={styles.inviteCopyHint}>
+            <MaterialCommunityIcons name="content-copy" size={16} color={colors.rose} />
+            <Text style={styles.inviteCopyHintText}>點擊複製</Text>
+          </View>
+        </Pressable>
         <Text style={styles.rowSubtitle}>
           邀請碼可分享給伴侶、室友或家人；也支援 deep link 邀請。
         </Text>
@@ -1816,6 +2200,53 @@ function TransactionRow({
         {transaction.type === "income" ? "+" : "-"}
         {money(transaction.amount)}
       </Text>
+    </View>
+  );
+}
+
+function QuickNav({
+  active,
+  onSelect,
+}: {
+  active: DrawerAction;
+  onSelect: (action: DrawerAction) => void;
+}) {
+  const items: Array<{
+    key: DrawerAction;
+    label: string;
+    icon: keyof typeof MaterialCommunityIcons.glyphMap;
+  }> = [
+    { key: "overview", label: "總覽", icon: "view-dashboard-outline" },
+    { key: "calendar", label: "月曆", icon: "calendar-month-outline" },
+    { key: "analysis", label: "分析", icon: "chart-line" },
+    { key: "planning", label: "規劃", icon: "wallet-outline" },
+    { key: "settings", label: "設定", icon: "tune-variant" },
+  ];
+  return (
+    <View style={styles.quickNav}>
+      {items.map(item => (
+        <Pressable
+          key={item.key}
+          accessibilityRole="tab"
+          accessibilityState={{ selected: active === item.key }}
+          accessibilityLabel={`切換至${item.label}`}
+          onPress={() => onSelect(item.key)}
+          style={({ pressed }) => [
+            styles.quickNavItem,
+            active === item.key && styles.quickNavItemActive,
+            pressed && styles.pressed,
+          ]}
+        >
+          <MaterialCommunityIcons
+            name={item.icon}
+            size={20}
+            color={active === item.key ? colors.rose : colors.muted}
+          />
+          <Text style={[styles.quickNavLabel, active === item.key && styles.quickNavLabelActive]}>
+            {item.label}
+          </Text>
+        </Pressable>
+      ))}
     </View>
   );
 }
@@ -2975,6 +3406,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   headerSafe: { backgroundColor: colors.surface },
+  headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   appHeader: {
     minHeight: 74,
     flexDirection: "row",
@@ -3002,6 +3434,109 @@ const styles = StyleSheet.create({
     backgroundColor: colors.rose,
   },
   headerSpacer: { width: 44 },
+  headerBackButton: {
+    width: 42,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 14,
+    backgroundColor: "#F5EFEC",
+  },
+  quickNav: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-around",
+    paddingHorizontal: 8,
+    paddingTop: 8,
+    paddingBottom: 8,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  quickNavItem: {
+    minWidth: 58,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 3,
+    paddingVertical: 4,
+    borderRadius: 13,
+  },
+  quickNavItemActive: { backgroundColor: colors.roseSoft },
+  quickNavLabel: { color: colors.muted, fontSize: 10, fontWeight: "600" },
+  quickNavLabelActive: { color: colors.rose, fontWeight: "800" },
+  ledgerHomeContent: { flexGrow: 1, padding: 18, paddingBottom: 40 },
+  ledgerHomeCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 19,
+    backgroundColor: colors.surface,
+  },
+  ledgerHomeIcon: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 15,
+    backgroundColor: colors.roseSoft,
+  },
+  secondaryActionButton: {
+    flex: 1,
+    minHeight: 52,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    borderWidth: 1,
+    borderColor: colors.roseSoft,
+    borderRadius: 16,
+    backgroundColor: colors.surface,
+  },
+  secondaryActionButtonText: { color: colors.rose, fontSize: 14, fontWeight: "700" },
+  inviteCodeCopy: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 8,
+    paddingHorizontal: 13,
+    borderRadius: 14,
+    backgroundColor: colors.roseSoft,
+  },
+  inviteCopyHint: { flexDirection: "row", alignItems: "center", gap: 5 },
+  inviteCopyHintText: { color: colors.rose, fontSize: 11, fontWeight: "700" },
+  personalizationHeading: { flexDirection: "row", alignItems: "center", gap: 7 },
+  personalizationLabel: {
+    marginTop: 14,
+    marginBottom: 8,
+    color: colors.muted,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  optionRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  appearanceOption: {
+    minWidth: 72,
+    minHeight: 38,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+  },
+  appearanceOptionActive: {
+    borderColor: colors.rose,
+    backgroundColor: colors.roseSoft,
+  },
+  appearanceOptionText: { color: colors.ink, fontSize: 12, fontWeight: "700" },
+  fontPreview: { color: colors.ink, fontSize: 17, fontWeight: "700" },
+  themeDot: { width: 12, height: 12, borderRadius: 6 },
   emptyContent: {
     flexGrow: 1,
     alignItems: "center",

@@ -33,3 +33,12 @@
 ## 使用者回報修正 (1.0.5 - OAuth redirect_uri 授權修正)
 
 - [x] 18. 修正 Android OAuth redirect_uri 不被接受的問題：改用授權服務允許的伺服器回呼網址（如 `https://togetherapp-hdbmsjkf.manus.space/api/oauth/callback`），並在伺服器回呼成功後透過 deep link 將 token 安全帶回 Android App
+
+## 使用者回報修正 (1.0.6 - 導覽與個人化設定)
+
+- [x] 19. 帳本內邀請碼支援點擊一鍵複製（使用 `expo-clipboard`）
+- [x] 20. 進入帳本後提供明顯的「退出／返回主頁」按鈕，可隨時切回帳本列表頁
+- [x] 21. 帳本下方新增底部快捷分頁列（總覽、月曆、分析、規劃、設定），方便快速切換
+- [x] 22. 主頁面與設定區增加個人自定義設定：字體風格（系統／圓體／襯線）、App 主題（玫瑰／石墨／拿鐵／薄荷）與文字大小調整（小／標準／大），並以 AsyncStorage 持久化
+
+- [x] 23. 重新建置並驗證 1.0.6 Android APK（包含邀請碼複製、返回主頁、底部快捷分頁與個人化設定），SHA-256：`54c822e2dd8d2bdae67dfce69328f685e2bac3b7a0026fa717626ab9d6ac443f`
