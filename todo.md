@@ -29,3 +29,7 @@
 
 - [x] 16. 設計並套用全新的 Android 桌面圖示（取代預設 Android 機器人綠色圖示），配置於 app.json icon 與 adaptiveIcon
 - [x] 17. 重新執行 EAS build 產出 1.0.4 APK，並透過下載與轉存確認可作為訊息附件直接發送
+
+## 使用者回報修正 (1.0.5 - OAuth redirect_uri 授權修正)
+
+- [x] 18. 修正 Android OAuth redirect_uri 不被接受的問題：改用授權服務允許的伺服器回呼網址（如 `https://togetherapp-hdbmsjkf.manus.space/api/oauth/callback`），並在伺服器回呼成功後透過 deep link 將 token 安全帶回 Android App

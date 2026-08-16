@@ -151,20 +151,21 @@ const inviteCodeFromUrl = (url: string | null) => {
 };
 
 async function loginWithManus(mode: "signIn" | "signUp" = "signIn") {
-  const redirectUri = makeRedirectUri({
+  const appRedirectUri = makeRedirectUri({
     scheme: "togetherledger",
     path: "oauth/callback",
   });
+  const webRedirectUri = "https://togetherapp-hdbmsjkf.manus.space/api/oauth/callback";
   const nonce = Crypto.randomUUID();
-  const state = encodeBase64(JSON.stringify({ redirectUri, nonce }));
+  const state = encodeBase64(JSON.stringify({ redirectUri: appRedirectUri, nonce }));
   const url = new URL(`${OAUTH_PORTAL_URL}/app-auth`);
   url.searchParams.set("appId", APP_ID);
-  url.searchParams.set("redirectUri", redirectUri);
+  url.searchParams.set("redirectUri", webRedirectUri);
   url.searchParams.set("state", state);
   url.searchParams.set("type", mode);
   const result = await WebBrowser.openAuthSessionAsync(
     url.toString(),
-    redirectUri
+    appRedirectUri
   );
   if (result.type !== "success") throw new Error("登入已取消。");
   const callback = new URL(result.url);
