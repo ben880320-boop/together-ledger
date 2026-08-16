@@ -24,3 +24,8 @@
 - [x] 13. 修正登入與註冊跳轉錯誤：統一正確 OAuth app id、EAS preview 環境變數、togetherledger callback scheme 與 state 驗證；實機仍需使用者確認
 - [x] 14. 移除 App 可見的服務商／帳號登入提示，改為「安全登入頁」與共帳品牌說明
 - [x] 15. 移除登入後的「預設資料」提示文字，保留簡潔的空白帳本說明
+
+## 使用者回報修正 (1.0.4 - 圖示更換與直接交付)
+
+- [x] 16. 設計並套用全新的 Android 桌面圖示（取代預設 Android 機器人綠色圖示），配置於 app.json icon 與 adaptiveIcon
+- [x] 17. 重新執行 EAS build 產出 1.0.4 APK，並透過下載與轉存確認可作為訊息附件直接發送
