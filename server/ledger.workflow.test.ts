@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   getSettlementSummary: vi.fn(),
   getTransactions: vi.fn(),
   joinLedgerByInviteCode: vi.fn(),
+  logActivity: vi.fn(),
   listBudgets: vi.fn(),
   listLedgersForUser: vi.fn(),
   listRecurring: vi.fn(),
@@ -70,6 +71,7 @@ describe("typed ledger workflow contract", () => {
       settlement: { fromUserId: 2, toUserId: 1, amount: 500 },
     });
     mocks.createSettlement.mockResolvedValue(16);
+    mocks.logActivity.mockResolvedValue(undefined);
   });
 
   it("executes create and join ledger mutations through the typed router", async () => {

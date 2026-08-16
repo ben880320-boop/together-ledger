@@ -54,6 +54,7 @@ export const categories = mysqlTable("categories", {
   type: mysqlEnum("type", ["expense", "income"]).default("expense").notNull(),
   icon: varchar("icon", { length: 32 }).default("🍜").notNull(),
   color: varchar("color", { length: 32 }).default("#FF6B6B").notNull(),
+  isActive: int("isActive").default(1).notNull(),
 });
 
 export const paymentMethods = mysqlTable("paymentMethods", {
@@ -61,6 +62,7 @@ export const paymentMethods = mysqlTable("paymentMethods", {
   ledgerId: int("ledgerId").notNull(),
   name: varchar("name", { length: 64 }).notNull(),
   icon: varchar("icon", { length: 32 }).default("💳").notNull(),
+  isActive: int("isActive").default(1).notNull(),
 });
 
 export const transactions = mysqlTable("transactions", {
@@ -75,7 +77,7 @@ export const transactions = mysqlTable("transactions", {
   date: timestamp("date").notNull(),
   note: text("note"),
   receiptUrl: text("receiptUrl"),
-  splitType: mysqlEnum("splitType", ["equal", "custom", "amount"]).default("equal").notNull(),
+  splitType: mysqlEnum("splitType", ["equal", "custom", "amount", "none"]).default("equal").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -107,6 +109,18 @@ export const budgets = mysqlTable("budgets", {
   categoryId: int("categoryId").default(0).notNull(), // 0 for total budget
   amount: int("amount").notNull(),
   month: varchar("month", { length: 16 }).notNull(), // e.g. "2026-08"
+});
+
+export const activityLogs = mysqlTable("activityLogs", {
+  id: int("id").autoincrement().primaryKey(),
+  ledgerId: int("ledgerId").notNull(),
+  userId: int("userId").notNull(),
+  action: mysqlEnum("action", ["create", "update", "delete"]).notNull(),
+  entityType: mysqlEnum("entityType", ["transaction", "category", "paymentMethod"]).notNull(),
+  entityId: int("entityId").notNull(),
+  summary: varchar("summary", { length: 255 }).notNull(),
+  metadata: text("metadata"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
 export const settlements = mysqlTable("settlements", {

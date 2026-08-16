@@ -3,6 +3,7 @@ import * as Linking from "expo-linking";
 import * as Crypto from "expo-crypto";
 import * as WebBrowser from "expo-web-browser";
 import * as Clipboard from "expo-clipboard";
+import * as ImagePicker from "expo-image-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { encode as encodeBase64 } from "base-64";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
@@ -217,8 +218,21 @@ type Category = {
   type: "expense" | "income";
   icon: string;
   color: string;
+  isActive?: number;
 };
-type PaymentMethod = { id: number; name: string; icon: string };
+type PaymentMethod = { id: number; name: string; icon: string; isActive?: number };
+type ActivityLog = {
+  log: {
+    id: number;
+    action: "create" | "update" | "delete";
+    entityType: "transaction" | "category" | "paymentMethod";
+    entityId: number;
+    summary: string;
+    metadata: string | null;
+    createdAt: Date | string;
+  };
+  user: { id: number; name: string | null; email: string | null };
+};
 type Transaction = {
   id: number;
   amount: number;
@@ -228,7 +242,7 @@ type Transaction = {
   paymentMethodId: number;
   date: Date | string;
   note: string | null;
-  splitType: "equal" | "custom" | "amount";
+  splitType: "equal" | "custom" | "amount" | "none";
 };
 type Analytics = {
   income: number;
@@ -356,11 +370,13 @@ function AppContent() {
   const [settlementHistory, setSettlementHistory] = useState<SettlementHistory[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [recurring, setRecurring] = useState<Recurring[]>([]);
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [ledgerModal, setLedgerModal] = useState<"create" | "join" | null>(
     null
   );
   const [transactionModal, setTransactionModal] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [budgetModal, setBudgetModal] = useState(false);
   const [recurringModal, setRecurringModal] = useState(false);
   const [settingsModal, setSettingsModal] = useState<
@@ -390,6 +406,7 @@ function AppContent() {
       nextHistory,
       nextBudgets,
       nextRecurring,
+      nextActivityLogs,
     ] = await Promise.all([
       api.ledger.members.query({ ledgerId }),
       api.ledger.categories.query({ ledgerId }),
@@ -402,6 +419,7 @@ function AppContent() {
       api.ledger.settlement.history.query({ ledgerId }),
       api.ledger.budgets.query({ ledgerId, month }),
       api.ledger.recurring.query({ ledgerId }),
+      api.ledger.activityLogs.query({ ledgerId, limit: 100 }),
     ]);
     setMembers(nextMembers as LedgerMember[]);
     setCategories(nextCategories as Category[]);
@@ -414,6 +432,7 @@ function AppContent() {
     setSettlementHistory(nextHistory as SettlementHistory[]);
     setBudgets(nextBudgets as Budget[]);
     setRecurring(nextRecurring as Recurring[]);
+    setActivityLogs(nextActivityLogs as ActivityLog[]);
   }, []);
 
   const loadWorkspace = useCallback(async () => {
@@ -442,6 +461,7 @@ function AppContent() {
         setTransactions([]);
         setAnalytics(null);
         setSettlement(null);
+        setActivityLogs([]);
       }
     } catch (loadError) {
       const message =
@@ -597,8 +617,53 @@ function AppContent() {
     setDrawerOpen(false);
     setBusy(false);
   };
+  const openNewTransaction = () => {
+    setEditingTransaction(null);
+    setTransactionModal(true);
+  };
+  const openEditTransaction = (transaction: Transaction) => {
+    setEditingTransaction(transaction);
+    setTransactionModal(true);
+  };
+  const removeTransaction = (transaction: Transaction) => {
+    Alert.alert("移除收支", "確定要移除這筆收支嗎？此操作會記錄在日誌中。", [
+      { text: "取消", style: "cancel" },
+      {
+        text: "移除",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await api.ledger.deleteTransaction.mutate({
+              ledgerId: activeLedger!.id,
+              transactionId: transaction.id,
+            });
+            await refresh();
+          } catch (removeError) {
+            setError(removeError instanceof Error ? removeError.message : "移除收支失敗。");
+          }
+        },
+      },
+    ]);
+  };
+  const archiveCategoryItem = async (categoryId: number) => {
+    try {
+      await api.ledger.archiveCategory.mutate({ ledgerId: activeLedger!.id, categoryId });
+      await refresh();
+    } catch (archiveError) {
+      setError(archiveError instanceof Error ? archiveError.message : "移除分類失敗。");
+    }
+  };
+  const archivePaymentItem = async (paymentMethodId: number) => {
+    try {
+      await api.ledger.archivePaymentMethod.mutate({ ledgerId: activeLedger!.id, paymentMethodId });
+      await refresh();
+    } catch (archiveError) {
+      setError(archiveError instanceof Error ? archiveError.message : "移除支付方式失敗。");
+    }
+  };
   const afterMutation = async () => {
     setTransactionModal(false);
+    setEditingTransaction(null);
     setBudgetModal(false);
     setRecurringModal(false);
     setSettingsModal(null);
@@ -721,7 +786,9 @@ function AppContent() {
         settlement={settlement}
         transactions={transactions}
         categories={categories}
-        onAdd={() => setTransactionModal(true)}
+        onAdd={openNewTransaction}
+        onEdit={openEditTransaction}
+        onDelete={removeTransaction}
         onSettle={async () => {
           if (!activeLedger) return;
           setBusy(true);
@@ -744,6 +811,8 @@ function AppContent() {
       <CalendarSection
         transactions={calendarTransactions}
         categories={categories}
+        onEdit={openEditTransaction}
+        onDelete={removeTransaction}
       />
     ) : activeAction === "analysis" ? (
       <AnalysisSection
@@ -767,8 +836,11 @@ function AppContent() {
         categories={categories}
         paymentMethods={paymentMethods}
         history={settlementHistory}
+        activityLogs={activityLogs}
         onCategory={() => setSettingsModal("category")}
         onPayment={() => setSettingsModal("payment")}
+        onArchiveCategory={archiveCategoryItem}
+        onArchivePayment={archivePaymentItem}
         onRefresh={refresh}
         onRoleChange={async (memberId, role) => {
           try {
@@ -840,12 +912,16 @@ function AppContent() {
       />
       <TransactionModal
         visible={transactionModal}
+        editingTransaction={editingTransaction}
         user={user}
         members={members}
         categories={categories}
         paymentMethods={paymentMethods}
         error={error}
-        onClose={() => setTransactionModal(false)}
+        onClose={() => {
+          setTransactionModal(false);
+          setEditingTransaction(null);
+        }}
         onSetupPayment={() => {
           setTransactionModal(false);
           setActiveAction("settings");
@@ -853,10 +929,18 @@ function AppContent() {
         }}
         onSubmit={async input => {
           try {
-            await api.ledger.createTransaction.mutate({
-              ledgerId: activeLedger!.id,
-              ...input,
-            });
+            if (editingTransaction) {
+              await api.ledger.updateTransaction.mutate({
+                ledgerId: activeLedger!.id,
+                transactionId: editingTransaction.id,
+                ...input,
+              });
+            } else {
+              await api.ledger.createTransaction.mutate({
+                ledgerId: activeLedger!.id,
+                ...input,
+              });
+            }
             await afterMutation();
           } catch (mutationError) {
             setError(
@@ -1212,6 +1296,8 @@ function Overview({
   transactions,
   categories,
   onAdd,
+  onEdit,
+  onDelete,
   onSettle,
 }: {
   ledger: Ledger;
@@ -1222,6 +1308,8 @@ function Overview({
   transactions: Transaction[];
   categories: Category[];
   onAdd: () => void;
+  onEdit: (transaction: Transaction) => void;
+  onDelete: (transaction: Transaction) => void;
   onSettle: () => void;
 }) {
   const memberNames = members
@@ -1302,7 +1390,8 @@ function Overview({
           <Text style={styles.cardTitle}>雙方支付總覽</Text>
           <Text style={styles.cardHint}>本月</Text>
         </View>
-        {paymentByMember.map(member => (
+        <ScrollView style={styles.paymentOverviewScroll} nestedScrollEnabled>
+          {paymentByMember.map(member => (
           <View key={member.user.id} style={styles.memberPaymentRow}>
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>
@@ -1325,6 +1414,16 @@ function Overview({
             </View>
             <Text style={styles.rowAmount}>{money(member.total)}</Text>
           </View>
+          ))}
+        </ScrollView>
+      </View>
+      <View style={styles.card}>
+        <View style={styles.cardHeading}>
+          <Text style={styles.cardTitle}>最近收支</Text>
+          <Text style={styles.cardHint}>{Math.min(transactions.length, 8)} 筆</Text>
+        </View>
+        {transactions.length === 0 ? <EmptyInline text="目前沒有收支記錄。" /> : transactions.slice(0, 8).map(tx => (
+          <TransactionRow key={tx.id} transaction={tx} categories={categories} onEdit={onEdit} onDelete={onDelete} />
         ))}
       </View>
       <View style={styles.insightCard}>
@@ -1391,9 +1490,13 @@ function StatCard({
 function CalendarSection({
   transactions,
   categories,
+  onEdit,
+  onDelete,
 }: {
   transactions: Transaction[];
   categories: Category[];
+  onEdit: (transaction: Transaction) => void;
+  onDelete: (transaction: Transaction) => void;
 }) {
   const month = currentMonth();
   const [selected, setSelected] = useState(dateKey(new Date()));
@@ -1491,6 +1594,8 @@ function CalendarSection({
               key={tx.id}
               transaction={tx}
               categories={categories}
+              onEdit={onEdit}
+              onDelete={onDelete}
             />
           ))
         )}
@@ -1871,8 +1976,11 @@ function SettingsSection({
   categories,
   paymentMethods,
   history,
+  activityLogs,
   onCategory,
   onPayment,
+  onArchiveCategory,
+  onArchivePayment,
   onRefresh,
   onRoleChange,
 }: {
@@ -1882,8 +1990,11 @@ function SettingsSection({
   categories: Category[];
   paymentMethods: PaymentMethod[];
     history: SettlementHistory[];
+  activityLogs: ActivityLog[];
   onCategory: () => void;
   onPayment: () => void;
+  onArchiveCategory: (categoryId: number) => void;
+  onArchivePayment: (paymentMethodId: number) => void;
   onRefresh: () => void;
   onRoleChange: (memberId: number, role: "admin" | "member" | "viewer") => void;
 }) {
@@ -2072,9 +2183,18 @@ function SettingsSection({
             </Pressable>
           </>
         ) : (
+          <>
           <Text style={styles.rowSubtitle}>
-            {categories.map(item => `${item.icon} ${item.name}`).join("　")}
+            {categories.filter(item => item.isActive !== 0).map(item => `${item.icon} ${item.name}`).join("　")}
           </Text>
+          {isAdmin && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.settingsPillRow}>
+            {categories.filter(item => item.isActive !== 0).map(item => (
+              <Pressable key={item.id} onPress={() => onArchiveCategory(item.id)} style={styles.settingsRemovePill}>
+                <Text style={styles.settingsRemovePillText}>{item.icon} 移除 {item.name}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>}
+          </>
         )}
       </View>
       <View style={styles.card}>
@@ -2092,10 +2212,36 @@ function SettingsSection({
             </Pressable>
           </>
         ) : (
+          <>
           <Text style={styles.rowSubtitle}>
-            {paymentMethods.map(item => `${item.icon} ${item.name}`).join("　")}
+            {paymentMethods.filter(item => item.isActive !== 0).map(item => `${item.icon} ${item.name}`).join("　")}
           </Text>
+          {isAdmin && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.settingsPillRow}>
+            {paymentMethods.filter(item => item.isActive !== 0).map(item => (
+              <Pressable key={item.id} onPress={() => onArchivePayment(item.id)} style={styles.settingsRemovePill}>
+                <Text style={styles.settingsRemovePillText}>{item.icon} 移除 {item.name}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>}
+          </>
         )}
+      </View>
+      <View style={styles.card}>
+        <View style={styles.cardHeading}>
+          <Text style={styles.cardTitle}>操作日誌</Text>
+          <Text style={styles.cardHint}>{activityLogs.length} 筆</Text>
+        </View>
+        {activityLogs.length === 0 ? <EmptyInline text="尚未有操作紀錄。" /> : <ScrollView style={styles.activityLogScroll} nestedScrollEnabled>
+          {activityLogs.slice(0, 100).map(log => (
+            <View key={log.log.id} style={styles.activityLogRow}>
+              <View style={styles.activityLogDot} />
+              <View style={styles.memberPaymentName}>
+                <Text style={styles.rowTitle}>{log.log.summary || `${log.log.action} ${log.log.entityType}`}</Text>
+                <Text style={styles.rowSubtitle}>{log.user.name || log.user.email || "成員"} · {new Date(log.log.createdAt).toLocaleString("zh-TW")}</Text>
+              </View>
+            </View>
+          ))}
+        </ScrollView>}
       </View>
       <View style={styles.card}>
         <View style={styles.cardHeading}>
@@ -2161,9 +2307,13 @@ function EmptyInline({ text }: { text: string }) {
 function TransactionRow({
   transaction,
   categories,
+  onEdit,
+  onDelete,
 }: {
   transaction: Transaction;
   categories: Category[];
+  onEdit: (transaction: Transaction) => void;
+  onDelete: (transaction: Transaction) => void;
 }) {
   const category = categories.find(item => item.id === transaction.categoryId);
   return (
@@ -2171,35 +2321,30 @@ function TransactionRow({
       <View
         style={[
           styles.transactionIcon,
-          {
-            backgroundColor:
-              transaction.type === "income" ? "#E6F0E3" : colors.roseSoft,
-          },
+          { backgroundColor: transaction.type === "income" ? "#E6F0E3" : colors.roseSoft },
         ]}
       >
         <MaterialCommunityIcons
-          name={
-            transaction.type === "income" ? "cash-plus" : "receipt-text-outline"
-          }
+          name={transaction.type === "income" ? "cash-plus" : "receipt-text-outline"}
           size={18}
           color={transaction.type === "income" ? colors.sage : colors.rose}
         />
       </View>
       <View style={styles.memberPaymentName}>
-        <Text style={styles.rowTitle}>
-          {category?.icon || "◌"} {category?.name || "未分類"}
-        </Text>
-        <Text style={styles.rowSubtitle}>{transaction.note || "共同收支"}</Text>
+        <Text style={styles.rowTitle}>{category?.icon || "◌"} {category?.name || "未分類"}</Text>
+        <Text style={styles.rowSubtitle}>{transaction.note || "共同收支"} · {dateKey(transaction.date)}</Text>
       </View>
-      <Text
-        style={[
-          styles.rowAmount,
-          transaction.type === "income" && styles.incomeText,
-        ]}
-      >
-        {transaction.type === "income" ? "+" : "-"}
-        {money(transaction.amount)}
+      <Text style={[styles.rowAmount, transaction.type === "income" && styles.incomeText]}>
+        {transaction.type === "income" ? "+" : "-"}{money(transaction.amount)}
       </Text>
+      <View style={styles.transactionActions}>
+        <Pressable accessibilityLabel="編輯收支" onPress={() => onEdit(transaction)} style={styles.rowActionButton}>
+          <MaterialCommunityIcons name="pencil-outline" size={16} color={colors.muted} />
+        </Pressable>
+        <Pressable accessibilityLabel="移除收支" onPress={() => onDelete(transaction)} style={styles.rowActionButton}>
+          <MaterialCommunityIcons name="trash-can-outline" size={16} color={colors.rose} />
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -2451,6 +2596,7 @@ function LedgerModal({
 
 function TransactionModal({
   visible,
+  editingTransaction,
   user,
   members,
   categories,
@@ -2461,6 +2607,7 @@ function TransactionModal({
   onSubmit,
 }: {
   visible: boolean;
+  editingTransaction: Transaction | null;
   user: User;
   members: LedgerMember[];
   categories: Category[];
@@ -2476,7 +2623,7 @@ function TransactionModal({
     paymentMethodId: number;
     date: Date;
     note?: string;
-    splitType: "equal" | "custom" | "amount";
+    splitType: "equal" | "custom" | "amount" | "none";
     splits: { userId: number; shareAmount: number }[];
   }) => void;
 }) {
@@ -2487,29 +2634,80 @@ function TransactionModal({
   const [payerId, setPayerId] = useState(String(user.id));
   const [dateText, setDateText] = useState(dateKey(new Date()));
   const [note, setNote] = useState("");
-  const [splitType, setSplitType] = useState<"equal" | "custom" | "amount">(
+  const [splitType, setSplitType] = useState<"equal" | "custom" | "amount" | "none">(
     "equal"
   );
   const [splitValues, setSplitValues] = useState<Record<number, string>>({});
+  const [categorySearch, setCategorySearch] = useState("");
+  const [datePickerVisible, setDatePickerVisible] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => currentMonth());
+  const [scanning, setScanning] = useState(false);
   const [localError, setLocalError] = useState("");
   useEffect(() => {
     if (visible) {
-      setAmountText("");
-      setType("expense");
-      setCategoryId("");
-      setPaymentId("");
-      setPayerId(String(user.id));
-      setDateText(dateKey(new Date()));
-      setNote("");
-      setSplitType("equal");
+      const tx = editingTransaction;
+      setAmountText(tx ? String(tx.amount) : "");
+      setType(tx?.type === "income" ? "income" : "expense");
+      setCategoryId(tx ? String(tx.categoryId) : "");
+      setPaymentId(tx ? String(tx.paymentMethodId) : "");
+      setPayerId(tx ? String(tx.payerId) : String(user.id));
+      const initialDate = tx ? dateKey(tx.date) : dateKey(new Date());
+      setDateText(initialDate);
+      setCalendarMonth(initialDate.slice(0, 7));
+      setNote(tx?.note || "");
+      setSplitType(tx?.splitType || "equal");
       setSplitValues({});
+      setCategorySearch("");
+      setDatePickerVisible(false);
       setLocalError("");
     }
-  }, [visible, user.id]);
-  const availableCategories = categories.filter(item => item.type === type);
-  const selectedCategories =
-    categoryId || String(availableCategories[0]?.id || "");
-  const selectedPayment = paymentId || String(paymentMethods[0]?.id || "");
+  }, [visible, user.id, editingTransaction?.id]);
+  const availableCategories = categories.filter(item => item.type === type && item.isActive !== 0);
+  const filteredCategories = availableCategories.filter(item =>
+    `${item.name} ${item.icon}`.toLowerCase().includes(categorySearch.trim().toLowerCase())
+  );
+  const activePaymentMethods = paymentMethods.filter(item => item.isActive !== 0);
+  const selectedCategories = categoryId || String(availableCategories[0]?.id || "");
+  const selectedPayment = paymentId || String(activePaymentMethods[0]?.id || "");
+  const scanReceiptAsset = async (asset: ImagePicker.ImagePickerAsset | undefined) => {
+    if (!asset?.base64) {
+      setLocalError("無法讀取發票影像，請重新拍攝或選圖。");
+      return;
+    }
+    setScanning(true);
+    setLocalError("");
+    try {
+      const imageDataUrl = `data:${asset.mimeType || "image/jpeg"};base64,${asset.base64}`;
+      const result = await api.ledger.scanReceipt.mutate({ imageDataUrl });
+      if (result.amount) setAmountText(String(result.amount));
+      if (result.date && /^\d{4}-\d{2}-\d{2}$/.test(result.date)) {
+        setDateText(result.date);
+        setCalendarMonth(result.date.slice(0, 7));
+      }
+      if (result.note) setNote(result.note);
+      if (!result.amount && !result.date && !result.note) setLocalError("發票資訊不清楚，請手動確認欄位。");
+    } catch (scanError) {
+      setLocalError(scanError instanceof Error ? scanError.message : "發票辨識失敗，請改用手動輸入。");
+    } finally {
+      setScanning(false);
+    }
+  };
+  const pickReceipt = async (source: "camera" | "library") => {
+    try {
+      const result = source === "camera"
+        ? await ImagePicker.launchCameraAsync({ base64: true, quality: 0.8, allowsEditing: true })
+        : await ImagePicker.launchImageLibraryAsync({ base64: true, quality: 0.8, allowsEditing: true, mediaTypes: ["images"] });
+      if (!result.canceled) await scanReceiptAsset(result.assets[0]);
+    } catch (pickerError) {
+      setLocalError(pickerError instanceof Error ? pickerError.message : "無法開啟影像選取功能。");
+    }
+  };
+  const [calendarYear, calendarMonthNumber] = calendarMonth.split("-").map(Number);
+  const calendarFirstDay = new Date(calendarYear, calendarMonthNumber - 1, 1).getDay();
+  const calendarDays = new Date(calendarYear, calendarMonthNumber, 0).getDate();
+  const calendarCells = Array.from({ length: calendarFirstDay + calendarDays }, (_, index) =>
+    index < calendarFirstDay ? null : index - calendarFirstDay + 1
+  );
   const submit = () => {
     const amount = Number(amountText);
     if (!Number.isInteger(amount) || amount <= 0) {
@@ -2554,16 +2752,14 @@ function TransactionModal({
           userId: item.userId,
           shareAmount: item.shareAmount + (index === 0 ? remainder : 0),
         }));
-      } else {
+      } else if (splitType === "amount") {
         splits = members
           .map(member => ({
             userId: member.user.id,
             shareAmount: Number(splitValues[member.user.id] || 0),
           }))
           .filter(item => item.shareAmount > 0);
-        if (
-          splits.reduce((sum, item) => sum + item.shareAmount, 0) !== amount
-        ) {
+        if (splits.reduce((sum, item) => sum + item.shareAmount, 0) !== amount) {
           setLocalError("直接分攤金額必須剛好等於總金額。");
           return;
         }
@@ -2581,7 +2777,12 @@ function TransactionModal({
       splits,
     });
   };
+  const changeCalendarMonth = (offset: number) => {
+    const next = new Date(calendarYear, calendarMonthNumber - 1 + offset, 1);
+    setCalendarMonth(`${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`);
+  };
   return (
+    <>
     <Modal
       visible={visible}
       transparent
@@ -2596,10 +2797,20 @@ function TransactionModal({
         <ScrollView style={styles.modalScroll}>
           <View style={styles.modalCard}>
             <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>新增收支記錄</Text>
+            <Text style={styles.modalTitle}>{editingTransaction ? "編輯收支記錄" : "新增收支記錄"}</Text>
             <Text style={styles.modalDescription}>
               金額、分類、日期、付款人、支付方式、備註與分攤方式都會保存。
             </Text>
+            <View style={styles.receiptActions}>
+              <Pressable disabled={scanning} onPress={() => pickReceipt("camera")} style={styles.receiptButton}>
+                <MaterialCommunityIcons name="camera-outline" size={17} color={colors.rose} />
+                <Text style={styles.receiptButtonText}>{scanning ? "辨識中…" : "拍照掃描發票"}</Text>
+              </Pressable>
+              <Pressable disabled={scanning} onPress={() => pickReceipt("library")} style={styles.receiptButton}>
+                <MaterialCommunityIcons name="image-multiple-outline" size={17} color={colors.rose} />
+                <Text style={styles.receiptButtonText}>從相簿選圖</Text>
+              </Pressable>
+            </View>
             {paymentMethods.length === 0 && (
               <View style={styles.setupNotice}>
                 <MaterialCommunityIcons
@@ -2653,11 +2864,15 @@ function TransactionModal({
               />
             </Field>
             <Field label="分類">
+              <TextInput
+                value={categorySearch}
+                onChangeText={setCategorySearch}
+                placeholder="搜尋分類名稱"
+                placeholderTextColor="#B9A69E"
+                style={styles.input}
+              />
               <OptionScroller
-                items={availableCategories.map(item => ({
-                  id: item.id,
-                  label: `${item.icon} ${item.name}`,
-                }))}
+                items={filteredCategories.map(item => ({ id: item.id, label: `${item.icon} ${item.name}` }))}
                 value={Number(selectedCategories)}
                 onChange={value => setCategoryId(String(value))}
               />
@@ -2677,22 +2892,16 @@ function TransactionModal({
             </Field>
             <Field label="支付方式">
               <OptionScroller
-                items={paymentMethods.map(item => ({
-                  id: item.id,
-                  label: `${item.icon} ${item.name}`,
-                }))}
+                items={activePaymentMethods.map(item => ({ id: item.id, label: `${item.icon} ${item.name}` }))}
                 value={Number(selectedPayment)}
                 onChange={value => setPaymentId(String(value))}
               />
             </Field>
             <Field label="日期">
-              <TextInput
-                value={dateText}
-                onChangeText={setDateText}
-                placeholder="YYYY-MM-DD"
-                placeholderTextColor="#B9A69E"
-                style={styles.input}
-              />
+              <Pressable onPress={() => setDatePickerVisible(true)} style={styles.datePickerTrigger}>
+                <Text style={styles.datePickerText}>{dateText}</Text>
+                <MaterialCommunityIcons name="calendar-month-outline" size={19} color={colors.rose} />
+              </Pressable>
             </Field>
             <Field label="分攤方式">
               {type === "income" ? (
@@ -2700,7 +2909,7 @@ function TransactionModal({
               ) : (
                 <>
                   <View style={styles.segmentRow}>
-                    {(["equal", "custom", "amount"] as const).map(item => (
+                    {(["equal", "custom", "amount", "none"] as const).map(item => (
                       <Pressable
                         key={item}
                         onPress={() => setSplitType(item)}
@@ -2719,12 +2928,12 @@ function TransactionModal({
                             ? "平均"
                             : item === "custom"
                               ? "自訂比例"
-                              : "直接金額"}
+                              : item === "amount" ? "直接金額" : "無分攤"}
                         </Text>
                       </Pressable>
                     ))}
                   </View>
-                  {splitType !== "equal" &&
+                  {splitType !== "equal" && splitType !== "none" &&
                     members.map(member => (
                       <View key={member.user.id} style={styles.splitInputRow}>
                         <Text style={styles.rowTitle}>
@@ -2776,6 +2985,27 @@ function TransactionModal({
         </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
+    <Modal visible={datePickerVisible} transparent animationType="fade" onRequestClose={() => setDatePickerVisible(false)}>
+      <View style={styles.calendarOverlay}>
+        <View style={styles.dateCalendarCard}>
+          <View style={styles.calendarHeader}>
+            <Pressable onPress={() => changeCalendarMonth(-1)} style={styles.calendarArrow}><MaterialCommunityIcons name="chevron-left" size={22} color={colors.ink} /></Pressable>
+            <Text style={styles.calendarMonthTitle}>{calendarMonth.replace("-", " / ")}</Text>
+            <Pressable onPress={() => changeCalendarMonth(1)} style={styles.calendarArrow}><MaterialCommunityIcons name="chevron-right" size={22} color={colors.ink} /></Pressable>
+          </View>
+          <View style={styles.calendarWeekRow}>{["日", "一", "二", "三", "四", "五", "六"].map(day => <Text key={day} style={styles.calendarWeekday}>{day}</Text>)}</View>
+          <View style={styles.calendarGrid}>
+            {calendarCells.map((day, index) => day ? (
+              <Pressable key={`${calendarMonth}-${day}`} onPress={() => { const chosen = `${calendarMonth}-${String(day).padStart(2, "0")}`; setDateText(chosen); setDatePickerVisible(false); }} style={[styles.calendarDayCell, dateText === `${calendarMonth}-${String(day).padStart(2, "0")}` && styles.calendarDayActive]}>
+                <Text style={[styles.calendarDayText, dateText === `${calendarMonth}-${String(day).padStart(2, "0")}` && styles.calendarDayTextActive]}>{day}</Text>
+              </Pressable>
+            ) : <View key={`empty-${index}`} style={styles.calendarDayCell} />)}
+          </View>
+          <Pressable onPress={() => setDatePickerVisible(false)} style={styles.modalCancel}><Text style={styles.modalCancelText}>關閉</Text></Pressable>
+        </View>
+      </View>
+    </Modal>
+    </>
   );
 }
 
@@ -3900,6 +4130,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.roseSoft,
   },
   rolePillText: { color: colors.rose, fontSize: 10, fontWeight: "700" },
+  settingsPillRow: { gap: 8, paddingTop: 12, paddingBottom: 2 },
+  settingsRemovePill: { paddingHorizontal: 10, paddingVertical: 8, borderRadius: 11, backgroundColor: "#FFF4F0", borderWidth: 1, borderColor: "#EAC9C5" },
+  settingsRemovePillText: { color: colors.rose, fontSize: 11, fontWeight: "700" },
+  activityLogScroll: { maxHeight: 250 },
+  activityLogRow: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 54, borderBottomWidth: 1, borderBottomColor: "#F5ECE7" },
+  activityLogDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.rose },
   weekRow: {
     flexDirection: "row",
     justifyContent: "space-around",
@@ -3923,6 +4159,25 @@ const styles = StyleSheet.create({
   calendarDay: { color: colors.ink, fontSize: 13 },
   calendarDaySelected: { color: colors.rose, fontWeight: "800" },
   calendarDot: { width: 5, height: 5, marginTop: 4, borderRadius: 3 },
+  paymentOverviewScroll: { maxHeight: 170 },
+  transactionActions: { flexDirection: "row", alignItems: "center", gap: 3, marginLeft: 6 },
+  rowActionButton: { width: 28, height: 28, alignItems: "center", justifyContent: "center", borderRadius: 9, backgroundColor: "#FBF3EF" },
+  receiptActions: { flexDirection: "row", gap: 8, marginBottom: 14 },
+  receiptButton: { flex: 1, minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, borderWidth: 1, borderColor: "#E3C3C4", borderRadius: 12, backgroundColor: "#FFF9F6" },
+  receiptButtonText: { color: colors.rose, fontSize: 11, fontWeight: "700" },
+  datePickerTrigger: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, borderWidth: 1, borderColor: "#E7D8D1", borderRadius: 13, backgroundColor: "#FFFCFA" },
+  datePickerText: { color: colors.ink, fontSize: 14, fontWeight: "700" },
+  calendarOverlay: { flex: 1, alignItems: "center", justifyContent: "center", padding: 20, backgroundColor: "rgba(58,47,43,0.32)" },
+  dateCalendarCard: { width: "100%", maxWidth: 360, padding: 18, borderRadius: 22, backgroundColor: colors.surface },
+  calendarHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 },
+  calendarArrow: { width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: colors.roseSoft },
+  calendarMonthTitle: { color: colors.ink, fontSize: 16, fontWeight: "800" },
+  calendarWeekRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 },
+  calendarWeekday: { width: "14.28%", color: colors.muted, fontSize: 11, textAlign: "center" },
+  calendarDayCell: { width: "14.28%", height: 42, alignItems: "center", justifyContent: "center", borderRadius: 12 },
+  calendarDayActive: { backgroundColor: colors.rose },
+  calendarDayText: { color: colors.ink, fontSize: 13, fontWeight: "600" },
+  calendarDayTextActive: { color: "#FFFFFF", fontWeight: "800" },
   drawerBackdrop: {
     flex: 1,
     flexDirection: "row",

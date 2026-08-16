@@ -3,6 +3,7 @@ import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
   User,
+  activityLogs,
   budgets,
   categories,
   ledgerMembers,
@@ -232,7 +233,7 @@ export async function createTransaction(input: {
   paymentMethodId: number;
   date: Date;
   note?: string;
-  splitType: "equal" | "custom" | "amount";
+  splitType: "equal" | "custom" | "amount" | "none";
   splits: Array<{ userId: number; shareAmount: number }>;
 }) {
   const db = requireDb();
@@ -253,6 +254,88 @@ export async function createTransaction(input: {
     await db.insert(transactionSplits).values(input.splits.map(split => ({ transactionId, ...split })));
   }
   return transactionId;
+}
+
+export async function updateTransaction(input: {
+  id: number;
+  ledgerId: number;
+  payerId: number;
+  amount: number;
+  type: "expense" | "income" | "transfer";
+  categoryId: number;
+  paymentMethodId: number;
+  date: Date;
+  note?: string;
+  splitType: "equal" | "custom" | "amount" | "none";
+  splits: Array<{ userId: number; shareAmount: number }>;
+}) {
+  const db = requireDb();
+  await db.update(transactions).set({
+    payerId: input.payerId,
+    amount: input.amount,
+    type: input.type,
+    categoryId: input.categoryId,
+    paymentMethodId: input.paymentMethodId,
+    date: input.date,
+    note: input.note,
+    splitType: input.splitType,
+  }).where(and(eq(transactions.id, input.id), eq(transactions.ledgerId, input.ledgerId)));
+  await db.delete(transactionSplits).where(eq(transactionSplits.transactionId, input.id));
+  if (input.splits.length > 0) {
+    await db.insert(transactionSplits).values(input.splits.map(split => ({ transactionId: input.id, ...split })));
+  }
+  return input.id;
+}
+
+export async function deleteTransaction(input: { id: number; ledgerId: number }) {
+  const db = requireDb();
+  await db.delete(transactionSplits).where(eq(transactionSplits.transactionId, input.id));
+  await db.delete(transactions).where(and(eq(transactions.id, input.id), eq(transactions.ledgerId, input.ledgerId)));
+  return input.id;
+}
+
+export async function archiveCategory(input: { id: number; ledgerId: number }) {
+  const db = requireDb();
+  await db.update(categories).set({ isActive: 0 }).where(and(eq(categories.id, input.id), eq(categories.ledgerId, input.ledgerId)));
+  return input.id;
+}
+
+export async function archivePaymentMethod(input: { id: number; ledgerId: number }) {
+  const db = requireDb();
+  await db.update(paymentMethods).set({ isActive: 0 }).where(and(eq(paymentMethods.id, input.id), eq(paymentMethods.ledgerId, input.ledgerId)));
+  return input.id;
+}
+
+export async function logActivity(input: {
+  ledgerId: number;
+  userId: number;
+  action: "create" | "update" | "delete";
+  entityType: "transaction" | "category" | "paymentMethod";
+  entityId: number;
+  summary: string;
+  metadata?: Record<string, unknown>;
+}) {
+  const db = requireDb();
+  await db.insert(activityLogs).values({
+    ledgerId: input.ledgerId,
+    userId: input.userId,
+    action: input.action,
+    entityType: input.entityType,
+    entityId: input.entityId,
+    summary: input.summary.slice(0, 255),
+    metadata: input.metadata ? JSON.stringify(input.metadata) : null,
+  });
+}
+
+export async function getActivityLogs(ledgerId: number, limit = 100) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select({ log: activityLogs, user: users })
+    .from(activityLogs)
+    .innerJoin(users, eq(activityLogs.userId, users.id))
+    .where(eq(activityLogs.ledgerId, ledgerId))
+    .orderBy(desc(activityLogs.createdAt))
+    .limit(limit);
 }
 
 export async function getCalendarTransactions(ledgerId: number, start: Date, end: Date) {

@@ -22,6 +22,20 @@
       "when": 1786822793740,
       "tag": "0002_redundant_tinkerer",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1786903176297,
+      "tag": "0003_rich_pandemic",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "5",
+      "when": 1786903305186,
+      "tag": "0004_round_lady_deathstrike",
+      "breakpoints": true
     }
   ]
 }
