@@ -7,15 +7,18 @@ import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
   createCategory,
   createLedger,
+  createPaymentMethod,
   createRecurring,
   createSettlement,
   createTransaction,
   getAnalytics,
+  syncDueRecurring,
   getCalendarTransactions,
   getCategories,
   getLedgerAccess,
   getLedgerMembers,
   getPaymentMethods,
+  updateLedgerMemberRole,
   getSettlementSummary,
   getTransactions,
   joinLedgerByInviteCode,
@@ -73,6 +76,14 @@ export const appRouter = router({
     members: protectedProcedure
       .input(z.object({ ledgerId: z.number().int().positive() }))
       .query(({ ctx, input }) => requireLedger(input.ledgerId, ctx.user.id).then(() => getLedgerMembers(input.ledgerId))),
+    updateMemberRole: protectedProcedure
+      .input(z.object({ ledgerId: z.number().int().positive(), userId: z.number().int().positive(), role: z.enum(["admin", "member", "viewer"]) }))
+      .mutation(async ({ ctx, input }) => {
+        const access = await requireLedger(input.ledgerId, ctx.user.id);
+        if (access.member.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "只有管理員可以修改成員權限" });
+        await updateLedgerMemberRole(input);
+        return { success: true } as const;
+      }),
     categories: protectedProcedure
       .input(z.object({ ledgerId: z.number().int().positive() }))
       .query(({ ctx, input }) => requireLedger(input.ledgerId, ctx.user.id).then(() => getCategories(input.ledgerId))),
@@ -82,6 +93,9 @@ export const appRouter = router({
     paymentMethods: protectedProcedure
       .input(z.object({ ledgerId: z.number().int().positive() }))
       .query(({ ctx, input }) => requireLedger(input.ledgerId, ctx.user.id).then(() => getPaymentMethods(input.ledgerId))),
+    createPaymentMethod: protectedProcedure
+      .input(z.object({ ledgerId: z.number().int().positive(), name: z.string().trim().min(1).max(64), icon: z.string().trim().max(16).default("💳") }))
+      .mutation(({ ctx, input }) => requireLedger(input.ledgerId, ctx.user.id).then(() => createPaymentMethod(input))),
     transactions: protectedProcedure
       .input(z.object({ ledgerId: z.number().int().positive(), limit: z.number().int().min(1).max(200).default(100) }))
       .query(({ ctx, input }) => requireLedger(input.ledgerId, ctx.user.id).then(() => getTransactions(input.ledgerId, input.limit))),
@@ -146,6 +160,9 @@ export const appRouter = router({
     recurring: protectedProcedure
       .input(z.object({ ledgerId: z.number().int().positive() }))
       .query(({ ctx, input }) => requireLedger(input.ledgerId, ctx.user.id).then(() => listRecurring(input.ledgerId))),
+    syncRecurring: protectedProcedure
+      .input(z.object({ ledgerId: z.number().int().positive() }))
+      .mutation(({ ctx, input }) => requireLedger(input.ledgerId, ctx.user.id).then(() => syncDueRecurring(input.ledgerId, ctx.user.id))),
     createRecurring: protectedProcedure
       .input(z.object({ ledgerId: z.number().int().positive(), title: z.string().trim().min(1).max(128), amount: z.number().int().positive(), type: z.enum(["expense", "income"]), categoryId: z.number().int().positive(), paymentMethodId: z.number().int().positive(), frequency: z.enum(["weekly", "monthly", "yearly"]).default("monthly"), dayOfMonth: z.number().int().min(1).max(31).default(1) }))
       .mutation(({ ctx, input }) => requireLedger(input.ledgerId, ctx.user.id).then(() => createRecurring({ ...input, userId: ctx.user.id }))),

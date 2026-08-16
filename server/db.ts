@@ -110,20 +110,41 @@ export async function createLedger(input: {
   const result = await db.insert(ledgers).values(input);
   const ledgerId = Number(result[0].insertId);
   await db.insert(ledgerMembers).values({ ledgerId, userId: input.createdBy, role: "admin" });
-  await db.insert(categories).values([
-    { ledgerId, name: "飲食", type: "expense", icon: "🍜", color: "#D47762" },
-    { ledgerId, name: "交通", type: "expense", icon: "🚗", color: "#6387A8" },
-    { ledgerId, name: "生活", type: "expense", icon: "⌂", color: "#7E8D70" },
-    { ledgerId, name: "購物", type: "expense", icon: "◌", color: "#B88C5E" },
-    { ledgerId, name: "情侶", type: "expense", icon: "♡", color: "#BE7181" },
-    { ledgerId, name: "薪資", type: "income", icon: "↗", color: "#7E8D70" },
-  ]);
-  await db.insert(paymentMethods).values([
-    { ledgerId, name: "現金", icon: "現" },
-    { ledgerId, name: "信用卡", icon: "卡" },
-    { ledgerId, name: "電子支付", icon: "支" },
-    { ledgerId, name: "銀行轉帳", icon: "銀" },
-  ]);
+
+  // Seed only reference data required by the pasted content. A new ledger must
+  // still have no example transactions, budgets, recurring items, settlements,
+  // or payment methods.
+  const rootPresets = [
+    { name: "飲食", type: "expense" as const, icon: "🍽", color: "#C98558" },
+    { name: "交通", type: "expense" as const, icon: "🚗", color: "#6D8EA8" },
+    { name: "生活", type: "expense" as const, icon: "⌂", color: "#7E8D70" },
+    { name: "購物", type: "expense" as const, icon: "◇", color: "#B56C78" },
+    { name: "情侶", type: "expense" as const, icon: "♡", color: "#9A6670" },
+    { name: "薪資", type: "income" as const, icon: "＋", color: "#7E8D70" },
+    { name: "其他收入", type: "income" as const, icon: "✦", color: "#6D8EA8" },
+  ];
+  const rootIds = new Map<string, number>();
+  for (const preset of rootPresets) {
+    const inserted = await db.insert(categories).values({ ledgerId, parentCategoryId: 0, ...preset });
+    rootIds.set(preset.name, Number(inserted[0].insertId));
+  }
+  const childPresets = [
+    ["飲食", "早餐"], ["飲食", "午餐"], ["飲食", "晚餐"], ["飲食", "飲料"], ["飲食", "宵夜"],
+    ["交通", "加油"], ["交通", "停車"], ["交通", "高速公路"], ["交通", "大眾運輸"], ["交通", "計程車"], ["交通", "維修"],
+    ["生活", "房租"], ["生活", "水電"], ["生活", "網路"], ["生活", "日用品"], ["生活", "家具"],
+    ["購物", "衣服"], ["購物", "3C"], ["購物", "娛樂"], ["購物", "遊戲"],
+    ["情侶", "約會"], ["情侶", "禮物"], ["情侶", "旅行"], ["情侶", "紀念日"],
+  ] as const;
+  await db.insert(categories).values(
+    childPresets.map(([parent, name]) => ({
+      ledgerId,
+      parentCategoryId: rootIds.get(parent) ?? 0,
+      name,
+      type: "expense" as const,
+      icon: "◌",
+      color: rootPresets.find(item => item.name === parent)?.color ?? "#B56C78",
+    })),
+  );
   return (await getLedgerAccess(ledgerId, input.createdBy))?.ledger;
 }
 
@@ -146,6 +167,11 @@ export async function getLedgerMembers(ledgerId: number) {
     .innerJoin(users, eq(ledgerMembers.userId, users.id))
     .where(eq(ledgerMembers.ledgerId, ledgerId))
     .orderBy(asc(ledgerMembers.joinedAt));
+}
+
+export async function updateLedgerMemberRole(input: { ledgerId: number; userId: number; role: "admin" | "member" | "viewer" }) {
+  const db = requireDb();
+  await db.update(ledgerMembers).set({ role: input.role }).where(and(eq(ledgerMembers.ledgerId, input.ledgerId), eq(ledgerMembers.userId, input.userId)));
 }
 
 export async function getCategories(ledgerId: number) {
@@ -171,6 +197,16 @@ export async function getPaymentMethods(ledgerId: number) {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(paymentMethods).where(eq(paymentMethods.ledgerId, ledgerId)).orderBy(asc(paymentMethods.id));
+}
+
+export async function createPaymentMethod(input: { ledgerId: number; name: string; icon: string }) {
+  const db = requireDb();
+  const result = await db.insert(paymentMethods).values({
+    ledgerId: input.ledgerId,
+    name: input.name,
+    icon: input.icon,
+  });
+  return Number(result[0].insertId);
 }
 
 export async function getTransactions(ledgerId: number, limit = 100) {
@@ -332,6 +368,47 @@ export async function createRecurring(input: {
   const db = requireDb();
   const result = await db.insert(recurringTransactions).values(input);
   return Number(result[0].insertId);
+}
+
+/**
+ * Apply the current due occurrence of recurring rows. The note key makes the
+ * operation idempotent when multiple devices open the same ledger.
+ */
+export async function syncDueRecurring(ledgerId: number, userId: number) {
+  const db = requireDb();
+  const today = new Date();
+  const yyyy = today.getFullYear();
+  const mm = String(today.getMonth() + 1).padStart(2, "0");
+  const currentDay = today.getDate();
+  const members = await getLedgerMembers(ledgerId);
+  const memberIds = members.map(row => row.user.id);
+  if (memberIds.length === 0) return { inserted: 0 };
+  let inserted = 0;
+  for (const recurring of await listRecurring(ledgerId)) {
+    if (!recurring.isActive || recurring.dayOfMonth > currentDay) continue;
+    if (recurring.frequency === "yearly" && recurring.createdAt.getMonth() !== today.getMonth()) continue;
+    const occurrence = `${yyyy}-${mm}-${String(recurring.dayOfMonth).padStart(2, "0")}`;
+    const note = `[固定收支:${recurring.id}:${occurrence}] ${recurring.title}`;
+    const existing = await db.select({ id: transactions.id }).from(transactions).where(and(eq(transactions.ledgerId, ledgerId), eq(transactions.note, note))).limit(1);
+    if (existing[0]) continue;
+    const share = Math.floor(recurring.amount / memberIds.length);
+    const remainder = recurring.amount - share * memberIds.length;
+    await createTransaction({
+      ledgerId,
+      userId,
+      payerId: userId,
+      amount: recurring.amount,
+      type: recurring.type,
+      categoryId: recurring.categoryId,
+      paymentMethodId: recurring.paymentMethodId,
+      date: new Date(`${occurrence}T12:00:00`),
+      note,
+      splitType: "equal",
+      splits: memberIds.map((memberId, index) => ({ userId: memberId, shareAmount: share + (index === 0 ? remainder : 0) })),
+    });
+    inserted += 1;
+  }
+  return { inserted };
 }
 
 export async function seedDemoLedgerForPreview(user: User) {
