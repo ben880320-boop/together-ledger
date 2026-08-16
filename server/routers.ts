@@ -28,6 +28,8 @@ import {
   updateTransaction,
   deleteTransaction,
   joinLedgerByInviteCode,
+  leaveLedger,
+  updateUserName,
   listBudgets,
   listLedgersForUser,
   listRecurring,
@@ -77,7 +79,26 @@ export const appRouter = router({
       .mutation(({ ctx, input }) => createLedger({ ...input, createdBy: ctx.user.id, inviteCode: generateInviteCode() })),
     join: protectedProcedure
       .input(z.object({ inviteCode: z.string().trim().min(4).max(16) }))
-      .mutation(({ ctx, input }) => joinLedgerByInviteCode(input.inviteCode.toUpperCase(), ctx.user.id)),
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await joinLedgerByInviteCode(input.inviteCode.toUpperCase(), ctx.user.id);
+        } catch (error) {
+          if (error instanceof Error && error.message.includes("已經加入")) {
+            throw new TRPCError({ code: "CONFLICT", message: error.message });
+          }
+          throw error;
+        }
+      }),
+    leave: protectedProcedure
+      .input(z.object({
+        ledgerId: z.number().int().positive(),
+        action: z.enum(["leave", "transfer", "delete"]),
+        transferToUserId: z.number().int().positive().optional(),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        await requireLedger(input.ledgerId, ctx.user.id);
+        return leaveLedger({ ...input, userId: ctx.user.id });
+      }),
     detail: protectedProcedure
       .input(z.object({ ledgerId: z.number().int().positive() }))
       .query(({ ctx, input }) => requireLedger(input.ledgerId, ctx.user.id).then(access => access.ledger)),
@@ -274,6 +295,11 @@ export const appRouter = router({
     createRecurring: protectedProcedure
       .input(z.object({ ledgerId: z.number().int().positive(), title: z.string().trim().min(1).max(128), amount: z.number().int().positive(), type: z.enum(["expense", "income"]), categoryId: z.number().int().positive(), paymentMethodId: z.number().int().positive(), frequency: z.enum(["weekly", "monthly", "yearly"]).default("monthly"), dayOfMonth: z.number().int().min(1).max(31).default(1) }))
       .mutation(({ ctx, input }) => requireLedger(input.ledgerId, ctx.user.id).then(() => createRecurring({ ...input, userId: ctx.user.id }))),
+  }),
+  profile: router({
+    updateName: protectedProcedure
+      .input(z.object({ name: z.string().trim().min(1).max(64) }))
+      .mutation(({ ctx, input }) => updateUserName(ctx.user.id, input.name)),
   }),
 });
 

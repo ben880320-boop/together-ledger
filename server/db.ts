@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gte, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   InsertUser,
@@ -162,8 +162,75 @@ export async function joinLedgerByInviteCode(inviteCode: string, userId: number)
   const result = await db.select().from(ledgers).where(eq(ledgers.inviteCode, inviteCode)).limit(1);
   const ledger = result[0];
   if (!ledger) return undefined;
-  await db.insert(ledgerMembers).values({ ledgerId: ledger.id, userId, role: "member" }).onDuplicateKeyUpdate({ set: { role: "member" } });
+  const existing = await db
+    .select({ id: ledgerMembers.id })
+    .from(ledgerMembers)
+    .where(and(eq(ledgerMembers.ledgerId, ledger.id), eq(ledgerMembers.userId, userId)))
+    .limit(1);
+  if (existing.length > 0) throw new Error("你已經加入這個帳本，不需要重複加入。");
+  await db.insert(ledgerMembers).values({ ledgerId: ledger.id, userId, role: "member" });
   return ledger;
+}
+
+export async function leaveLedger(input: {
+  ledgerId: number;
+  userId: number;
+  action: "leave" | "transfer" | "delete";
+  transferToUserId?: number;
+}) {
+  const db = requireDb();
+  const ledgerRows = await db.select().from(ledgers).where(eq(ledgers.id, input.ledgerId)).limit(1);
+  const ledger = ledgerRows[0];
+  if (!ledger) throw new Error("找不到帳本。");
+  const memberRows = await db
+    .select()
+    .from(ledgerMembers)
+    .where(and(eq(ledgerMembers.ledgerId, input.ledgerId), eq(ledgerMembers.userId, input.userId)))
+    .limit(1);
+  if (!memberRows[0]) throw new Error("你不是此帳本的成員。");
+
+  if (ledger.createdBy !== input.userId) {
+    if (input.action !== "leave") throw new Error("只有帳本持有者可以轉讓或移除帳本。");
+    await db.delete(ledgerMembers).where(and(eq(ledgerMembers.ledgerId, input.ledgerId), eq(ledgerMembers.userId, input.userId)));
+    return { action: "leave" as const };
+  }
+
+  if (input.action === "transfer") {
+    if (!input.transferToUserId || input.transferToUserId === input.userId) throw new Error("請選擇另一位帳本成員接任持有者。");
+    const target = await db
+      .select()
+      .from(ledgerMembers)
+      .where(and(eq(ledgerMembers.ledgerId, input.ledgerId), eq(ledgerMembers.userId, input.transferToUserId)))
+      .limit(1);
+    if (!target[0]) throw new Error("接任者必須是目前帳本成員。");
+    await db.update(ledgers).set({ createdBy: input.transferToUserId }).where(eq(ledgers.id, input.ledgerId));
+    await db.update(ledgerMembers).set({ role: "admin" }).where(and(eq(ledgerMembers.ledgerId, input.ledgerId), eq(ledgerMembers.userId, input.transferToUserId)));
+    await db.update(ledgerMembers).set({ role: "member" }).where(and(eq(ledgerMembers.ledgerId, input.ledgerId), eq(ledgerMembers.userId, input.userId)));
+    await db.delete(ledgerMembers).where(and(eq(ledgerMembers.ledgerId, input.ledgerId), eq(ledgerMembers.userId, input.userId)));
+    return { action: "transfer" as const, transferToUserId: input.transferToUserId };
+  }
+
+  if (input.action !== "delete") throw new Error("持有者離開前必須選擇轉讓或刪除帳本。");
+  const transactionRows = await db.select({ id: transactions.id }).from(transactions).where(eq(transactions.ledgerId, input.ledgerId));
+  const transactionIds = transactionRows.map(row => row.id);
+  if (transactionIds.length > 0) await db.delete(transactionSplits).where(inArray(transactionSplits.transactionId, transactionIds));
+  await db.delete(activityLogs).where(eq(activityLogs.ledgerId, input.ledgerId));
+  await db.delete(budgets).where(eq(budgets.ledgerId, input.ledgerId));
+  await db.delete(recurringTransactions).where(eq(recurringTransactions.ledgerId, input.ledgerId));
+  await db.delete(settlements).where(eq(settlements.ledgerId, input.ledgerId));
+  await db.delete(transactions).where(eq(transactions.ledgerId, input.ledgerId));
+  await db.delete(categories).where(eq(categories.ledgerId, input.ledgerId));
+  await db.delete(paymentMethods).where(eq(paymentMethods.ledgerId, input.ledgerId));
+  await db.delete(ledgerMembers).where(eq(ledgerMembers.ledgerId, input.ledgerId));
+  await db.delete(ledgers).where(eq(ledgers.id, input.ledgerId));
+  return { action: "delete" as const };
+}
+
+export async function updateUserName(userId: number, name: string) {
+  const db = requireDb();
+  await db.update(users).set({ name }).where(eq(users.id, userId));
+  const rows = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  return rows[0];
 }
 
 export async function getLedgerMembers(ledgerId: number) {

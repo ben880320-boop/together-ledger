@@ -17,9 +17,11 @@ const mocks = vi.hoisted(() => ({
   getLedgerMembers: vi.fn(),
   getPaymentMethods: vi.fn(),
   updateLedgerMemberRole: vi.fn(),
+  updateUserName: vi.fn(),
   getSettlementSummary: vi.fn(),
   getTransactions: vi.fn(),
   joinLedgerByInviteCode: vi.fn(),
+  leaveLedger: vi.fn(),
   logActivity: vi.fn(),
   listBudgets: vi.fn(),
   listLedgersForUser: vi.fn(),
@@ -61,6 +63,8 @@ describe("typed ledger workflow contract", () => {
     mocks.getLedgerAccess.mockResolvedValue(adminAccess);
     mocks.createLedger.mockResolvedValue(adminAccess.ledger);
     mocks.joinLedgerByInviteCode.mockResolvedValue(adminAccess.ledger);
+    mocks.leaveLedger.mockResolvedValue({ success: true });
+    mocks.updateUserName.mockResolvedValue({ id: 1, name: "新暱稱" });
     mocks.createCategory.mockResolvedValue(11);
     mocks.createPaymentMethod.mockResolvedValue(12);
     mocks.createRecurring.mockResolvedValue(13);
@@ -84,6 +88,31 @@ describe("typed ledger workflow contract", () => {
 
     await caller.ledger.join({ inviteCode: "a7k29x" });
     expect(mocks.joinLedgerByInviteCode).toHaveBeenCalledWith("A7K29X", 1);
+  });
+
+  it("forwards leave, transfer, and delete ledger lifecycle actions", async () => {
+    const caller = appRouter.createCaller(createTestContext());
+
+    await caller.ledger.leave({ ledgerId: 1, action: "leave" });
+    await caller.ledger.leave({ ledgerId: 1, action: "transfer", transferToUserId: 2 });
+    await caller.ledger.leave({ ledgerId: 1, action: "delete" });
+
+    expect(mocks.leaveLedger).toHaveBeenNthCalledWith(1, { ledgerId: 1, action: "leave", userId: 1 });
+    expect(mocks.leaveLedger).toHaveBeenNthCalledWith(2, { ledgerId: 1, action: "transfer", transferToUserId: 2, userId: 1 });
+    expect(mocks.leaveLedger).toHaveBeenNthCalledWith(3, { ledgerId: 1, action: "delete", userId: 1 });
+  });
+
+  it("rejects duplicate joins as CONFLICT and trims profile nicknames", async () => {
+    const caller = appRouter.createCaller(createTestContext());
+    mocks.joinLedgerByInviteCode.mockRejectedValueOnce(new Error("你已經加入這個帳本，不需要重複加入"));
+
+    await expect(caller.ledger.join({ inviteCode: "a7k29x" })).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: "你已經加入這個帳本，不需要重複加入",
+    });
+
+    await expect(caller.profile.updateName({ name: "  新暱稱  " })).resolves.toEqual({ id: 1, name: "新暱稱" });
+    expect(mocks.updateUserName).toHaveBeenCalledWith(1, "新暱稱");
   });
 
   it("rejects invalid expense splits and forwards valid equal, custom, and amount splits", async () => {

@@ -371,7 +371,6 @@ function AppContent() {
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [recurring, setRecurring] = useState<Recurring[]>([]);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
-  const [drawerOpen, setDrawerOpen] = useState(false);
   const [ledgerModal, setLedgerModal] = useState<"create" | "join" | null>(
     null
   );
@@ -450,17 +449,21 @@ function AppContent() {
       const rows = (await api.ledger.list.query()) as Array<{ ledger: Ledger }>;
       const nextLedgers = rows.map(row => row.ledger);
       setLedgers(nextLedgers);
-      setLedgerHome(false);
-      const nextLedger = nextLedgers[0] ?? null;
-      setActiveLedger(nextLedger);
-      if (nextLedger) await reloadLedger(nextLedger.id);
-      else {
+      // Never restore the last open ledger after a cold start. The app always opens at the ledger home.
+      setLedgerHome(true);
+      setActiveLedger(null);
+      if (nextLedgers.length === 0) {
         setMembers([]);
         setCategories([]);
         setPaymentMethods([]);
         setTransactions([]);
+        setCalendarTransactions([]);
         setAnalytics(null);
+        setPreviousAnalytics(null);
         setSettlement(null);
+        setSettlementHistory([]);
+        setBudgets([]);
+        setRecurring([]);
         setActivityLogs([]);
       }
     } catch (loadError) {
@@ -512,7 +515,6 @@ function AppContent() {
   const selectLedger = async (ledger: Ledger) => {
     setLedgerHome(false);
     setActiveLedger(ledger);
-    setDrawerOpen(false);
     setBusy(true);
     try {
       await reloadLedger(ledger.id);
@@ -527,10 +529,110 @@ function AppContent() {
     }
   };
 
+  const clearLedgerWorkspace = () => {
+    setActiveLedger(null);
+    setMembers([]);
+    setCategories([]);
+    setPaymentMethods([]);
+    setTransactions([]);
+    setCalendarTransactions([]);
+    setAnalytics(null);
+    setPreviousAnalytics(null);
+    setSettlement(null);
+    setSettlementHistory([]);
+    setBudgets([]);
+    setRecurring([]);
+    setActivityLogs([]);
+  };
   const leaveLedger = () => {
+    clearLedgerWorkspace();
     setLedgerHome(true);
-    setDrawerOpen(false);
     setError("");
+  };
+  const updateNickname = async (name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setError("暱稱不能是空白。");
+      return;
+    }
+    setBusy(true);
+    try {
+      const updated = await api.profile.updateName.mutate({ name: trimmed });
+      setUser(current => (current ? { ...current, name: updated.name } : current));
+      Alert.alert("已更新暱稱", `你的暱稱已改為「${trimmed}」。`);
+    } catch (nameError) {
+      setError(nameError instanceof Error ? nameError.message : "暱稱更新失敗。");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const confirmDeleteLedger = () => {
+    if (!activeLedger) return;
+    Alert.alert("再次確認刪除帳本", `刪除「${activeLedger.name}」後，帳本資料將無法復原。確定要刪除嗎？`, [
+      { text: "取消", style: "cancel" },
+      {
+        text: "確定刪除",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await api.ledger.leave.mutate({ ledgerId: activeLedger.id, action: "delete" });
+            setLedgers(current => current.filter(item => item.id !== activeLedger.id));
+            leaveLedger();
+          } catch (deleteError) {
+            setError(deleteError instanceof Error ? deleteError.message : "移除帳本失敗。");
+          }
+        },
+      },
+    ]);
+  };
+  const performLeaveLedger = async (action: "leave" | "transfer", transferToUserId?: number) => {
+    if (!activeLedger) return;
+    setBusy(true);
+    try {
+      await api.ledger.leave.mutate({ ledgerId: activeLedger.id, action, transferToUserId });
+      setLedgers(current => current.filter(item => item.id !== activeLedger.id));
+      leaveLedger();
+    } catch (leaveError) {
+      setError(leaveError instanceof Error ? leaveError.message : "退出帳本失敗。");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const requestLeaveLedger = () => {
+    if (!activeLedger) return;
+    const me = members.find(item => item.user.id === user?.id);
+    const others = members.filter(item => item.user.id !== user?.id);
+    if (me?.member.role === "admin") {
+      Alert.alert("移除帳本", "你是此帳本的持有者。請先選擇轉讓給成員，或確認刪除整本帳本。", [
+        { text: "取消", style: "cancel" },
+        {
+          text: "轉讓持有者",
+          onPress: () => {
+            if (others.length === 0) {
+              Alert.alert("無可轉讓成員", "目前沒有其他成員，請改用刪除帳本。", [{ text: "知道了" }]);
+              return;
+            }
+            Alert.alert(
+              "選擇新持有者",
+              "轉讓後你會退出此帳本。",
+              [
+                ...others.map(item => ({
+                  text: item.user.name || item.user.email || `成員 ${item.user.id}`,
+                  onPress: () => void performLeaveLedger("transfer", item.user.id),
+                })),
+                { text: "取消", style: "cancel" as const },
+              ]
+            );
+          },
+        },
+        { text: "刪除帳本", style: "destructive", onPress: confirmDeleteLedger },
+      ]);
+      return;
+    }
+    Alert.alert("退出帳本", `退出「${activeLedger.name}」後，需要重新取得邀請碼才能加入。確定退出嗎？`, [
+      { text: "留在帳本", style: "cancel" },
+      { text: "確定退出", style: "destructive", onPress: () => void performLeaveLedger("leave") },
+    ]);
   };
 
   const refresh = async () => {
@@ -603,7 +705,7 @@ function AppContent() {
       setBusy(false);
     }
   };
-  const logout = async () => {
+  const performLogout = async () => {
     setBusy(true);
     try {
       await api.auth.logout.mutate();
@@ -613,35 +715,64 @@ function AppContent() {
     await clearSessionToken();
     setUser(null);
     setLedgers([]);
-    setActiveLedger(null);
-    setDrawerOpen(false);
+    clearLedgerWorkspace();
+    setLedgerHome(true);
+    setError("");
     setBusy(false);
+  };
+  const logout = () => {
+    Alert.alert("確認登出", "登出後需要重新登入才能查看共同帳本。確定要登出嗎？", [
+      { text: "取消", style: "cancel" },
+      { text: "登出", style: "destructive", onPress: () => void performLogout() },
+    ]);
   };
   const openNewTransaction = () => {
     setEditingTransaction(null);
     setTransactionModal(true);
   };
   const openEditTransaction = (transaction: Transaction) => {
-    setEditingTransaction(transaction);
-    setTransactionModal(true);
-  };
-  const removeTransaction = (transaction: Transaction) => {
-    Alert.alert("移除收支", "確定要移除這筆收支嗎？此操作會記錄在日誌中。", [
+    Alert.alert("確認編輯", "即將修改這筆收支。要繼續嗎？", [
       { text: "取消", style: "cancel" },
       {
-        text: "移除",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await api.ledger.deleteTransaction.mutate({
-              ledgerId: activeLedger!.id,
-              transactionId: transaction.id,
-            });
-            await refresh();
-          } catch (removeError) {
-            setError(removeError instanceof Error ? removeError.message : "移除收支失敗。");
-          }
-        },
+        text: "下一步",
+        onPress: () =>
+          Alert.alert("再次確認編輯", "確認後會開啟編輯表單，儲存才會套用修改。", [
+            { text: "取消", style: "cancel" },
+            {
+              text: "開始編輯",
+              onPress: () => {
+                setEditingTransaction(transaction);
+                setTransactionModal(true);
+              },
+            },
+          ]),
+      },
+    ]);
+  };
+  const removeTransaction = (transaction: Transaction) => {
+    Alert.alert("確認移除收支", "這筆收支會從目前帳本移除。要繼續嗎？", [
+      { text: "取消", style: "cancel" },
+      {
+        text: "下一步",
+        onPress: () =>
+          Alert.alert("再次確認移除", "移除後只能從操作日誌查看事件，無法自動復原。確定移除嗎？", [
+            { text: "取消", style: "cancel" },
+            {
+              text: "確定移除",
+              style: "destructive",
+              onPress: async () => {
+                try {
+                  await api.ledger.deleteTransaction.mutate({
+                    ledgerId: activeLedger!.id,
+                    transactionId: transaction.id,
+                  });
+                  await refresh();
+                } catch (removeError) {
+                  setError(removeError instanceof Error ? removeError.message : "移除收支失敗。");
+                }
+              },
+            },
+          ]),
       },
     ]);
   };
@@ -685,9 +816,16 @@ function AppContent() {
         <AppHeader
           title="共帳"
           caption="建立你的共同財務空間"
-          onMenu={() => setDrawerOpen(true)}
+          action={
+            <Pressable onPress={logout} style={styles.headerBackButton} accessibilityLabel="登出">
+              <MaterialCommunityIcons name="logout" size={19} color={colors.muted} />
+            </Pressable>
+          }
         />
         <EmptyLedger
+          user={user}
+          onUpdateNickname={updateNickname}
+          onLogout={logout}
           error={error}
           onCreate={() => {
             setError("");
@@ -697,15 +835,6 @@ function AppContent() {
             setError("");
             setLedgerModal("join");
           }}
-        />
-        <Drawer
-          open={drawerOpen}
-          active={activeAction}
-          onSelect={action => {
-            setActiveAction(action);
-            setDrawerOpen(false);
-          }}
-          onLogout={logout}
         />
         <LedgerModal
           mode={ledgerModal}
@@ -732,7 +861,6 @@ function AppContent() {
         <AppHeader
           title="我的帳本"
           caption="選擇要進入的共同空間"
-          onMenu={() => setDrawerOpen(true)}
           action={
             <Pressable onPress={logout} style={styles.headerBackButton} accessibilityLabel="登出">
               <MaterialCommunityIcons name="logout" size={19} color={colors.muted} />
@@ -740,6 +868,9 @@ function AppContent() {
           }
         />
         <LedgerHome
+          user={user}
+          onUpdateNickname={updateNickname}
+          onLogout={logout}
           ledgers={ledgers}
           onSelect={selectLedger}
           onCreate={() => {
@@ -750,12 +881,6 @@ function AppContent() {
             setError("");
             setLedgerModal("join");
           }}
-        />
-        <Drawer
-          open={drawerOpen}
-          active={activeAction}
-          onSelect={() => setDrawerOpen(false)}
-          onLogout={logout}
         />
         <LedgerModal
           mode={ledgerModal}
@@ -842,6 +967,7 @@ function AppContent() {
         onArchiveCategory={archiveCategoryItem}
         onArchivePayment={archivePaymentItem}
         onRefresh={refresh}
+        onLeaveLedger={requestLeaveLedger}
         onRoleChange={async (memberId, role) => {
           try {
             await api.ledger.updateMemberRole.mutate({
@@ -867,7 +993,6 @@ function AppContent() {
       <AppHeader
         title={actionLabel(activeAction)}
         caption={activeLedger?.name || "共同帳本"}
-        onMenu={() => setDrawerOpen(true)}
         action={
           <View style={styles.headerActions}>
             <Pressable
@@ -901,15 +1026,6 @@ function AppContent() {
         {content}
       </ScrollView>
       <QuickNav active={activeAction} onSelect={setActiveAction} />
-      <Drawer
-        open={drawerOpen}
-        active={activeAction}
-        onSelect={action => {
-          setActiveAction(action);
-          setDrawerOpen(false);
-        }}
-        onLogout={logout}
-      />
       <TransactionModal
         visible={transactionModal}
         editingTransaction={editingTransaction}
@@ -1104,30 +1220,19 @@ function LoginScreen({
 function AppHeader({
   title,
   caption,
-  onMenu,
   action,
 }: {
   title: string;
   caption: string;
-  onMenu: () => void;
   action?: ReactNode;
 }) {
   const { palette } = useAppearance();
   return (
     <SafeAreaView edges={["top"]} style={[styles.headerSafe, { backgroundColor: palette.surface }]}>
       <View style={[styles.appHeader, { borderBottomColor: palette.border }]}>
-        <Pressable
-          accessibilityLabel="開啟側邊選單"
-          accessibilityRole="button"
-          hitSlop={12}
-          onPress={onMenu}
-          style={({ pressed }) => [
-            styles.menuButton,
-            pressed && styles.pressed,
-          ]}
-        >
-          <MaterialCommunityIcons name="menu" size={25} color={colors.ink} />
-        </Pressable>
+        <View style={styles.smallMark}>
+          <MaterialCommunityIcons name="heart-multiple-outline" size={22} color={colors.rose} />
+        </View>
         <View style={styles.headerTitleWrap}>
           <Text style={styles.headerTitle}>{title}</Text>
           <Text style={styles.headerCaption}>{caption}</Text>
@@ -1182,11 +1287,17 @@ function LedgerSelector({
 }
 
 function LedgerHome({
+  user,
+  onUpdateNickname,
+  onLogout,
   ledgers,
   onSelect,
   onCreate,
   onJoin,
 }: {
+  user: User;
+  onUpdateNickname: (name: string) => void | Promise<void>;
+  onLogout: () => void;
   ledgers: Ledger[];
   onSelect: (ledger: Ledger) => void;
   onCreate: () => void;
@@ -1229,15 +1340,26 @@ function LedgerHome({
           <Text style={styles.secondaryActionButtonText}>加入帳本</Text>
         </Pressable>
       </View>
+      <PersonalSettingsCard
+        user={user}
+        onUpdateNickname={onUpdateNickname}
+        onLogout={onLogout}
+      />
     </ScrollView>
   );
 }
 
 function EmptyLedger({
+  user,
+  onUpdateNickname,
+  onLogout,
   error,
   onCreate,
   onJoin,
 }: {
+  user: User;
+  onUpdateNickname: (name: string) => void | Promise<void>;
+  onLogout: () => void;
   error: string;
   onCreate: () => void;
   onJoin: () => void;
@@ -1282,6 +1404,11 @@ function EmptyLedger({
           />
           <Text style={styles.secondaryButtonText}>使用邀請碼加入</Text>
         </Pressable>
+        <PersonalSettingsCard
+          user={user}
+          onUpdateNickname={onUpdateNickname}
+          onLogout={onLogout}
+        />
       </ScrollView>
     </SafeAreaView>
   );
@@ -1422,9 +1549,25 @@ function Overview({
           <Text style={styles.cardTitle}>最近收支</Text>
           <Text style={styles.cardHint}>{Math.min(transactions.length, 8)} 筆</Text>
         </View>
-        {transactions.length === 0 ? <EmptyInline text="目前沒有收支記錄。" /> : transactions.slice(0, 8).map(tx => (
-          <TransactionRow key={tx.id} transaction={tx} categories={categories} onEdit={onEdit} onDelete={onDelete} />
-        ))}
+        {transactions.length === 0 ? (
+          <EmptyInline text="目前沒有收支記錄。" />
+        ) : (
+          <ScrollView
+            style={styles.recentTransactionsScroll}
+            nestedScrollEnabled
+            showsVerticalScrollIndicator
+          >
+            {transactions.slice(0, 8).map(tx => (
+              <TransactionRow
+                key={tx.id}
+                transaction={tx}
+                categories={categories}
+                onEdit={onEdit}
+                onDelete={onDelete}
+              />
+            ))}
+          </ScrollView>
+        )}
       </View>
       <View style={styles.insightCard}>
         <MaterialCommunityIcons
@@ -1891,8 +2034,17 @@ function PlanningSection({
   );
 }
 
-function AppearanceSettingsCard() {
+function PersonalSettingsCard({
+  user,
+  onUpdateNickname,
+  onLogout,
+}: {
+  user: User;
+  onUpdateNickname: (name: string) => void | Promise<void>;
+  onLogout: () => void;
+}) {
   const { preferences, palette, updatePreferences } = useAppearance();
+  const [nickname, setNickname] = useState(user.name || "");
   const themes: Array<{ key: AppearanceTheme; label: string; color: string }> = [
     { key: "rose", label: "玫瑰", color: "#B56C78" },
     { key: "graphite", label: "石墨", color: "#58677A" },
@@ -1913,11 +2065,30 @@ function AppearanceSettingsCard() {
     <View style={styles.card}>
       <View style={styles.cardHeading}>
         <View style={styles.personalizationHeading}>
-          <MaterialCommunityIcons name="tune-variant" size={19} color={palette.rose} />
-          <Text style={styles.cardTitle}>個人化外觀</Text>
+          <MaterialCommunityIcons name="account-cog-outline" size={19} color={palette.rose} />
+          <Text style={styles.cardTitle}>個人設定</Text>
         </View>
-        <Text style={styles.cardHint}>自動保存</Text>
+        <Text style={styles.cardHint}>主頁可調整</Text>
       </View>
+      <Text style={styles.personalizationLabel}>使用者暱稱</Text>
+      <TextInput
+        value={nickname}
+        onChangeText={setNickname}
+        placeholder="輸入你想顯示的暱稱"
+        placeholderTextColor={colors.muted}
+        maxLength={64}
+        returnKeyType="done"
+        style={styles.input}
+      />
+      <Pressable
+        onPress={() => void onUpdateNickname(nickname)}
+        style={({ pressed }) => [styles.smallButton, pressed && styles.pressed]}
+      >
+        <Text style={styles.smallButtonText}>儲存暱稱</Text>
+      </Pressable>
+      <Text style={styles.rowSubtitle}>
+        暱稱會顯示在帳本成員與操作日誌中。
+      </Text>
       <Text style={styles.personalizationLabel}>App 主題</Text>
       <View style={styles.optionRow}>
         {themes.map(theme => (
@@ -1965,6 +2136,13 @@ function AppearanceSettingsCard() {
           </Pressable>
         ))}
       </View>
+      <Pressable
+        onPress={onLogout}
+        style={({ pressed }) => [styles.outlineButton, pressed && styles.pressed]}
+      >
+        <MaterialCommunityIcons name="logout" size={17} color={colors.rose} />
+        <Text style={styles.outlineButtonText}>登出帳號</Text>
+      </Pressable>
     </View>
   );
 }
@@ -1982,6 +2160,7 @@ function SettingsSection({
   onArchiveCategory,
   onArchivePayment,
   onRefresh,
+  onLeaveLedger,
   onRoleChange,
 }: {
   ledger: Ledger;
@@ -1996,6 +2175,7 @@ function SettingsSection({
   onArchiveCategory: (categoryId: number) => void;
   onArchivePayment: (paymentMethodId: number) => void;
   onRefresh: () => void;
+  onLeaveLedger: () => void;
   onRoleChange: (memberId: number, role: "admin" | "member" | "viewer") => void;
 }) {
   const [showQr, setShowQr] = useState(false);
@@ -2059,7 +2239,26 @@ function SettingsSection({
         title="把共同空間設定好"
         body="帳本不會預先建立交易、預算或固定收支；分類與支付方式支援完整自訂或重置。"
       />
-      <AppearanceSettingsCard />
+      <View style={styles.card}>
+        <View style={styles.cardHeading}>
+          <View style={styles.personalizationHeading}>
+            <MaterialCommunityIcons name="account-switch-outline" size={19} color={colors.rose} />
+            <Text style={styles.cardTitle}>帳本生命週期</Text>
+          </View>
+        </View>
+        <Text style={styles.rowSubtitle}>
+          成員可退出帳本；持有者需要先轉讓給其他成員，或確認刪除整本帳本。
+        </Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="退出或移除目前帳本"
+          onPress={onLeaveLedger}
+          style={({ pressed }) => [styles.dangerButton, pressed && styles.pressed]}
+        >
+          <MaterialCommunityIcons name="exit-to-app" size={18} color={colors.rose} />
+          <Text style={styles.dangerButtonText}>退出／移除目前帳本</Text>
+        </Pressable>
+      </View>
       <View style={styles.card}>
         <View style={styles.cardHeading}>
           <Text style={styles.cardTitle}>邀請成員</Text>
@@ -2393,94 +2592,6 @@ function QuickNav({
         </Pressable>
       ))}
     </View>
-  );
-}
-
-function Drawer({
-  open,
-  active,
-  onSelect,
-  onLogout,
-}: {
-  open: boolean;
-  active: DrawerAction;
-  onSelect: (action: DrawerAction) => void;
-  onLogout: () => void;
-}) {
-  const items: {
-    key: DrawerAction;
-    label: string;
-    icon: keyof typeof MaterialCommunityIcons.glyphMap;
-  }[] = [
-    { key: "overview", label: "總覽", icon: "view-dashboard-outline" },
-    { key: "calendar", label: "月曆", icon: "calendar-month-outline" },
-    { key: "analysis", label: "分析", icon: "chart-line" },
-    { key: "planning", label: "規劃", icon: "wallet-outline" },
-    { key: "settings", label: "設定", icon: "tune-variant" },
-  ];
-  return (
-    <Modal
-      visible={open}
-      transparent
-      animationType="fade"
-      onRequestClose={() => onSelect(active)}
-    >
-      <View style={styles.drawerBackdrop}>
-        <Pressable
-          style={styles.drawerDismiss}
-          onPress={() => onSelect(active)}
-        />
-        <View style={styles.drawer}>
-          <View style={styles.drawerBrand}>
-            <View style={styles.smallMark}>
-              <MaterialCommunityIcons
-                name="heart"
-                size={17}
-                color={colors.rose}
-              />
-            </View>
-            <Text style={styles.drawerTitle}>共帳</Text>
-          </View>
-          <Text style={styles.drawerCaption}>TOGETHER LEDGER</Text>
-          <View style={styles.drawerDivider} />
-          {items.map(item => (
-            <Pressable
-              key={item.key}
-              onPress={() => onSelect(item.key)}
-              style={({ pressed }) => [
-                styles.drawerItem,
-                active === item.key && styles.drawerItemActive,
-                pressed && styles.pressed,
-              ]}
-            >
-              <MaterialCommunityIcons
-                name={item.icon}
-                size={20}
-                color={active === item.key ? colors.rose : colors.muted}
-              />
-              <Text
-                style={[
-                  styles.drawerItemText,
-                  active === item.key && styles.drawerItemTextActive,
-                ]}
-              >
-                {item.label}
-              </Text>
-            </Pressable>
-          ))}
-          <View style={styles.drawerBottom}>
-            <Pressable onPress={onLogout} style={styles.logoutButton}>
-              <MaterialCommunityIcons
-                name="logout"
-                size={19}
-                color={colors.muted}
-              />
-              <Text style={styles.logoutText}>登出</Text>
-            </Pressable>
-          </View>
-        </View>
-      </View>
-    </Modal>
   );
 }
 
@@ -4010,6 +4121,32 @@ const styles = StyleSheet.create({
     backgroundColor: colors.rose,
   },
   smallButtonText: { color: "#FFFFFF", fontSize: 11, fontWeight: "700" },
+  outlineButton: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 13,
+    backgroundColor: colors.surface,
+  },
+  outlineButtonText: { color: colors.rose, fontSize: 12, fontWeight: "700" },
+  dangerButton: {
+    minHeight: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    marginTop: 14,
+    borderWidth: 1,
+    borderColor: "#EAC9C5",
+    borderRadius: 13,
+    backgroundColor: "#FFF4F0",
+  },
+  dangerButtonText: { color: colors.rose, fontSize: 12, fontWeight: "700" },
   transactionRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -4160,6 +4297,7 @@ const styles = StyleSheet.create({
   calendarDaySelected: { color: colors.rose, fontWeight: "800" },
   calendarDot: { width: 5, height: 5, marginTop: 4, borderRadius: 3 },
   paymentOverviewScroll: { maxHeight: 170 },
+  recentTransactionsScroll: { maxHeight: 286 },
   transactionActions: { flexDirection: "row", alignItems: "center", gap: 3, marginLeft: 6 },
   rowActionButton: { width: 28, height: 28, alignItems: "center", justifyContent: "center", borderRadius: 9, backgroundColor: "#FBF3EF" },
   receiptActions: { flexDirection: "row", gap: 8, marginBottom: 14 },
@@ -4178,23 +4316,6 @@ const styles = StyleSheet.create({
   calendarDayActive: { backgroundColor: colors.rose },
   calendarDayText: { color: colors.ink, fontSize: 13, fontWeight: "600" },
   calendarDayTextActive: { color: "#FFFFFF", fontWeight: "800" },
-  drawerBackdrop: {
-    flex: 1,
-    flexDirection: "row",
-    backgroundColor: "rgba(58,47,43,0.26)",
-  },
-  drawerDismiss: { flex: 1 },
-  drawer: {
-    width: 286,
-    paddingHorizontal: 20,
-    paddingTop: 60,
-    backgroundColor: colors.surface,
-    shadowColor: "#3A2F2B",
-    shadowOpacity: 0.15,
-    shadowRadius: 18,
-    elevation: 12,
-  },
-  drawerBrand: { flexDirection: "row", alignItems: "center", gap: 10 },
   smallMark: {
     width: 36,
     height: 36,
@@ -4203,38 +4324,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: colors.roseSoft,
   },
-  drawerTitle: { color: colors.ink, fontSize: 22, fontWeight: "700" },
-  drawerCaption: {
-    marginTop: 5,
-    marginLeft: 46,
-    color: "#B69E94",
-    fontSize: 9,
-    letterSpacing: 2,
-  },
-  drawerDivider: {
-    height: 1,
-    marginVertical: 26,
-    backgroundColor: colors.border,
-  },
-  drawerItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 13,
-    minHeight: 48,
-    paddingHorizontal: 13,
-    borderRadius: 14,
-  },
-  drawerItemActive: { backgroundColor: colors.roseSoft },
-  drawerItemText: { color: colors.muted, fontSize: 14 },
-  drawerItemTextActive: { color: colors.rose, fontWeight: "700" },
-  drawerBottom: { flex: 1, justifyContent: "flex-end", paddingBottom: 24 },
-  logoutButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 13,
-    padding: 13,
-  },
-  logoutText: { color: colors.muted, fontSize: 14 },
   modalBackdrop: {
     flex: 1,
     justifyContent: "flex-end",
