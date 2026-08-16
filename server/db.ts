@@ -112,8 +112,9 @@ export async function createLedger(input: {
   await db.insert(ledgerMembers).values({ ledgerId, userId: input.createdBy, role: "admin" });
 
   // Seed only reference data required by the pasted content. A new ledger must
-  // still have no example transactions, budgets, recurring items, settlements,
-  // or payment methods.
+  // still have no example transactions, budgets, recurring items, or settlements.
+  // Payment methods are reference choices, not financial records, so seed the
+  // same four suggestions exposed by the Android settings screen.
   const rootPresets = [
     { name: "飲食", type: "expense" as const, icon: "🍽", color: "#C98558" },
     { name: "交通", type: "expense" as const, icon: "🚗", color: "#6D8EA8" },
@@ -145,6 +146,12 @@ export async function createLedger(input: {
       color: rootPresets.find(item => item.name === parent)?.color ?? "#B56C78",
     })),
   );
+  await db.insert(paymentMethods).values([
+    { ledgerId, name: "現金", icon: "現" },
+    { ledgerId, name: "信用卡", icon: "卡" },
+    { ledgerId, name: "電子支付", icon: "支" },
+    { ledgerId, name: "銀行轉帳", icon: "銀" },
+  ]);
   return (await getLedgerAccess(ledgerId, input.createdBy))?.ledger;
 }
 

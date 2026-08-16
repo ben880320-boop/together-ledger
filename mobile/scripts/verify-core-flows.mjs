@@ -12,7 +12,7 @@ const createLedgerBlock = db.slice(createLedgerStart, createLedgerEnd);
 const checks = [
   ["未登入顯示登入／註冊畫面", app.includes('if (!user)') && app.includes('登入／註冊')],
   ["登入／註冊使用 OAuth signIn／signUp 並驗證 state", app.includes('mode: "signIn" | "signUp"') && app.includes('set("type", mode)') && app.includes('登入回呼驗證失敗')],
-  ["建立新帳本保持空白且有預設主／子分類", app.includes('建立空白共同帳本') && createLedgerBlock.includes('rootPresets') && createLedgerBlock.includes('childPresets') && createLedgerBlock.includes('parentCategoryId') && !/(transactions|budgets|recurringTransactions|paymentMethods|settlements)\\.values/.test(createLedgerBlock)],
+  ["建立新帳本保持空白且有預設主／子分類／支付方式", app.includes('建立空白共同帳本') && createLedgerBlock.includes('rootPresets') && createLedgerBlock.includes('childPresets') && createLedgerBlock.includes('parentCategoryId') && createLedgerBlock.includes('paymentMethods').toString() && createLedgerBlock.includes('現金') && !/(transactions|budgets|recurringTransactions|settlements)\\.values/.test(createLedgerBlock)],
   ["邀請碼加入帳本", app.includes('api.ledger.join.mutate') && router.includes('join: protectedProcedure')],
   ["QR Code、分享與 deep link 加入", app.includes('QRCode') && app.includes('Share.share') && app.includes('Linking.addEventListener') && app.includes('inviteCodeFromUrl')],
   ["三種分攤方式", app.includes('equal') && app.includes('custom') && app.includes('amount') && app.includes('splitType')],
