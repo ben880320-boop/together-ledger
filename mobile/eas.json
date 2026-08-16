@@ -7,6 +7,10 @@
       "distribution": "internal",
       "android": {
         "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_APP_ID": "HDBmsjkFmtXoV2nyYfgboo",
+        "EXPO_PUBLIC_OAUTH_PORTAL_URL": "https://manus.im"
       }
     },
     "production": {

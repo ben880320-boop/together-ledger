@@ -112,7 +112,7 @@ type Recurring = {
   isActive: number;
 };
 
-const APP_ID = process.env.EXPO_PUBLIC_APP_ID || "HDBmsjkFmtV0V2nyYfgboo";
+const APP_ID = process.env.EXPO_PUBLIC_APP_ID || "HDBmsjkFmtXoV2nyYfgboo";
 const OAUTH_PORTAL_URL = (
   process.env.EXPO_PUBLIC_OAUTH_PORTAL_URL || "https://manus.im"
 ).replace(/\/$/, "");
@@ -735,7 +735,7 @@ function LoginScreen({
         <View style={styles.formCard}>
           <Text style={styles.formTitle}>登入／註冊共帳</Text>
           <Text style={styles.formBody}>
-            第一次使用會先完成 Manus 帳號登入；登入後不會自動建立任何帳本。
+            請點擊下方按鈕登入或註冊您的共帳帳號。登入後可建立新帳本或透過邀請加入共同記帳空間。
           </Text>
           {!!error && <Text style={styles.errorText}>{error}</Text>}
           <Pressable
@@ -773,7 +773,7 @@ function LoginScreen({
           </Pressable>
         </View>
         <Text style={styles.privacyText}>
-          登入後所有帳本都由你主動建立或加入，不會出現預設資料。
+          新帳本完全空白，所有交易與預算均由雙方手動記錄。
         </Text>
       </ScrollView>
     </SafeAreaView>
@@ -1573,7 +1573,7 @@ function SettingsSection({
       <SectionIntro
         eyebrow="LEDGER SETTINGS"
         title="把共同空間設定好"
-        body="帳本不會預先建立交易、預算或固定收支；分類與支付方式依 pasted_content.txt 提供必要預設，也能繼續新增自訂項目。"
+        body="帳本不會預先建立交易、預算或固定收支；分類與支付方式支援完整自訂或重置。"
       />
       <View style={styles.card}>
         <View style={styles.cardHeading}>
@@ -1951,7 +1951,7 @@ function LedgerModal({
           </Text>
           <Text style={styles.modalDescription}>
             {mode === "create"
-              ? "這個帳本只會建立名稱與你這位管理員，不會建立任何交易、預算或固定收支；必要分類與支付方式會提供可選的預設項目。"
+              ? "建立全新空白帳本，不含任何預設交易或收支記錄。"
               : "輸入對方分享給你的邀請碼。"}
           </Text>
           {mode === "create" ? (
