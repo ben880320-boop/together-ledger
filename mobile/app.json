@@ -1,5 +1,6 @@
 {
   "expo": {
+    "owner": "chen880320s-team",
     "name": "共帳 Together Ledger",
     "slug": "together-ledger",
     "version": "1.0.0",
@@ -19,6 +20,12 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "7be6d8b4-7f55-45bd-9558-3d64526347ee"
+      }
     }
   }
 }
