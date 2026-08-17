@@ -34,7 +34,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          archive="$(find . -maxdepth 1 -type f -name '*release-source*.tar.gz' -print -quit)"
+          archive="$(find . -maxdepth 1 -type f -name '*release-source*.tar.gz' -print | sort -V | tail -n 1)"
           if [ -z "$archive" ]; then
             echo "No release source archive found; using mobile source from checkout."
             test -f mobile/pnpm-lock.yaml
@@ -84,8 +84,8 @@ jobs:
         run: |
           VERSION="$(grep -m1 '"version"' mobile/app.json | sed -E 's/.*"version": "([^"]+)".*/\1/')"
           VERSION_CODE="$(grep -m1 '"versionCode"' mobile/app.json | sed -E 's/.*"versionCode": ([0-9]+).*/\1/')"
-          test "$VERSION" = "1.2.0"
-          test "$VERSION_CODE" = "2"
+          test -n "$VERSION"
+          test -n "$VERSION_CODE"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
 
@@ -127,9 +127,9 @@ jobs:
           test -f "$APK"
           unzip -l "$APK" | grep -E 'assets/index\.android\.bundle|assets/.*\.bundle' >/dev/null
           AAPT="${ANDROID_HOME}/build-tools/36.0.0/aapt"
-          "$AAPT" dump badging "$APK" | grep -F "versionName='1.2.0'" >/dev/null
-          "$AAPT" dump badging "$APK" | grep -F "versionCode='2'" >/dev/null
-          echo "Release APK contains the embedded JavaScript bundle and versionName=1.2.0/versionCode=2."
+          "$AAPT" dump badging "$APK" | grep -F "versionName='${{ steps.app-version.outputs.version }}'" >/dev/null
+          "$AAPT" dump badging "$APK" | grep -F "versionCode='${{ steps.app-version.outputs.version_code }}'" >/dev/null
+          echo "Release APK contains the embedded JavaScript bundle and versionName=${{ steps.app-version.outputs.version }}/versionCode=${{ steps.app-version.outputs.version_code }}."
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
