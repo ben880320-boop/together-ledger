@@ -46,7 +46,9 @@ const checks = [
   ["GitHub 專案、Release 入口與新版本提示", app.includes('GITHUB_REPOSITORY_URL') && app.includes('GITHUB_RELEASES_URL') && app.includes('releases/latest') && app.includes('isVersionNewer') && app.includes('發現新版 Together Ledger')],
   ["通知偏好儲存後正規化、同步回饋與競態保護", app.includes('normalizeNotificationPreferences') && app.includes('notificationRequestRef') && app.includes('setSettingsNotice') && app.includes('提醒設定已儲存並同步')],
   ["每月提醒日使用 1–28 點選控制", app.includes('Array.from({ length: 28 }') && app.includes('每月提醒日期（1–28 日）') && app.includes('setNotificationDraft(current => ({ ...current, monthlyReminderDay: day }))')],
-  ["星空與海洋採用情境背景而非單色", app.includes('function ThemeAtmosphere') && app.includes('starPositions') && app.includes('background: "#060A1D"') && app.includes('background: "#062638"') && app.includes('borderTopWidth: 3')],
+  ["所有 App 主題採用情境背景而非單色", app.includes('function ThemeAtmosphere') && app.includes('starPositions') && app.includes('petalPositions') && app.includes('snowPositions') && app.includes('preferences.theme === "rose"') && app.includes('preferences.theme === "cherry"') && app.includes('preferences.theme === "graphite"') && app.includes('preferences.theme === "latte"') && app.includes('preferences.theme === "mint"') && app.includes('preferences.theme === "ocean"') && app.includes('preferences.theme === "sunset"') && app.includes('preferences.theme === "starry"') && app.includes('preferences.theme === "forest"') && app.includes('preferences.theme === "meadow"') && app.includes('preferences.theme === "snow"') && app.includes('preferences.theme === "lavender"') && app.includes('label: "櫻花"') && app.includes('label: "草原"') && app.includes('label: "雪地"')],
+  ["登入、空帳本、帳本與個人設定均掛載主題情境", (app.match(/<ThemeAtmosphere \/>/g) || []).length >= 5],
+  ["pnpm 部署設定與 lockfile 使用一致的 workspace 設定", readFileSync(resolve(projectRoot, "../pnpm-workspace.yaml"), "utf8").includes("patchedDependencies:")],
   ["分類與支付方式表情符號正確帶入交易表單", app.includes('categoryEmoji(item)') && app.includes('paymentEmoji(item)')],
 ];
 

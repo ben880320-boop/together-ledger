@@ -65,6 +65,7 @@ const colors = {
 
 type AppearanceTheme =
   | "rose"
+  | "cherry"
   | "graphite"
   | "latte"
   | "mint"
@@ -72,6 +73,8 @@ type AppearanceTheme =
   | "sunset"
   | "starry"
   | "forest"
+  | "meadow"
+  | "snow"
   | "lavender";
 type AppearanceFont = "system" | "rounded" | "serif" | "clean" | "mono";
 type AppearanceScale = "tiny" | "small" | "standard" | "large" | "xl";
@@ -116,7 +119,7 @@ const appearanceDefaults: AppearancePreferences = {
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
 const oauthStateKey = "together-ledger-oauth-state";
-const APP_VERSION = "1.2.3";
+const APP_VERSION = "1.2.4";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 
@@ -140,6 +143,20 @@ const isVersionNewer = (remote: string, local: string) => {
 };
 const appearancePalettes: Record<AppearanceTheme, typeof colors> = {
   rose: colors,
+  cherry: {
+    ...colors,
+    background: "#FFF3F7",
+    surface: "#FFF9FB",
+    ink: "#50313D",
+    muted: "#9B7280",
+    border: "#F2D7E1",
+    rose: "#CE6D91",
+    roseSoft: "#FBE0EA",
+    burgundy: "#754353",
+    sage: "#839D78",
+    orange: "#D28A72",
+    blue: "#7E9CB5",
+  },
   graphite: {
     ...colors,
     background: "#F4F5F7",
@@ -231,6 +248,34 @@ const appearancePalettes: Record<AppearanceTheme, typeof colors> = {
     sage: "#5C9568",
     orange: "#C38C5C",
     blue: "#568A92",
+  },
+  meadow: {
+    ...colors,
+    background: "#F4F7E8",
+    surface: "#FDFFF8",
+    ink: "#39452A",
+    muted: "#7E8B69",
+    border: "#DDE7C9",
+    rose: "#7B9B43",
+    roseSoft: "#E5F0CC",
+    burgundy: "#526734",
+    sage: "#81A66B",
+    orange: "#D1A44B",
+    blue: "#7A9AAA",
+  },
+  snow: {
+    ...colors,
+    background: "#E9F2F8",
+    surface: "#F9FCFF",
+    ink: "#29404F",
+    muted: "#6D8798",
+    border: "#D5E4EF",
+    rose: "#5A8BA5",
+    roseSoft: "#E1EEF6",
+    burgundy: "#375A71",
+    sage: "#7197A3",
+    orange: "#B98A66",
+    blue: "#6395B5",
   },
   lavender: {
     ...colors,
@@ -327,6 +372,16 @@ const starPositions = [
   [11, 31, 3], [28, 39, 2], [42, 27, 2], [56, 43, 4], [67, 32, 2], [82, 45, 3], [94, 29, 2],
 ] as const;
 
+const petalPositions = [
+  [6, 14, 9, -18], [21, 6, 7, 26], [36, 21, 10, 8], [51, 10, 6, -35],
+  [67, 26, 8, 32], [82, 11, 10, -12], [92, 36, 7, 28], [15, 48, 8, 16],
+] as const;
+
+const snowPositions = [
+  [8, 16, 5], [24, 8, 3], [39, 28, 5], [55, 10, 4], [71, 24, 3], [88, 12, 5],
+  [15, 42, 3], [34, 49, 4], [61, 43, 5], [83, 55, 3],
+] as const;
+
 function ThemeAtmosphere() {
   const { preferences } = useAppearance();
   const glow = useRef(new Animated.Value(0.35)).current;
@@ -345,17 +400,94 @@ function ThemeAtmosphere() {
     animation.start();
     return () => animation.stop();
   }, [glow, preferences.reduceMotion, preferences.theme]);
+  const sceneContainer = { ...StyleSheet.absoluteFillObject, overflow: "hidden" as const };
+  if (preferences.theme === "rose") {
+    return <View pointerEvents="none" style={sceneContainer}>
+      <View style={{ position: "absolute", width: 250, height: 250, borderRadius: 125, backgroundColor: "#F2CDD4", opacity: 0.34, top: -132, left: -95 }} />
+      <View style={{ position: "absolute", width: 210, height: 130, borderRadius: 100, borderWidth: 18, borderColor: "#EEC5CD", opacity: 0.28, right: -72, bottom: 96, transform: [{ rotate: "-18deg" }] }} />
+      <View style={{ position: "absolute", width: "140%", height: 170, borderRadius: 150, backgroundColor: "#F7E2DD", opacity: 0.55, bottom: -104, left: "-20%", transform: [{ rotate: "4deg" }] }} />
+    </View>;
+  }
+  if (preferences.theme === "cherry") {
+    return <View pointerEvents="none" style={sceneContainer}>
+      <View style={{ position: "absolute", width: 240, height: 16, borderRadius: 12, backgroundColor: "#734958", opacity: 0.5, top: 58, left: -26, transform: [{ rotate: "24deg" }] }} />
+      <View style={{ position: "absolute", width: 144, height: 10, borderRadius: 10, backgroundColor: "#8E5A67", opacity: 0.43, top: 98, left: 35, transform: [{ rotate: "-27deg" }] }} />
+      {petalPositions.map(([left, top, size, rotation], index) => <View key={`${left}-${top}`} style={{ position: "absolute", left: `${left}%`, top: `${top}%`, width: size, height: Math.max(5, size - 2), borderRadius: size, backgroundColor: index % 2 ? "#F3A9C0" : "#F8C7D5", opacity: 0.72, transform: [{ rotate: `${rotation}deg` }] }} />)}
+      <View style={{ position: "absolute", width: "145%", height: 130, bottom: -72, left: "-24%", borderRadius: 120, backgroundColor: "#F9DDE7", opacity: 0.62 }} />
+    </View>;
+  }
+  if (preferences.theme === "graphite") {
+    return <View pointerEvents="none" style={sceneContainer}>
+      <View style={{ position: "absolute", width: 205, height: 205, borderRadius: 105, borderWidth: 28, borderColor: "#DCE2EA", opacity: 0.55, top: -115, right: -54 }} />
+      {[28, 52, 76].map(offset => <View key={offset} style={{ position: "absolute", height: 1, width: "115%", left: "-8%", top: `${offset}%`, backgroundColor: "#D2D9E2", opacity: 0.52, transform: [{ rotate: "-12deg" }] }} />)}
+      <View style={{ position: "absolute", width: "145%", height: 135, bottom: -82, left: "-19%", borderRadius: 130, backgroundColor: "#E6EBF0", opacity: 0.72 }} />
+    </View>;
+  }
+  if (preferences.theme === "latte") {
+    return <View pointerEvents="none" style={sceneContainer}>
+      <View style={{ position: "absolute", width: 205, height: 205, borderRadius: 105, borderWidth: 23, borderColor: "#E7CAB4", opacity: 0.44, top: -92, right: -48 }} />
+      <View style={{ position: "absolute", width: 128, height: 56, borderRadius: 70, borderTopWidth: 9, borderColor: "#D6A987", opacity: 0.31, left: -18, top: 112, transform: [{ rotate: "-20deg" }] }} />
+      <View style={{ position: "absolute", width: "135%", height: 128, bottom: -69, left: "-16%", borderRadius: 120, backgroundColor: "#EFD9C5", opacity: 0.52 }} />
+    </View>;
+  }
+  if (preferences.theme === "mint") {
+    return <View pointerEvents="none" style={sceneContainer}>
+      <View style={{ position: "absolute", width: 180, height: 82, borderRadius: 110, backgroundColor: "#C7E8DA", opacity: 0.52, top: 8, left: -42, transform: [{ rotate: "-32deg" }] }} />
+      <View style={{ position: "absolute", width: 166, height: 70, borderRadius: 100, backgroundColor: "#D7EFE1", opacity: 0.64, top: 110, right: -58, transform: [{ rotate: "36deg" }] }} />
+      <View style={{ position: "absolute", width: "145%", height: 135, bottom: -83, left: "-21%", borderRadius: 140, backgroundColor: "#CFE9DC", opacity: 0.57 }} />
+    </View>;
+  }
   if (preferences.theme === "starry") {
-    return <View pointerEvents="none" style={{ ...StyleSheet.absoluteFillObject, overflow: "hidden" }}>
+    return <View pointerEvents="none" style={sceneContainer}>
       <View style={{ position: "absolute", width: 280, height: 280, borderRadius: 140, backgroundColor: "#27346C", opacity: 0.32, top: -150, right: -88 }} />
       {starPositions.map(([left, top, size], index) => <Animated.View key={`${left}-${top}`} style={{ position: "absolute", left: `${left}%`, top: `${top}%`, width: size, height: size, borderRadius: size, backgroundColor: "#FFFFFF", opacity: index % 3 === 0 ? glow : 0.72, shadowColor: "#B8D8FF", shadowOpacity: 0.9, shadowRadius: 5 }} />)}
+      <View style={{ position: "absolute", width: "145%", height: 130, bottom: -93, left: "-22%", borderRadius: 130, backgroundColor: "#101C45", opacity: 0.9 }} />
     </View>;
   }
   if (preferences.theme === "ocean") {
-    return <View pointerEvents="none" style={{ ...StyleSheet.absoluteFillObject, overflow: "hidden" }}>
+    return <View pointerEvents="none" style={sceneContainer}>
+      <View style={{ position: "absolute", width: 170, height: 170, borderRadius: 90, backgroundColor: "#79D7E8", opacity: 0.12, top: -92, right: -35 }} />
       <View style={{ position: "absolute", width: "150%", height: 260, bottom: -110, left: "-25%", borderRadius: 190, backgroundColor: "#0F5670", opacity: 0.64, transform: [{ rotate: "-5deg" }] }} />
       <View style={{ position: "absolute", width: "150%", height: 220, bottom: -142, left: "-20%", borderRadius: 180, backgroundColor: "#1D8CA5", opacity: 0.55, transform: [{ rotate: "5deg" }] }} />
       <View style={{ position: "absolute", width: "150%", height: 90, bottom: 46, left: "-24%", borderRadius: 90, borderTopWidth: 3, borderColor: "#A4F2FF", opacity: 0.38, transform: [{ rotate: "-4deg" }] }} />
+    </View>;
+  }
+  if (preferences.theme === "sunset") {
+    return <View pointerEvents="none" style={sceneContainer}>
+      <View style={{ position: "absolute", width: 138, height: 138, borderRadius: 80, backgroundColor: "#FFD49A", opacity: 0.64, top: 44, right: 28 }} />
+      <View style={{ position: "absolute", width: "145%", height: 110, bottom: 82, left: "-23%", borderRadius: 130, backgroundColor: "#F0A17F", opacity: 0.32, transform: [{ rotate: "-3deg" }] }} />
+      <View style={{ position: "absolute", width: "150%", height: 155, bottom: -85, left: "-25%", borderRadius: 150, backgroundColor: "#D78170", opacity: 0.44 }} />
+    </View>;
+  }
+  if (preferences.theme === "forest") {
+    return <View pointerEvents="none" style={sceneContainer}>
+      <View style={{ position: "absolute", width: 42, height: 210, borderRadius: 25, backgroundColor: "#8BB095", opacity: 0.28, left: 20, top: -58, transform: [{ rotate: "16deg" }] }} />
+      <View style={{ position: "absolute", width: 160, height: 160, borderRadius: 100, backgroundColor: "#B4D3B7", opacity: 0.43, right: -42, top: 12 }} />
+      <View style={{ position: "absolute", width: "155%", height: 160, bottom: -88, left: "-26%", borderRadius: 160, backgroundColor: "#9BC5A0", opacity: 0.46, transform: [{ rotate: "-4deg" }] }} />
+      <View style={{ position: "absolute", width: "150%", height: 125, bottom: -95, left: "-20%", borderRadius: 140, backgroundColor: "#6FA87A", opacity: 0.35, transform: [{ rotate: "5deg" }] }} />
+    </View>;
+  }
+  if (preferences.theme === "meadow") {
+    return <View pointerEvents="none" style={sceneContainer}>
+      <View style={{ position: "absolute", width: 160, height: 160, borderRadius: 90, backgroundColor: "#F5D976", opacity: 0.36, top: -72, right: -28 }} />
+      <View style={{ position: "absolute", width: "145%", height: 135, bottom: 58, left: "-24%", borderRadius: 150, backgroundColor: "#D8EAA9", opacity: 0.7, transform: [{ rotate: "-5deg" }] }} />
+      <View style={{ position: "absolute", width: "150%", height: 145, bottom: -76, left: "-26%", borderRadius: 150, backgroundColor: "#9EC87D", opacity: 0.48, transform: [{ rotate: "4deg" }] }} />
+      {[12, 29, 46, 72, 88].map(left => <View key={left} style={{ position: "absolute", width: 3, height: 42, bottom: 56, left: `${left}%`, backgroundColor: "#6E9B5D", opacity: 0.42, transform: [{ rotate: left % 2 ? "-16deg" : "13deg" }] }} />)}
+    </View>;
+  }
+  if (preferences.theme === "snow") {
+    return <View pointerEvents="none" style={sceneContainer}>
+      <View style={{ position: "absolute", width: 180, height: 180, borderRadius: 100, backgroundColor: "#FFFFFF", opacity: 0.52, top: -92, right: -36 }} />
+      {snowPositions.map(([left, top, size]) => <View key={`${left}-${top}`} style={{ position: "absolute", left: `${left}%`, top: `${top}%`, width: size, height: size, borderRadius: size, backgroundColor: "#FFFFFF", opacity: 0.78 }} />)}
+      <View style={{ position: "absolute", width: "150%", height: 142, bottom: -70, left: "-24%", borderRadius: 150, backgroundColor: "#D9E8F1", opacity: 0.85, transform: [{ rotate: "-5deg" }] }} />
+      <View style={{ position: "absolute", width: "145%", height: 112, bottom: -80, left: "-16%", borderRadius: 130, backgroundColor: "#C6DCE9", opacity: 0.56, transform: [{ rotate: "6deg" }] }} />
+    </View>;
+  }
+  if (preferences.theme === "lavender") {
+    return <View pointerEvents="none" style={sceneContainer}>
+      <View style={{ position: "absolute", width: 180, height: 150, borderRadius: 90, backgroundColor: "#D8C6E9", opacity: 0.47, top: -64, left: -38 }} />
+      <View style={{ position: "absolute", width: "145%", height: 125, bottom: 50, left: "-22%", borderRadius: 140, backgroundColor: "#D5C4E5", opacity: 0.54, transform: [{ rotate: "-5deg" }] }} />
+      {[9, 21, 37, 61, 78, 92].map(left => <View key={left} style={{ position: "absolute", width: 5, height: 52, borderRadius: 5, bottom: 18, left: `${left}%`, backgroundColor: "#9C78BC", opacity: 0.42, transform: [{ rotate: left % 2 ? "-9deg" : "8deg" }] }} />)}
     </View>;
   }
   return null;
@@ -1454,6 +1586,7 @@ function AppContent() {
       style={[styles.screen, { backgroundColor: palette.background }]}
       edges={["top", "bottom"]}
     >
+      <ThemeAtmosphere />
       <AppHeader
         title={actionLabel(activeAction)}
         caption={activeLedger?.name || "共同帳本"}
@@ -1679,6 +1812,7 @@ function LoginScreen({
   const { palette } = useAppearance();
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "bottom"]}>
+      <ThemeAtmosphere />
       <ScrollView contentContainerStyle={styles.loginContent}>
         <View style={styles.brandMark}>
           <MaterialCommunityIcons name="heart" size={28} color={colors.rose} />
@@ -1892,6 +2026,7 @@ function EmptyLedger({
   const { palette } = useAppearance();
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["bottom"]}>
+      <ThemeAtmosphere />
       <ScrollView contentContainerStyle={styles.emptyContent}>
         <View style={styles.emptyIllustration}>
           <MaterialCommunityIcons
@@ -2698,6 +2833,7 @@ function PersonalSettingsPage({
   useEffect(() => setNotificationDraft(notificationPreferences), [notificationPreferences]);
   const themes: Array<{ key: AppearanceTheme; label: string; color: string }> = [
     { key: "rose", label: "玫瑰", color: "#B56C78" },
+    { key: "cherry", label: "櫻花", color: "#CE6D91" },
     { key: "graphite", label: "石墨", color: "#58677A" },
     { key: "latte", label: "拿鐵", color: "#B87955" },
     { key: "mint", label: "薄荷", color: "#4D9381" },
@@ -2705,6 +2841,8 @@ function PersonalSettingsPage({
     { key: "sunset", label: "夕暮", color: "#D17B61" },
     { key: "starry", label: "星空", color: "#6D63B8" },
     { key: "forest", label: "森林", color: "#5A956F" },
+    { key: "meadow", label: "草原", color: "#7B9B43" },
+    { key: "snow", label: "雪地", color: "#5A8BA5" },
     { key: "lavender", label: "薰衣草", color: "#9C6BB3" },
   ];
   const fonts: Array<{ key: AppearanceFont; label: string; preview: string }> = [

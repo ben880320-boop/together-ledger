@@ -55,6 +55,9 @@ describe("Together Ledger v1.2.3 Android wiring", () => {
     const app = readMobile("app/index.tsx");
     expect(app).toContain('label: "海洋"');
     expect(app).toContain('label: "星空"');
+    expect(app).toContain('label: "櫻花"');
+    expect(app).toContain('label: "草原"');
+    expect(app).toContain('label: "雪地"');
     expect(app).toContain("AppearanceCardStyle");
     expect(app).toContain("AppearanceNavStyle");
     expect(app).toContain("updateCategory");
@@ -80,6 +83,14 @@ describe("Together Ledger v1.2.3 Android wiring", () => {
     expect(app).toContain("Array.from({ length: 28 }");
     expect(app).toContain("每月提醒日期（1–28 日）");
     expect(app).toContain("ThemeAtmosphere");
+    expect(app).toContain('preferences.theme === "cherry"');
+    expect(app).toContain('preferences.theme === "meadow"');
+    expect(app).toContain('preferences.theme === "snow"');
+    expect(app).toContain('preferences.theme === "forest"');
+    expect(app).toContain('preferences.theme === "sunset"');
+    expect(app).toContain('preferences.theme === "lavender"');
+    expect(app).toContain("petalPositions");
+    expect(app).toContain("snowPositions");
     expect(app).toContain('background: "#060A1D"');
     expect(app).toContain('background: "#062638"');
     expect(app).toContain("GITHUB_REPOSITORY_URL");
@@ -123,9 +134,9 @@ describe("Together Ledger v1.2.3 Android wiring", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
       expo?: { version?: string; scheme?: string; android?: { versionCode?: number } };
     };
-    expect(appJson.expo?.version).toBe("1.2.3");
-    expect(appJson.expo?.android?.versionCode).toBe(5);
-    expect(readMobile("package.json")).toContain('"version": "1.2.3"');
+    expect(appJson.expo?.version).toBe("1.2.4");
+    expect(appJson.expo?.android?.versionCode).toBe(6);
+    expect(readMobile("package.json")).toContain('"version": "1.2.4"');
     expect(appJson.expo?.scheme).toBe("togetherledger");
     expect(readMobile("app.json")).toContain("expo-notifications");
   });
@@ -158,5 +169,15 @@ describe("Together Ledger v1.2.3 Android wiring", () => {
     expect(packageJson.scripts?.["build:android:ci"]).toContain(
       "assembleDebug"
     );
+  });
+
+  it("keeps pnpm deployment configuration in the workspace file so frozen installs match the lockfile", () => {
+    const workspace = readFileSync(resolve(process.cwd(), "pnpm-workspace.yaml"), "utf8");
+    const rootPackage = readFileSync(resolve(process.cwd(), "package.json"), "utf8");
+    expect(workspace).toContain("overrides:");
+    expect(workspace).toContain('"tailwindcss>nanoid": 3.3.7');
+    expect(workspace).toContain("patchedDependencies:");
+    expect(workspace).toContain('"wouter@3.7.1": patches/wouter@3.7.1.patch');
+    expect(rootPackage).not.toContain('"pnpm": {');
   });
 });
