@@ -6,7 +6,7 @@ const mobileRoot = resolve(process.cwd(), "mobile");
 const readMobile = (relativePath: string) =>
   readFileSync(resolve(mobileRoot, relativePath), "utf8");
 
-describe("Together Ledger v1.2.2 Android wiring", () => {
+describe("Together Ledger v1.2.3 Android wiring", () => {
   it("registers a concrete OAuth callback route with state verification", () => {
     const callbackPath = resolve(mobileRoot, "app/oauth/callback.tsx");
     expect(existsSync(callbackPath)).toBe(true);
@@ -38,7 +38,7 @@ describe("Together Ledger v1.2.2 Android wiring", () => {
     expect(app).toContain("endOfDay ? 59 : 0");
   });
 
-  it("uses the themed confirmation surface instead of native Alert", () => {
+  it("uses the themed confirmation surface while reserving native Alert for update availability", () => {
     const app = readMobile("app/index.tsx");
     expect(app).toContain("function ConfirmModal(");
     expect(app).toContain("<ConfirmModal request={confirmRequest}");
@@ -46,7 +46,7 @@ describe("Together Ledger v1.2.2 Android wiring", () => {
       (app.match(/<ConfirmModal request=\{confirmRequest\}/g) || []).length
     ).toBeGreaterThanOrEqual(3);
     expect(app).toContain("confirmOverlay");
-    expect(app).not.toContain("Alert.alert");
+    expect(app).toContain('Alert.alert("發現新版 Together Ledger"');
     expect(app).toContain("再次確認移除");
     expect((app.match(/name=\"logout\"/g) || []).length).toBe(1);
   });
@@ -74,6 +74,17 @@ describe("Together Ledger v1.2.2 Android wiring", () => {
     expect(app).toContain("requestExpoPushToken");
     expect(app).toContain("Math.min(100_000_000");
     expect(app).toContain("Math.min(28");
+    expect(app).toContain("normalizeNotificationPreferences");
+    expect(app).toContain("notificationRequestRef");
+    expect(app).toContain("settingsNotice");
+    expect(app).toContain("Array.from({ length: 28 }");
+    expect(app).toContain("每月提醒日期（1–28 日）");
+    expect(app).toContain("ThemeAtmosphere");
+    expect(app).toContain('background: "#060A1D"');
+    expect(app).toContain('background: "#062638"');
+    expect(app).toContain("GITHUB_REPOSITORY_URL");
+    expect(app).toContain("GITHUB_RELEASES_URL");
+    expect(app).toContain("isVersionNewer");
     expect(app).toContain("mutationGuardRef");
     expect(app).toContain("setTimeout(() => setError");
     expect(app).toContain("FlatList");
@@ -103,14 +114,18 @@ describe("Together Ledger v1.2.2 Android wiring", () => {
     expect(app).toContain('setIcon(mode === "category" ? "🏷️" : "💳")');
     expect(app).toContain("icon: categoryEmoji({ name: draftCategoryName, icon: draftCategoryIcon })");
     expect(app).toContain("icon: paymentEmoji({ name: draftPaymentName, icon: draftPaymentIcon })");
+    expect(app).toContain("categoryEmoji(item)");
+    expect(app).toContain("paymentEmoji(item)");
     expect(app).not.toContain('icon: draftCategoryIcon.trim() || "◌"');
   });
 
   it("ships the intended app version and deep-link configuration", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
-      expo?: { version?: string; scheme?: string };
+      expo?: { version?: string; scheme?: string; android?: { versionCode?: number } };
     };
-    expect(appJson.expo?.version).toBe("1.2.2");
+    expect(appJson.expo?.version).toBe("1.2.3");
+    expect(appJson.expo?.android?.versionCode).toBe(5);
+    expect(readMobile("package.json")).toContain('"version": "1.2.3"');
     expect(appJson.expo?.scheme).toBe("togetherledger");
     expect(readMobile("app.json")).toContain("expo-notifications");
   });
@@ -128,12 +143,13 @@ describe("Together Ledger v1.2.2 Android wiring", () => {
     expect(workflow).toContain("branches:\n      - main");
     expect(workflow).toContain("android-actions/setup-android@v3");
     expect(workflow).toContain("pnpm run prebuild:android");
-    expect(workflow).toContain("assembleDebug");
+    expect(workflow).toContain("assembleRelease");
     expect(workflow).toContain("actions/upload-artifact@v4");
     expect(workflow).toContain(
-      "together-ledger-${{ steps.app-version.outputs.version }}-debug-apk"
+      "together-ledger-${{ steps.app-version.outputs.version }}-release-apk"
     );
-    expect(workflow).toContain("app-debug.apk");
+    expect(workflow).toContain("app-release.apk");
+    expect(workflow).toContain("release upload");
     expect(workflow).toContain("GITHUB_STEP_SUMMARY");
     expect(packageJson.scripts?.["prebuild:android"]).toContain(
       "expo prebuild --platform android --no-install"

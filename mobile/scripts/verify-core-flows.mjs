@@ -43,6 +43,11 @@ const checks = [
   ["移除 hamburger drawer", !app.includes('function Drawer') && !app.includes('drawerBackdrop') && !app.includes('drawerItem')],
   ["暱稱更新與獨立個人設定頁接線", app.includes('PersonalSettingsPage') && app.includes('current => current === "profile"') && app.includes('api.profile.updateName.mutate') && app.includes('使用者暱稱') && app.includes('onUpdateNickname')],
   ["登出確認、編輯單次確認與刪除二次確認", app.includes('確認登出') && app.includes('編輯收支') && app.includes('開啟編輯') && app.includes('再次確認移除')],
+  ["GitHub 專案、Release 入口與新版本提示", app.includes('GITHUB_REPOSITORY_URL') && app.includes('GITHUB_RELEASES_URL') && app.includes('releases/latest') && app.includes('isVersionNewer') && app.includes('發現新版 Together Ledger')],
+  ["通知偏好儲存後正規化、同步回饋與競態保護", app.includes('normalizeNotificationPreferences') && app.includes('notificationRequestRef') && app.includes('setSettingsNotice') && app.includes('提醒設定已儲存並同步')],
+  ["每月提醒日使用 1–28 點選控制", app.includes('Array.from({ length: 28 }') && app.includes('每月提醒日期（1–28 日）') && app.includes('setNotificationDraft(current => ({ ...current, monthlyReminderDay: day }))')],
+  ["星空與海洋採用情境背景而非單色", app.includes('function ThemeAtmosphere') && app.includes('starPositions') && app.includes('background: "#060A1D"') && app.includes('background: "#062638"') && app.includes('borderTopWidth: 3')],
+  ["分類與支付方式表情符號正確帶入交易表單", app.includes('categoryEmoji(item)') && app.includes('paymentEmoji(item)')],
 ];
 
 const failed = checks.filter(([, passed]) => !passed).map(([label]) => label);

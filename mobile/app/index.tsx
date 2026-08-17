@@ -22,6 +22,9 @@ import {
 } from "react";
 import {
   ActivityIndicator,
+  Alert,
+  Animated,
+  Easing,
   FlatList,
   KeyboardAvoidingView,
   Modal,
@@ -113,6 +116,28 @@ const appearanceDefaults: AppearancePreferences = {
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
 const oauthStateKey = "together-ledger-oauth-state";
+const APP_VERSION = "1.2.3";
+const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
+const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
+
+const normalizeNotificationPreferences = (input?: Partial<NotificationPreferences>): NotificationPreferences => ({
+  incomeEnabled: input?.incomeEnabled ? 1 : 0,
+  expenseEnabled: input?.expenseEnabled ? 1 : 0,
+  minimumAmount: Math.max(0, Math.min(100_000_000, Math.trunc(Number(input?.minimumAmount) || 0))),
+  monthlySettlementEnabled: input?.monthlySettlementEnabled ? 1 : 0,
+  monthlyReminderDay: Math.max(1, Math.min(28, Math.trunc(Number(input?.monthlyReminderDay) || 28))),
+});
+
+const isVersionNewer = (remote: string, local: string) => {
+  const remoteParts = remote.replace(/^v/i, "").split(".").map(part => Number(part) || 0);
+  const localParts = local.replace(/^v/i, "").split(".").map(part => Number(part) || 0);
+  for (let index = 0; index < Math.max(remoteParts.length, localParts.length, 3); index += 1) {
+    const remotePart = remoteParts[index] || 0;
+    const localPart = localParts[index] || 0;
+    if (remotePart !== localPart) return remotePart > localPart;
+  }
+  return false;
+};
 const appearancePalettes: Record<AppearanceTheme, typeof colors> = {
   rose: colors,
   graphite: {
@@ -153,14 +178,14 @@ const appearancePalettes: Record<AppearanceTheme, typeof colors> = {
   },
   ocean: {
     ...colors,
-    background: "#F2F7FB",
-    surface: "#FCFEFF",
-    ink: "#213747",
-    muted: "#6A8291",
-    border: "#D9E6EE",
-    rose: "#397D9B",
-    roseSoft: "#DDECF3",
-    burgundy: "#294D61",
+    background: "#062638",
+    surface: "#103C51",
+    ink: "#F2FBFF",
+    muted: "#B4D2DE",
+    border: "#286278",
+    rose: "#62C4D8",
+    roseSoft: "#164F66",
+    burgundy: "#C9F5FF",
     sage: "#568B78",
     orange: "#C88A5F",
     blue: "#397D9B",
@@ -181,14 +206,14 @@ const appearancePalettes: Record<AppearanceTheme, typeof colors> = {
   },
   starry: {
     ...colors,
-    background: "#EEF1FA",
-    surface: "#FBFCFF",
-    ink: "#252B48",
-    muted: "#707895",
-    border: "#DDE2F2",
-    rose: "#6D63B8",
-    roseSoft: "#E8E6FA",
-    burgundy: "#34345C",
+    background: "#060A1D",
+    surface: "#111A39",
+    ink: "#F4F6FF",
+    muted: "#BBC5E9",
+    border: "#31436E",
+    rose: "#AFA4FF",
+    roseSoft: "#242553",
+    burgundy: "#E6E4FF",
     sage: "#6B9A9A",
     orange: "#C58B62",
     blue: "#5E78B5",
@@ -295,6 +320,45 @@ function AppearanceProvider({ children }: { children: ReactNode }) {
 }
 function useAppearance() {
   return useContext(AppearanceContext);
+}
+
+const starPositions = [
+  [7, 8, 2], [18, 17, 3], [33, 6, 2], [46, 12, 4], [59, 4, 2], [75, 18, 3], [89, 8, 2],
+  [11, 31, 3], [28, 39, 2], [42, 27, 2], [56, 43, 4], [67, 32, 2], [82, 45, 3], [94, 29, 2],
+] as const;
+
+function ThemeAtmosphere() {
+  const { preferences } = useAppearance();
+  const glow = useRef(new Animated.Value(0.35)).current;
+  useEffect(() => {
+    if (preferences.theme !== "starry" || preferences.reduceMotion) {
+      glow.stopAnimation();
+      glow.setValue(0.75);
+      return;
+    }
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(glow, { toValue: 1, duration: 1700, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.timing(glow, { toValue: 0.28, duration: 1700, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      ])
+    );
+    animation.start();
+    return () => animation.stop();
+  }, [glow, preferences.reduceMotion, preferences.theme]);
+  if (preferences.theme === "starry") {
+    return <View pointerEvents="none" style={{ ...StyleSheet.absoluteFillObject, overflow: "hidden" }}>
+      <View style={{ position: "absolute", width: 280, height: 280, borderRadius: 140, backgroundColor: "#27346C", opacity: 0.32, top: -150, right: -88 }} />
+      {starPositions.map(([left, top, size], index) => <Animated.View key={`${left}-${top}`} style={{ position: "absolute", left: `${left}%`, top: `${top}%`, width: size, height: size, borderRadius: size, backgroundColor: "#FFFFFF", opacity: index % 3 === 0 ? glow : 0.72, shadowColor: "#B8D8FF", shadowOpacity: 0.9, shadowRadius: 5 }} />)}
+    </View>;
+  }
+  if (preferences.theme === "ocean") {
+    return <View pointerEvents="none" style={{ ...StyleSheet.absoluteFillObject, overflow: "hidden" }}>
+      <View style={{ position: "absolute", width: "150%", height: 260, bottom: -110, left: "-25%", borderRadius: 190, backgroundColor: "#0F5670", opacity: 0.64, transform: [{ rotate: "-5deg" }] }} />
+      <View style={{ position: "absolute", width: "150%", height: 220, bottom: -142, left: "-20%", borderRadius: 180, backgroundColor: "#1D8CA5", opacity: 0.55, transform: [{ rotate: "5deg" }] }} />
+      <View style={{ position: "absolute", width: "150%", height: 90, bottom: 46, left: "-24%", borderRadius: 90, borderTopWidth: 3, borderColor: "#A4F2FF", opacity: 0.38, transform: [{ rotate: "-4deg" }] }} />
+    </View>;
+  }
+  return null;
 }
 
 function AppText({ style, ...props }: TextProps) {
@@ -558,7 +622,7 @@ export default function IndexScreen() {
 }
 
 function AppContent() {
-  const { palette } = useAppearance();
+  const { palette, preferences } = useAppearance();
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>(notificationDefaults);
@@ -607,10 +671,13 @@ function AppContent() {
   const [homePage, setHomePage] = useState<"ledgers" | "profile">("ledgers");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [settingsNotice, setSettingsNotice] = useState("");
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const ledgerRequestRef = useRef(0);
   const ledgerSelectionRef = useRef(0);
   const mutationGuardRef = useRef(new Set<string>());
+  const notificationRequestRef = useRef(0);
+  const updateNoticeRef = useRef(false);
 
   const reloadLedger = useCallback(async (ledgerId: number) => {
     const requestId = ++ledgerRequestRef.current;
@@ -674,13 +741,16 @@ function AppContent() {
         return;
       }
       setUser(nextUser as User);
+      const notificationRequestId = ++notificationRequestRef.current;
       const [rows, preferences] = await Promise.all([
         api.ledger.list.query() as Promise<Array<{ ledger: Ledger }>>,
         api.notifications.preferences.query() as Promise<NotificationPreferences>,
       ]);
       const nextLedgers = rows.map(row => row.ledger);
       setLedgers(nextLedgers);
-      setNotificationPreferences(preferences);
+      if (notificationRequestId === notificationRequestRef.current) {
+        setNotificationPreferences(normalizeNotificationPreferences(preferences));
+      }
       // Never restore the last open ledger after a cold start. The app always opens at the ledger home.
       setLedgerHome(true);
       setHomePage("ledgers");
@@ -738,6 +808,22 @@ function AppContent() {
       subscription.remove();
     };
   }, []);
+
+  useEffect(() => {
+    if (!user || updateNoticeRef.current) return;
+    updateNoticeRef.current = true;
+    void fetch("https://api.github.com/repos/ben880320-boop/together-ledger/releases/latest", { headers: { Accept: "application/vnd.github+json" } })
+      .then(response => response.ok ? response.json() as Promise<{ tag_name?: string }> : null)
+      .then(release => {
+        const remoteVersion = release?.tag_name?.replace(/^v/i, "");
+        if (!remoteVersion || !isVersionNewer(remoteVersion, APP_VERSION)) return;
+        Alert.alert("發現新版 Together Ledger", `目前為 v${APP_VERSION}，GitHub 已提供 v${remoteVersion}。`, [
+          { text: "稍後再說", style: "cancel" },
+          { text: "前往下載", onPress: () => void Linking.openURL(GITHUB_RELEASES_URL) },
+        ]);
+      })
+      .catch(() => undefined);
+  }, [user]);
   useEffect(() => {
     if (!ready || !user || !pendingInviteCode || ledgerModal) return;
     setInviteCode(pendingInviteCode);
@@ -900,8 +986,11 @@ function AppContent() {
     const normalizedReminderDay = Math.max(1, Math.min(28, Math.trunc(next.monthlyReminderDay)));
     const wasNormalized = normalizedAmount !== next.minimumAmount || normalizedReminderDay !== next.monthlyReminderDay;
     const requiresPush = next.incomeEnabled === 1 || next.expenseEnabled === 1 || next.monthlySettlementEnabled === 1;
+    const requestId = ++notificationRequestRef.current;
     const previous = notificationPreferences;
-    setNotificationPreferences(next);
+    const normalized = normalizeNotificationPreferences({ ...next, minimumAmount: normalizedAmount, monthlyReminderDay: normalizedReminderDay });
+    setNotificationPreferences(normalized);
+    setSettingsNotice("");
     setBusy(true);
     try {
       if (requiresPush) {
@@ -915,16 +1004,19 @@ function AppContent() {
         });
       }
       const saved = await api.notifications.updatePreferences.mutate({
-        incomeEnabled: next.incomeEnabled === 1,
-        expenseEnabled: next.expenseEnabled === 1,
+        incomeEnabled: normalized.incomeEnabled === 1,
+        expenseEnabled: normalized.expenseEnabled === 1,
         minimumAmount: normalizedAmount,
         monthlySettlementEnabled: next.monthlySettlementEnabled === 1,
         monthlyReminderDay: normalizedReminderDay,
       }) as NotificationPreferences;
-      setNotificationPreferences(saved);
-      setError(wasNormalized ? "提醒日期已調整為 1–28 日，通知門檻已限制在可支援範圍。" : "");
+      if (requestId === notificationRequestRef.current) {
+        setNotificationPreferences(normalizeNotificationPreferences(saved));
+        setSettingsNotice(wasNormalized ? "提醒日期與通知門檻已調整為可支援範圍並儲存。" : "提醒設定已儲存並同步。 ");
+      }
     } catch (notificationError) {
-      setNotificationPreferences(previous);
+      if (requestId === notificationRequestRef.current) setNotificationPreferences(previous);
+      setSettingsNotice("");
       setError(notificationError instanceof Error ? notificationError.message : "通知設定儲存失敗。");
     } finally {
       setBusy(false);
@@ -1189,7 +1281,7 @@ function AppContent() {
           action={homeHeaderAction}
         />
         {homePage === "profile" ? (
-          <PersonalSettingsPage user={user} error={error} notificationPreferences={notificationPreferences} onSaveNotificationPreferences={saveNotificationPreferences} onUpdateNickname={updateNickname} onLogout={logout} onBack={() => setHomePage("ledgers")} />
+          <PersonalSettingsPage user={user} error={error} settingsNotice={settingsNotice} notificationPreferences={notificationPreferences} onSaveNotificationPreferences={saveNotificationPreferences} onUpdateNickname={updateNickname} onLogout={logout} onBack={() => setHomePage("ledgers")} />
         ) : (
           <EmptyLedger
             error={error}
@@ -1226,13 +1318,14 @@ function AppContent() {
   if (ledgerHome)
     return (
       <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "bottom"]}>
+        <ThemeAtmosphere />
         <AppHeader
           title={homePage === "profile" ? "個人設定" : "我的帳本"}
           caption={homePage === "profile" ? "管理你的 App 偏好" : "選擇要進入的共同空間"}
           action={homeHeaderAction}
         />
         {homePage === "profile" ? (
-          <PersonalSettingsPage user={user} error={error} notificationPreferences={notificationPreferences} onSaveNotificationPreferences={saveNotificationPreferences} onUpdateNickname={updateNickname} onLogout={logout} onBack={() => setHomePage("ledgers")} />
+          <PersonalSettingsPage user={user} error={error} settingsNotice={settingsNotice} notificationPreferences={notificationPreferences} onSaveNotificationPreferences={saveNotificationPreferences} onUpdateNickname={updateNickname} onLogout={logout} onBack={() => setHomePage("ledgers")} />
         ) : (
           <LedgerHome
             ledgers={ledgers}
@@ -2583,6 +2676,7 @@ function PlanningSection({
 function PersonalSettingsPage({
   user,
   error,
+  settingsNotice,
   notificationPreferences,
   onSaveNotificationPreferences,
   onUpdateNickname,
@@ -2591,6 +2685,7 @@ function PersonalSettingsPage({
 }: {
   user: User;
   error: string;
+  settingsNotice: string;
   notificationPreferences: NotificationPreferences;
   onSaveNotificationPreferences: (preferences: NotificationPreferences) => void | Promise<void>;
   onUpdateNickname: (name: string) => void | Promise<void>;
@@ -2638,6 +2733,7 @@ function PersonalSettingsPage({
   ];
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["bottom"]}>
+      <ThemeAtmosphere />
       <ScrollView contentContainerStyle={styles.profileContent}>
         <SectionIntro
           eyebrow="YOUR SPACE"
@@ -2645,6 +2741,7 @@ function PersonalSettingsPage({
           body="這些偏好只會影響你的裝置，不會改變共同帳本資料。"
         />
         {!!error && <Text style={styles.globalError}>{error}</Text>}
+        {!!settingsNotice && <Text style={styles.settingsNotice}>{settingsNotice}</Text>}
         <View style={styles.card}>
           <View style={styles.cardHeading}>
         <View style={styles.personalizationHeading}>
@@ -2790,7 +2887,15 @@ function PersonalSettingsPage({
         <Switch value={notificationDraft.monthlySettlementEnabled === 1} onValueChange={value => setNotificationDraft(current => ({ ...current, monthlySettlementEnabled: value ? 1 : 0 }))} trackColor={{ false: palette.border, true: palette.roseSoft }} thumbColor={notificationDraft.monthlySettlementEnabled ? palette.rose : palette.muted} />
       </View>
       <Text style={styles.personalizationLabel}>每月提醒日期（1–28 日）</Text>
-      <TextInput value={String(notificationDraft.monthlyReminderDay)} onChangeText={value => setNotificationDraft(current => ({ ...current, monthlyReminderDay: Number(value.replace(/\D/g, "")) || 1 }))} keyboardType="number-pad" maxLength={2} style={styles.input} />
+      <Text style={styles.rowSubtitle}>直接點選日期，不需要手動輸入。</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.reminderDayPicker}>
+        {Array.from({ length: 28 }, (_, index) => index + 1).map(day => {
+          const selected = notificationDraft.monthlyReminderDay === day;
+          return <Pressable key={day} accessibilityRole="button" accessibilityLabel={`每月 ${day} 日提醒`} onPress={() => setNotificationDraft(current => ({ ...current, monthlyReminderDay: day }))} style={[styles.reminderDay, selected && styles.reminderDayActive]}>
+            <Text style={[styles.reminderDayText, selected && styles.reminderDayTextActive]}>{day}</Text>
+          </Pressable>;
+        })}
+      </ScrollView>
       <View style={styles.preferenceRow}>
         <View style={styles.preferenceCopy}>
           <Text style={styles.rowTitle}>收入通知</Text>
@@ -2810,6 +2915,20 @@ function PersonalSettingsPage({
       <Pressable onPress={() => void onSaveNotificationPreferences(notificationDraft)} style={({ pressed }) => [styles.smallButton, pressed && styles.pressed]}>
         <MaterialCommunityIcons name="bell-check-outline" size={17} color="#FFFFFF" />
         <Text style={styles.smallButtonText}>儲存提醒設定</Text>
+      </Pressable>
+      <Text style={styles.personalizationLabel}>專案與更新</Text>
+      <View style={styles.preferenceRow}>
+        <View style={styles.preferenceCopy}>
+          <Text style={styles.rowTitle}>Together Ledger GitHub</Text>
+          <Text style={styles.rowSubtitle}>查看專案介紹、問題回報與開發更新</Text>
+        </View>
+        <Pressable onPress={() => void Linking.openURL(GITHUB_REPOSITORY_URL)} style={styles.iconButton} accessibilityLabel="開啟 GitHub 專案頁">
+          <MaterialCommunityIcons name="github" size={20} color={palette.rose} />
+        </Pressable>
+      </View>
+      <Pressable onPress={() => void Linking.openURL(GITHUB_RELEASES_URL)} style={({ pressed }) => [styles.outlineButton, pressed && styles.pressed]}>
+        <MaterialCommunityIcons name="download-circle-outline" size={18} color={palette.rose} />
+        <Text style={styles.outlineButtonText}>前往 GitHub 下載最新版本</Text>
       </Pressable>
       <Pressable
         onPress={onLogout}
@@ -4145,7 +4264,7 @@ function TransactionModal({
                 style={styles.input}
               />
               <OptionScroller
-                items={filteredCategories.map(item => ({ id: item.id, label: `${item.icon} ${item.name}` }))}
+                items={filteredCategories.map(item => ({ id: item.id, label: `${categoryEmoji(item)} ${item.name}` }))}
                 value={Number(selectedCategories)}
                 onChange={value => setCategoryId(String(value))}
               />
@@ -4165,7 +4284,7 @@ function TransactionModal({
             </Field>
             <Field label="支付方式">
               <OptionScroller
-                items={activePaymentMethods.map(item => ({ id: item.id, label: `${item.icon} ${item.name}` }))}
+                items={activePaymentMethods.map(item => ({ id: item.id, label: `${paymentEmoji(item)} ${item.name}` }))}
                 value={Number(selectedPayment)}
                 onChange={value => setPaymentId(String(value))}
               />
@@ -5427,6 +5546,31 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     backgroundColor: palette.rose,
   },
   smallButtonText: { color: "#FFFFFF", fontSize: 11, fontWeight: "700" },
+  settingsNotice: { color: palette.sage, fontSize: 13, fontWeight: "700", marginBottom: 10 },
+  iconButton: {
+    width: 42,
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 14,
+    backgroundColor: palette.surface,
+  },
+  reminderDayPicker: { gap: 8, paddingVertical: 8 },
+  reminderDay: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 20,
+    backgroundColor: palette.surface,
+  },
+  reminderDayActive: { borderColor: palette.rose, backgroundColor: palette.rose },
+  reminderDayText: { color: palette.ink, fontWeight: "800" },
+  reminderDayTextActive: { color: "#FFFFFF" },
   outlineButton: {
     minHeight: 44,
     flexDirection: "row",
