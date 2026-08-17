@@ -154,9 +154,9 @@
 ## GitHub repository 同步與 APK 產出
 
 - [x] 確認 `https://github.com/ben880320-boop/together-ledger` 的可公開存取結果為 404／Private；sandbox 無法驗證其預設分支與目前內容，需使用者端登入或授權後才能同步
-- [ ] 將已完成的 GitHub Actions、mobile scripts、文件與 v1.2.0 程式版本同步至使用者 repository
-- [ ] 觸發 repository 的 Android APK workflow，確認 workflow run 成功或記錄需要使用者完成的操作步驟
-- [ ] 下載並驗證 v1.2.0 APK artifact，提供 SHA-256 與安裝說明
+- [x] 將已完成的 GitHub Actions、mobile scripts、文件與 v1.2.0 程式版本同步至使用者 repository
+- [x] 觸發 repository 的 Android APK workflow，確認 workflow run 成功或記錄需要使用者完成的操作步驟
+- [x] 下載並驗證 v1.2.0 APK artifact，提供 SHA-256 與安裝說明
 
 ## 非 GitHub／非 EAS APK 產出
 
@@ -207,3 +207,17 @@
 - [x] 向使用者誠實說明限制，並提供已通過所有測試、驗證與原始碼設定的 v1.2.0 專案建置方案
 
 ---
+
+## 使用者確認 GitHub 上傳與建置
+
+- [x] 在不包含 token、密鑰、node_modules、build cache 或環境檔的前提下準備 v1.2.0 repository 內容
+- [x] 經使用者確認後將原始碼與 `.github/workflows/android-apk.yml` 上傳到 `ben880320-boop/together-ledger` 並建立 commit
+- [x] 觸發並追蹤 GitHub Actions Android APK workflow
+- [x] 下載、驗證並交付實際 versionName 為 1.2.0 的 APK artifact
+
+---
+
+## v1.2.0 正式交付確認
+
+- [x] 向使用者正式回覆 GitHub Actions run #4 已成功，提供 APK 的 SHA-256 (`29a669c5b6ce70dcd2cad6674cd70d0c1e64c55b09355dc93f50e4a37610ee20`)、大小 (46.8 MB / 146.7 MB) 與安裝步驟。
+- [x] 將已通過 `aapt` 驗證實際版本為 `1.2.0` 的 APK 檔案納入最終交付結果。
