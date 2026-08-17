@@ -226,3 +226,21 @@
 
 - [x] 正式向使用者回覆 GitHub Actions run #4 已成功，提供 APK 的檔名 `app-debug.apk`、SHA-256 (`29a669c5b6ce70dcd2cad6674cd70d0c1e64c55b09355dc93f50e4a37610ee20`)、檔案大小與安裝步驟。
 - [x] 確認已透過訊息交付真正經過 `aapt` 驗證、版本號為 `1.2.0` 的 Android APK 檔案或正式下載途徑。
+
+## Android APK JavaScript bundle 啟動修正
+
+- [ ] 檢查目前 APK 是否為 debug／development 模式，以及 JavaScript bundle 是否已內嵌
+- [ ] 修正 GitHub Actions 建置流程，確保產出的 APK 不依賴 Metro、USB 或同一 Wi‑Fi 網路
+- [ ] 重新建置並以 APK 結構、manifest 與 bundle 檔案驗證 v1.2.0
+- [ ] 交付修正版 APK，並說明若手機已安裝舊版需先移除再安裝
+
+---
+
+## standalone release APK 修正版提交
+
+- [ ] 重新封裝含 versionCode 2、release 建置設定與最新程式碼的 source archive，排除秘密與暫存檔
+- [ ] 將修正版 source archive 與 `assembleRelease` workflow 提交至使用者 GitHub repository
+- [ ] 重新執行 GitHub Actions，驗證 APK 內含 JavaScript bundle 且實際 versionName 為 1.2.0
+- [ ] 交付修正版 APK，說明不要安裝舊的 debug artifact
+
+---

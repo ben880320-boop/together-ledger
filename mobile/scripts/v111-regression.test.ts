@@ -72,10 +72,15 @@ describe("Together Ledger v1.2.0 Android wiring", () => {
 
   it("ships the intended app version and deep-link configuration", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
-      expo?: { version?: string; scheme?: string };
+      expo?: {
+        version?: string;
+        scheme?: string;
+        android?: { versionCode?: number };
+      };
     };
     expect(appJson.expo?.version).toBe("1.2.0");
     expect(appJson.expo?.scheme).toBe("togetherledger");
+    expect(appJson.expo?.android?.versionCode).toBe(2);
   });
 
   it("keeps a quota-independent GitHub Actions Android APK workflow", () => {
@@ -91,18 +96,20 @@ describe("Together Ledger v1.2.0 Android wiring", () => {
     expect(workflow).toContain("branches:\n      - main");
     expect(workflow).toContain("android-actions/setup-android@v3");
     expect(workflow).toContain("pnpm run prebuild:android");
-    expect(workflow).toContain("assembleDebug");
+    expect(workflow).toContain("assembleRelease");
+    expect(workflow).not.toContain("assembleDebug");
     expect(workflow).toContain("actions/upload-artifact@v4");
     expect(workflow).toContain(
-      "together-ledger-${{ steps.app-version.outputs.version }}-debug-apk"
+      "together-ledger-${{ steps.app-version.outputs.version }}-release-apk"
     );
-    expect(workflow).toContain("app-debug.apk");
+    expect(workflow).toContain("app-release.apk");
+    expect(workflow).toContain("embedded JavaScript bundle");
     expect(workflow).toContain("GITHUB_STEP_SUMMARY");
     expect(packageJson.scripts?.["prebuild:android"]).toContain(
       "expo prebuild --platform android --no-install"
     );
     expect(packageJson.scripts?.["build:android:ci"]).toContain(
-      "assembleDebug"
+      "assembleRelease"
     );
   });
 });

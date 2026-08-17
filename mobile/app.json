@@ -10,6 +10,7 @@
     "icon": "./assets/together-ledger-icon.png",
     "android": {
       "package": "com.togetherledger.app",
+      "versionCode": 2,
       "adaptiveIcon": {
         "foregroundImage": "./assets/together-ledger-icon.png",
         "backgroundColor": "#C87A8A"
