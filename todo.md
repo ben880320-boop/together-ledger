@@ -198,4 +198,5 @@
 - [x] 覆蓋通知偏好儲存、裝置 token 註冊與實際交易通知派送的完整串接路徑
 - [x] 為裝置 token 註冊新增「停用舊 token 後註冊新 token」測試，驗證舊裝置維持停用且新 token 僅建立一筆啟用資料
 - [x] 新增單一路由層整合測試：同一案例內依序儲存通知偏好、註冊裝置、建立交易，並驗證通知派送服務被觸發
-- [ ] 將 App 升級為 v1.2.2、以 GitHub Actions 建置 standalone Android APK，驗證後交付下載連結與 SHA-256
+- [x] 將 App 升級為 v1.2.2、以 GitHub Actions 建置 standalone Android APK，驗證產物與 SHA-256
+- [ ] 向使用者交付 v1.2.2 GitHub Release、直接 APK 下載連結、SHA-256、檔案大小與安裝說明
