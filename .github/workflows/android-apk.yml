@@ -8,6 +8,7 @@ on:
       - "release/**"
     paths:
       - "mobile/**"
+      - "package.json"
       - "*.tar.gz"
       - ".github/workflows/android-apk.yml"
 
