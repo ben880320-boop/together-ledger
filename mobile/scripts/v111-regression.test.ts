@@ -14,7 +14,7 @@ describe("Together Ledger v1.2.0 Android wiring", () => {
     expect(callback).toContain("useLocalSearchParams");
     expect(callback).toContain("AsyncStorage.getItem(oauthStateKey)");
     expect(callback).toContain("AsyncStorage.removeItem(oauthStateKey)");
-    expect(callback).toContain("router.replace(\"/\")");
+    expect(callback).toContain('router.replace("/")');
     expect(callback).toContain("saveSessionToken(token)");
   });
 
@@ -23,11 +23,17 @@ describe("Together Ledger v1.2.0 Android wiring", () => {
     expect(app).toContain("@react-native-community/datetimepicker");
     expect(app).toContain("DateTimePicker");
     expect(app).toContain("dateKey(value)");
-    expect(app).toContain("const dateKeyPattern = /^(\\d{4})-(\\d{2})-(\\d{2})$/;");
+    expect(app).toContain(
+      "const dateKeyPattern = /^(\\d{4})-(\\d{2})-(\\d{2})$/;"
+    );
     expect(app).toContain("選擇開始日期");
     expect(app).toContain("選擇結束日期");
-    expect(app).toContain('display={Platform.OS === "android" ? "calendar" : "spinner"}');
-    expect(app).toContain("const localDateFromKey = (value: string, endOfDay = false) =>");
+    expect(app).toContain(
+      'display={Platform.OS === "android" ? "calendar" : "spinner"}'
+    );
+    expect(app).toContain(
+      "const localDateFromKey = (value: string, endOfDay = false) =>"
+    );
     expect(app).toContain("endOfDay ? 23 : 0");
     expect(app).toContain("endOfDay ? 59 : 0");
   });
@@ -36,7 +42,9 @@ describe("Together Ledger v1.2.0 Android wiring", () => {
     const app = readMobile("app/index.tsx");
     expect(app).toContain("function ConfirmModal(");
     expect(app).toContain("<ConfirmModal request={confirmRequest}");
-    expect((app.match(/<ConfirmModal request=\{confirmRequest\}/g) || []).length).toBeGreaterThanOrEqual(3);
+    expect(
+      (app.match(/<ConfirmModal request=\{confirmRequest\}/g) || []).length
+    ).toBeGreaterThanOrEqual(3);
     expect(app).toContain("confirmOverlay");
     expect(app).not.toContain("Alert.alert");
     expect(app).toContain("再次確認移除");
@@ -68,5 +76,33 @@ describe("Together Ledger v1.2.0 Android wiring", () => {
     };
     expect(appJson.expo?.version).toBe("1.2.0");
     expect(appJson.expo?.scheme).toBe("togetherledger");
+  });
+
+  it("keeps a quota-independent GitHub Actions Android APK workflow", () => {
+    const workflow = readFileSync(
+      resolve(process.cwd(), ".github/workflows/android-apk.yml"),
+      "utf8"
+    );
+    const packageJson = JSON.parse(readMobile("package.json")) as {
+      scripts?: Record<string, string>;
+    };
+    expect(workflow).toContain("workflow_dispatch:");
+    expect(workflow).toContain("push:");
+    expect(workflow).toContain("branches:\n      - main");
+    expect(workflow).toContain("android-actions/setup-android@v3");
+    expect(workflow).toContain("pnpm run prebuild:android");
+    expect(workflow).toContain("assembleDebug");
+    expect(workflow).toContain("actions/upload-artifact@v4");
+    expect(workflow).toContain(
+      "together-ledger-${{ steps.app-version.outputs.version }}-debug-apk"
+    );
+    expect(workflow).toContain("app-debug.apk");
+    expect(workflow).toContain("GITHUB_STEP_SUMMARY");
+    expect(packageJson.scripts?.["prebuild:android"]).toContain(
+      "expo prebuild --platform android --no-install"
+    );
+    expect(packageJson.scripts?.["build:android:ci"]).toContain(
+      "assembleDebug"
+    );
   });
 });

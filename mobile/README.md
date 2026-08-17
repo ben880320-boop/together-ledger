@@ -42,3 +42,9 @@ togetherledger://oauth/callback
 pnpm typecheck
 pnpm export:android
 ```
+
+## GitHub Actions APK 建置
+
+專案已加入 `.github/workflows/android-apk.yml`。推送 `mobile/**` 到 `main`，或在 GitHub Actions 手動執行 **Android APK** workflow，即可由 GitHub runner 使用 Android SDK／Gradle 建置 debug-signed APK，不會消耗 Expo EAS Android build quota。建置成功後，從該次 workflow run 的 Artifacts 下載 `together-ledger-<version>-debug-apk`。
+
+本地若已安裝 Java 17、Android SDK 與 build-tools，可執行 `pnpm run build:android:ci`；該命令會先以 Expo prebuild 產生暫時的 `android/` 目錄，再執行 Gradle `assembleDebug`。目前產物是供測試安裝的 debug APK；Google Play 或正式 release APK 仍需透過 GitHub Secrets 管理 release keystore，不應將 keystore 或密碼提交到 repository。完整設定請參考根目錄 `docs/github-actions-android.md`。

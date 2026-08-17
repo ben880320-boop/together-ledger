@@ -141,3 +141,12 @@
 - [x] 補強個人設定與帳本設定的可發現性、說明文字與空狀態，並以實際功能為主
 - [x] 新增／更新 Vitest、Android 核心接線檢查與 Expo 匯出
 - [ ] 以 EAS Android build quota 可用的建置資源產出並驗證 v1.2.0 APK
+
+## GitHub Actions Android 建置
+
+- [x] 確認 Expo SDK 54 專案可透過 prebuild 產生 Android Gradle 專案，並決定是否追蹤 android 原生目錄
+- [x] 建立 GitHub Actions workflow，使用 Ubuntu runner、Java、Android SDK 與 Gradle 建置可安裝 debug APK
+- [x] 設計未簽署 debug／CI release 與可選的 GitHub Secrets 簽署流程，避免把 keystore 或密鑰提交到 repository
+- [x] 上傳 APK 為 workflow artifact，加入版本命名、建置摘要與手動／push 觸發方式
+- [x] 補上 GitHub Actions 建置、下載 artifact、簽署 secrets 與限制說明文件
+- [x] 執行本地 prebuild／Gradle wrapper 設定檢查、更新 regression test 並準備保存 checkpoint；完整 workflow 執行仍需推送到 GitHub repository
