@@ -150,3 +150,26 @@
 - [x] 上傳 APK 為 workflow artifact，加入版本命名、建置摘要與手動／push 觸發方式
 - [x] 補上 GitHub Actions 建置、下載 artifact、簽署 secrets 與限制說明文件
 - [x] 執行本地 prebuild／Gradle wrapper 設定檢查、更新 regression test 並準備保存 checkpoint；完整 workflow 執行仍需推送到 GitHub repository
+
+## GitHub repository 同步與 APK 產出
+
+- [x] 確認 `https://github.com/ben880320-boop/together-ledger` 的可公開存取結果為 404／Private；sandbox 無法驗證其預設分支與目前內容，需使用者端登入或授權後才能同步
+- [ ] 將已完成的 GitHub Actions、mobile scripts、文件與 v1.2.0 程式版本同步至使用者 repository
+- [ ] 觸發 repository 的 Android APK workflow，確認 workflow run 成功或記錄需要使用者完成的授權步驟
+- [ ] 下載並驗證 v1.2.0 APK artifact，提供 SHA-256 與安裝檔案
+
+## 非 GitHub／非 EAS APK 產出
+
+- [x] 檢查 sandbox 是否具備 Android SDK、Gradle、Java 與 Expo prebuild 所需工具
+- [x] 嘗試本機 Gradle 建置 v1.2.0 APK；Gradle 已進入 Android manifest／AAPT 階段，但 daemon 被 sandbox 終止，未留下 APK，因此改採可攜式建置包
+- [x] 驗證建置包內容、版本與安裝流程；tar.gz／ZIP 均通過關鍵檔案與秘密／暫存檔排除檢查
+- [x] 交付可攜式建置包與不需 GitHub／EAS 的 Android Studio／本機 Gradle 操作步驟；目前未宣稱已交付未產出的 APK
+
+## 建置環境相容性補強
+
+- [x] 將 GitHub Actions 明確安裝 Expo SDK 54 prebuild 實際使用的 Android 36、Build Tools 36 與 NDK 27.1，避免 runner 依賴 Gradle 自動下載
+- [x] 更新離線 APK 建置說明，加入 Java 17、Android SDK 36／NDK 27.1 與 Android Studio 產物路徑
+- [x] 建立並驗證 v1.2.0 可攜式 source build package，附離線建置說明與 SHA-256
+- [x] 交付可攜式建置包；明確說明 APK 尚未由 sandbox 產出且不虛稱已交付
+
+---
