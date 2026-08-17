@@ -1569,7 +1569,7 @@ function AppContent() {
         ledgerId={activeLedger!.id}
         onClose={() => setRecurringModal(false)}
         onSubmit={async input => {
-          const mutationKey = `recurring-${activeLedger!.id}-${input.name.trim().toLowerCase()}`;
+          const mutationKey = `recurring-${activeLedger!.id}-${input.title.trim().toLowerCase()}`;
           if (mutationGuardRef.current.has(mutationKey)) return;
           mutationGuardRef.current.add(mutationKey);
           try {
