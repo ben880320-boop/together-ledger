@@ -2,7 +2,11 @@ name: Android APK
 
 
 
+
+
+
 on:
+
 
   workflow_dispatch:
   
@@ -20,13 +24,19 @@ on:
       
 
 
+
+
 permissions:
+
 
   contents: read
   
 
 
+
+
 env:
+
 
   NODE_VERSION: "22.x"
   
@@ -40,7 +50,10 @@ env:
   
 
 
+
+
 jobs:
+
 
   build-android-apk:
   
@@ -52,12 +65,16 @@ jobs:
     
 
 
+
+
     steps:
     
       - name: Checkout repository
       
         uses: actions/checkout@v4
         
+
+
 
 
       - name: Extract v1.2.0 source archive
@@ -80,6 +97,8 @@ jobs:
           
 
 
+
+
       - name: Setup pnpm
       
         uses: pnpm/action-setup@v4
@@ -88,6 +107,8 @@ jobs:
         
           version: ${{ env.PNPM_VERSION }}
           
+
+
 
 
       - name: Setup Node.js
@@ -104,6 +125,8 @@ jobs:
           
 
 
+
+
       - name: Setup Java
       
         uses: actions/setup-java@v4
@@ -114,14 +137,17 @@ jobs:
           
           java-version: "17"
           
-          cache: gradle
           
+
+
 
 
       - name: Setup Android SDK
       
         uses: android-actions/setup-android@v3
         
+
+
 
 
       - name: Install Android SDK components
@@ -136,12 +162,16 @@ jobs:
           
 
 
+
+
       - name: Install JavaScript dependencies
       
         working-directory: source/mobile
         
         run: pnpm install --frozen-lockfile
         
+
+
 
 
       - name: Read app version
@@ -162,12 +192,16 @@ jobs:
           
 
 
+
+
       - name: Generate native Android project
       
         working-directory: source/mobile
         
         run: pnpm run prebuild:android
         
+
+
 
 
       - name: Build debug APK with Gradle
@@ -180,6 +214,8 @@ jobs:
           
           ./gradlew --no-daemon --stacktrace assembleDebug
           
+
+
 
 
       - name: Upload APK artifact
@@ -198,6 +234,8 @@ jobs:
           
 
 
+
+
       - name: Write build summary
       
         shell: bash
@@ -206,112 +244,3 @@ jobs:
         
           APK="source/mobile/android/app/build/outputs/apk/debug/app-debug.apk"
           
-          {
-          
-            echo "## Together Ledger Android APK"
-            
-            echo ""
-            
-            echo "- Version: ${{ steps.app-version.outputs.version }}"
-            
-            echo "- Build type: debug-signed APK"
-            
-            echo "- Artifact: together-ledger-${{ steps.app-version.outputs.version }}-debug-apk"
-            
-            echo "- SHA-256: \`$(sha256sum "$APK" | cut -d' ' -f1)\`"
-            
-            echo "- Size: $(stat -c '%s bytes' "$APK")"
-            
-          } >> "$GITHUB_STEP_SUMMARY"
-          
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
