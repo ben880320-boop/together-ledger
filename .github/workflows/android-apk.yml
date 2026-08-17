@@ -14,7 +14,7 @@ on:
       
     paths:
     
-      - "together-ledger-v1.2.0-source.tar.gz"
+      - "mobile/**"
       
       - ".github/workflows/android-apk.yml"
       
@@ -50,32 +50,14 @@ jobs:
     
     timeout-minutes: 35
     
+
+
     steps:
     
-      - name: Checkout repository
+      - name: Checkout
       
         uses: actions/checkout@v4
         
-
-
-      - name: Extract v1.2.0 source archive
-      
-        shell: bash
-        
-        run: |
-        
-          rm -rf source
-          
-          mkdir -p source
-          
-          tar -xzf together-ledger-v1.2.0-source.tar.gz -C source
-          
-          test -f source/mobile/app.json
-          
-          test -f source/mobile/package.json
-          
-          test -f source/mobile/pnpm-lock.yaml
-          
 
 
       - name: Setup pnpm
@@ -98,7 +80,7 @@ jobs:
           
           cache: pnpm
           
-          cache-dependency-path: source/mobile/pnpm-lock.yaml
+          cache-dependency-path: mobile/pnpm-lock.yaml
           
 
 
@@ -134,7 +116,7 @@ jobs:
 
       - name: Install JavaScript dependencies
       
-        working-directory: source/mobile
+        working-directory: mobile
         
         run: pnpm install --frozen-lockfile
         
@@ -148,7 +130,7 @@ jobs:
         
         run: |
         
-          VERSION="$(node -p "require('./source/mobile/app.json').expo.version")"
+          VERSION="$(grep -m1 '"version"' mobile/app.json | sed -E 's/.*"version": "([^"]+)".*/\1/')"
           
           test "$VERSION" = "1.2.0"
           
@@ -158,21 +140,39 @@ jobs:
 
       - name: Generate native Android project
       
-        working-directory: source/mobile
+        working-directory: mobile
         
         run: pnpm run prebuild:android
         
 
 
-      - name: Build debug APK with Gradle
+      - name: Build standalone release APK with embedded JavaScript bundle
       
-        working-directory: source/mobile/android
+        working-directory: mobile/android
         
         run: |
         
           chmod +x ./gradlew
           
-          ./gradlew --no-daemon --stacktrace assembleDebug
+          ./gradlew --no-daemon --stacktrace assembleRelease
+          
+
+
+      - name: Verify embedded JavaScript bundle and APK version
+      
+        working-directory: mobile/android
+        
+        shell: bash
+        
+        run: |
+        
+          APK="app/build/outputs/apk/release/app-release.apk"
+          
+          test -f "$APK"
+          
+          unzip -l "$APK" | grep -E 'assets/index\.android\.bundle|assets/.*\.bundle' >/dev/null
+          
+          echo "Embedded JavaScript bundle found in release APK."
           
 
 
@@ -182,9 +182,9 @@ jobs:
         
         with:
         
-          name: together-ledger-${{ steps.app-version.outputs.version }}-debug-apk
+          name: together-ledger-${{ steps.app-version.outputs.version }}-release-apk
           
-          path: source/mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          path: mobile/android/app/build/outputs/apk/release/app-release.apk
           
           if-no-files-found: error
           
@@ -198,7 +198,7 @@ jobs:
         
         run: |
         
-          APK="source/mobile/android/app/build/outputs/apk/debug/app-debug.apk"
+          APK="mobile/android/app/build/outputs/apk/release/app-release.apk"
           
           {
           
@@ -208,9 +208,11 @@ jobs:
             
             echo "- Version: ${{ steps.app-version.outputs.version }}"
             
-            echo "- Build type: debug-signed APK"
+            echo "- Build type: standalone release APK (debug-signed for testing)"
             
-            echo "- Artifact: together-ledger-${{ steps.app-version.outputs.version }}-debug-apk"
+            echo "- Embedded bundle: verified"
+            
+            echo "- Artifact: together-ledger-${{ steps.app-version.outputs.version }}-release-apk"
             
             echo "- SHA-256: \`$(sha256sum "$APK" | cut -d' ' -f1)\`"
             
