@@ -191,3 +191,19 @@
 - [ ] 向使用者交付 APK；若仍不可行，提供最短且不需 Expo token 的替代流程與已驗證建置包
 
 ---
+
+## 嚴格交付 v1.2.0 APK
+
+- [ ] 重新確認 mobile source、app.json 與原生 Gradle 設定的 versionName／versionCode 為 v1.2.0
+- [ ] 產出實際 versionName 為 1.2.0 的 Android APK，不接受重新命名的 v1.1.1 檔案
+- [ ] 使用 aapt／APK 結構與 SHA-256 驗證 APK 後直接交付
+
+---
+
+## v1.2.0 APK 交付與誠實告知
+
+- [x] 拒絕使用重新命名的 v1.1.1 冒充 v1.2.0
+- [x] 嘗試在本機 sandbox 透過 Gradle 產出 v1.2.0 APK，確認因記憶體與背景程序限制導致 Gradle daemon 終止
+- [x] 向使用者誠實說明限制，並提供已通過所有測試、驗證與原始碼設定的 v1.2.0 專案建置方案
+
+---
