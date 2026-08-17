@@ -4101,4 +4101,9 @@
 - [x] 為帳本分類與支付方式自動指派可辨識圖示，取代無意義的圓形佔位符
 - [x] 移除或改寫帳本內多餘的說明文字，保留必要空狀態與操作提示
 - [x] 補齊流暢度、快取失效、管理清單與主題視覺的回歸測試
-- [ ] 更新 GitHub Actions：建置與驗證成功後自動建立或更新 GitHub Release，並上傳 APK 與 SHA-256 檔案
+- [x] 更新 GitHub Actions：建置與驗證成功後自動建立或更新 GitHub Release，並上傳 APK 與 SHA-256 檔案
+
+## v1.2.1 安裝升級相容性
+
+- [x] 將 Android versionName 更新為 1.2.1、versionCode 更新為 3，確保已安裝 v1.2.0 的裝置可直接覆蓋更新
+- [ ] 重新建置並確認自動 Release 使用 `v1.2.1` tag、APK 與 SHA-256 檔案

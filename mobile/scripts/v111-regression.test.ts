@@ -79,7 +79,7 @@ describe("Together Ledger v1.2.0 Android wiring", () => {
     expect(app).toContain("quickNavMinimal");
   });
 
-  it("ships the intended app version and deep-link configuration", () => {
+  it("ships the v1.2.1 updatable app version and deep-link configuration", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
       expo?: {
         version?: string;
@@ -87,9 +87,9 @@ describe("Together Ledger v1.2.0 Android wiring", () => {
         android?: { versionCode?: number };
       };
     };
-    expect(appJson.expo?.version).toBe("1.2.0");
+    expect(appJson.expo?.version).toBe("1.2.1");
     expect(appJson.expo?.scheme).toBe("togetherledger");
-    expect(appJson.expo?.android?.versionCode).toBe(2);
+    expect(appJson.expo?.android?.versionCode).toBe(3);
   });
 
   it("keeps a quota-independent GitHub Actions Android APK workflow", () => {
