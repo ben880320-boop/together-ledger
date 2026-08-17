@@ -7,15 +7,14 @@ on:
       - main
     paths:
       - "mobile/**"
-      - "*.tar.gz"
       - ".github/workflows/android-apk.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   NODE_VERSION: "22.x"
-  PNPM_VERSION: "11.21.0"
+  PNPM_VERSION: "10.4.1"
   EXPO_PUBLIC_APP_ID: "HDBmsjkFmtXoV2nyYfgboo"
   EXPO_PUBLIC_OAUTH_PORTAL_URL: "https://manus.im"
   EXPO_PUBLIC_API_BASE_URL: "https://togetherapp-hdbmsjkf.manus.space"
@@ -30,25 +29,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Restore mobile source from release archive
-        shell: bash
-        run: |
-          set -euo pipefail
-          archive="$(find . -maxdepth 1 -type f -name '*release-source*.tar.gz' -print | sort -V | tail -n 1)"
-          if [ -z "$archive" ]; then
-            echo "No release source archive found; using mobile source from checkout."
-            test -f mobile/pnpm-lock.yaml
-            exit 0
-          fi
-
-          temp_dir="$(mktemp -d)"
-          trap 'rm -rf "$temp_dir"' EXIT
-          tar -xzf "$archive" -C "$temp_dir" --strip-components=1
-          test -f "$temp_dir/mobile/pnpm-lock.yaml"
-          rm -rf mobile
-          cp -a "$temp_dir/mobile" mobile
-          echo "Restored mobile source from $archive"
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -58,12 +38,15 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: mobile/pnpm-lock.yaml
 
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
+          cache: gradle
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -83,123 +66,37 @@ jobs:
         shell: bash
         run: |
           VERSION="$(grep -m1 '"version"' mobile/app.json | sed -E 's/.*"version": "([^"]+)".*/\1/')"
-          VERSION_CODE="$(grep -m1 '"versionCode"' mobile/app.json | sed -E 's/.*"versionCode": ([0-9]+).*/\1/')"
           test -n "$VERSION"
-          test -n "$VERSION_CODE"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
 
       - name: Generate native Android project
         working-directory: mobile
         run: pnpm run prebuild:android
 
-      - name: Create CI debug keystore for release validation
-        working-directory: mobile/android
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p app
-          if [ ! -f app/debug.keystore ]; then
-            keytool -genkeypair -v -noprompt \
-              -keystore app/debug.keystore \
-              -storepass android \
-              -keypass android \
-              -alias androiddebugkey \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
-          fi
-          test -f app/debug.keystore
-
-      - name: Build standalone release APK with embedded JavaScript bundle
+      - name: Build debug APK with Gradle
         working-directory: mobile/android
         run: |
           chmod +x ./gradlew
-          ./gradlew --no-daemon --stacktrace assembleRelease
-
-      - name: Verify embedded JavaScript bundle and APK version
-        working-directory: mobile/android
-        shell: bash
-        run: |
-          set -euo pipefail
-          APK="app/build/outputs/apk/release/app-release.apk"
-          test -f "$APK"
-          unzip -l "$APK" | grep -E 'assets/index\.android\.bundle|assets/.*\.bundle' >/dev/null
-          AAPT="${ANDROID_HOME}/build-tools/36.0.0/aapt"
-          "$AAPT" dump badging "$APK" | grep -F "versionName='${{ steps.app-version.outputs.version }}'" >/dev/null
-          "$AAPT" dump badging "$APK" | grep -F "versionCode='${{ steps.app-version.outputs.version_code }}'" >/dev/null
-          echo "Release APK contains the embedded JavaScript bundle and versionName=${{ steps.app-version.outputs.version }}/versionCode=${{ steps.app-version.outputs.version_code }}."
+          ./gradlew --no-daemon --stacktrace assembleDebug
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: together-ledger-${{ steps.app-version.outputs.version }}-release-apk
-          path: mobile/android/app/build/outputs/apk/release/app-release.apk
+          name: together-ledger-${{ steps.app-version.outputs.version }}-debug-apk
+          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
-
-      - name: Create APK checksum file
-        shell: bash
-        run: |
-          set -euo pipefail
-          APK="mobile/android/app/build/outputs/apk/release/app-release.apk"
-          sha256sum "$APK" > mobile/android/app/build/outputs/apk/release/app-release.apk.sha256
-
-      - name: Publish APK to GitHub Release
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG_NAME: v${{ steps.app-version.outputs.version }}
-          APK_PATH: mobile/android/app/build/outputs/apk/release/app-release.apk
-          CHECKSUM_PATH: mobile/android/app/build/outputs/apk/release/app-release.apk.sha256
-        run: |
-          set -euo pipefail
-          retry_gh() {
-            local attempt=1
-            local max_attempts=5
-            local delay=5
-            until gh "$@"; do
-              if [ "$attempt" -ge "$max_attempts" ]; then
-                echo "GitHub Release command failed after ${max_attempts} attempts: gh $*" >&2
-                return 1
-              fi
-              echo "GitHub API temporarily unavailable; retrying in ${delay}s (attempt ${attempt}/${max_attempts})." >&2
-              sleep "$delay"
-              attempt=$((attempt + 1))
-              delay=$((delay * 2))
-            done
-          }
-
-          if retry_gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            echo "GitHub Release $TAG_NAME already exists."
-          else
-            if retry_gh release create "$TAG_NAME" \
-              --title "Together Ledger $TAG_NAME" \
-              --notes "Standalone Android APK with embedded JavaScript bundle. SHA-256 is provided in app-release.apk.sha256."; then
-              echo "Created GitHub Release $TAG_NAME."
-            else
-              retry_gh release view "$TAG_NAME" >/dev/null
-              echo "GitHub Release $TAG_NAME became available after a concurrent create attempt."
-            fi
-          fi
-
-          retry_gh release upload "$TAG_NAME" "$APK_PATH" "$CHECKSUM_PATH" --clobber
-          echo "Uploaded APK and SHA-256 checksum to GitHub Release $TAG_NAME."
 
       - name: Write build summary
         shell: bash
         run: |
-          APK="mobile/android/app/build/outputs/apk/release/app-release.apk"
+          APK="mobile/android/app/build/outputs/apk/debug/app-debug.apk"
           {
             echo "## Together Ledger Android APK"
             echo ""
             echo "- Version: ${{ steps.app-version.outputs.version }}"
-            echo "- Version code: ${{ steps.app-version.outputs.version_code }}"
-            echo "- Build type: standalone release APK (debug-signed for testing)"
-            echo "- Embedded bundle: verified"
-            echo "- Artifact: together-ledger-${{ steps.app-version.outputs.version }}-release-apk"
-            echo "- GitHub Release: v${{ steps.app-version.outputs.version }}"
+            echo "- Build type: debug-signed APK"
+            echo "- Artifact: together-ledger-${{ steps.app-version.outputs.version }}-debug-apk"
             echo "- SHA-256: \`$(sha256sum "$APK" | cut -d' ' -f1)\`"
             echo "- Size: $(stat -c '%s bytes' "$APK")"
           } >> "$GITHUB_STEP_SUMMARY"

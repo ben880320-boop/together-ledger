@@ -68,28 +68,28 @@ describe("Together Ledger v1.2.0 Android wiring", () => {
     expect(app).toContain("主題、字體與版型會立即套用並保存在這台裝置");
     expect(app).toContain("搜尋帳本名稱");
     expect(app).toContain("ledgerQuery");
-    expect(app).toContain("showAllCategories");
-    expect(app).toContain("showAllPayments");
-    expect(app).toContain("查看其餘");
-    expect(app).toContain("categorySystemIcon");
-    expect(app).toContain("paymentSystemIcon");
-    expect(app).toContain("ThemeAtmosphere");
-    expect(app).toContain("quickNavPill");
-    expect(app).toContain("quickNavLine");
-    expect(app).toContain("quickNavMinimal");
   });
 
-  it("ships the v1.2.1 updatable app version and deep-link configuration", () => {
+  it("normalizes legacy category and payment icons into selectable emojis", () => {
+    const app = readMobile("app/index.tsx");
+    expect(app).toContain("const CATEGORY_EMOJI_CHOICES");
+    expect(app).toContain("const PAYMENT_EMOJI_CHOICES");
+    expect(app).toContain('"◌": "🏷️"');
+    expect(app).toContain("const categoryEmoji");
+    expect(app).toContain("const paymentEmoji");
+    expect(app).toContain("function EmojiPicker");
+    expect(app).toContain('setIcon(mode === "category" ? "🏷️" : "💳")');
+    expect(app).toContain("icon: categoryEmoji({ name: draftCategoryName, icon: draftCategoryIcon })");
+    expect(app).toContain("icon: paymentEmoji({ name: draftPaymentName, icon: draftPaymentIcon })");
+    expect(app).not.toContain('icon: draftCategoryIcon.trim() || "◌"');
+  });
+
+  it("ships the intended app version and deep-link configuration", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
-      expo?: {
-        version?: string;
-        scheme?: string;
-        android?: { versionCode?: number };
-      };
+      expo?: { version?: string; scheme?: string };
     };
-    expect(appJson.expo?.version).toBe("1.2.1");
+    expect(appJson.expo?.version).toBe("1.2.0");
     expect(appJson.expo?.scheme).toBe("togetherledger");
-    expect(appJson.expo?.android?.versionCode).toBe(3);
   });
 
   it("keeps a quota-independent GitHub Actions Android APK workflow", () => {
@@ -105,24 +105,18 @@ describe("Together Ledger v1.2.0 Android wiring", () => {
     expect(workflow).toContain("branches:\n      - main");
     expect(workflow).toContain("android-actions/setup-android@v3");
     expect(workflow).toContain("pnpm run prebuild:android");
-    expect(workflow).toContain("assembleRelease");
-    expect(workflow).not.toContain("assembleDebug");
+    expect(workflow).toContain("assembleDebug");
     expect(workflow).toContain("actions/upload-artifact@v4");
     expect(workflow).toContain(
-      "together-ledger-${{ steps.app-version.outputs.version }}-release-apk"
+      "together-ledger-${{ steps.app-version.outputs.version }}-debug-apk"
     );
-    expect(workflow).toContain("app-release.apk");
-    expect(workflow).toContain("embedded JavaScript bundle");
+    expect(workflow).toContain("app-debug.apk");
     expect(workflow).toContain("GITHUB_STEP_SUMMARY");
-    expect(workflow).toContain("contents: write");
-    expect(workflow).toContain("gh release create");
-    expect(workflow).toContain("gh release upload");
-    expect(workflow).toContain("app-release.apk.sha256");
     expect(packageJson.scripts?.["prebuild:android"]).toContain(
       "expo prebuild --platform android --no-install"
     );
     expect(packageJson.scripts?.["build:android:ci"]).toContain(
-      "assembleRelease"
+      "assembleDebug"
     );
   });
 });

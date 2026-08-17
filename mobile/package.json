@@ -1,13 +1,13 @@
 {
   "name": "together-ledger-android",
-  "version": "1.2.1",
+  "version": "1.2.0",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
     "start": "expo start",
     "android": "expo run:android",
     "prebuild:android": "expo prebuild --platform android --no-install",
-    "build:android:ci": "pnpm run prebuild:android && cd android && ./gradlew --no-daemon --stacktrace assembleRelease",
+    "build:android:ci": "pnpm run prebuild:android && cd android && ./gradlew --no-daemon --stacktrace assembleDebug",
     "typecheck": "tsc --noEmit",
     "verify:core-flows": "node scripts/verify-core-flows.mjs",
     "export:android": "expo export --platform android"
