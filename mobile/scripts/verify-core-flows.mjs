@@ -35,14 +35,14 @@ const checks = [
   ["邀請碼可點擊複製", app.includes('Clipboard.setStringAsync') && app.includes('複製邀請碼') && app.includes('點擊複製')],
   ["帳本可退出返回我的帳本", app.includes('setLedgerHome(true)') && app.includes('返回我的帳本') && app.includes('我的帳本')],
   ["帳本底部快捷分頁列", app.includes('function QuickNav') && app.includes('QuickNav active={activeAction}') && app.includes('切換至${item.label}')],
-  ["個人化主題字體與文字大小設定", app.includes('AppearanceProvider') && app.includes('appearanceStorageKey') && app.includes('App 主題') && app.includes('字體') && app.includes('文字大小')],
+  ["個人化主題、擴充字體與文字大小設定", app.includes('AppearanceProvider') && app.includes('appearanceStorageKey') && app.includes('App 主題') && app.includes('字體') && app.includes('文字大小') && app.includes('sans-serif-condensed') && app.includes('monospace') && app.includes('tiny') && app.includes('xl')],
   ["最近收支固定高度獨立滑動", app.includes('recentTransactionsScroll') && app.includes('nestedScrollEnabled') && app.includes('最近收支')],
   ["冷啟動固定回到帳本首頁", app.includes('Never restore the last open ledger') && app.includes('setLedgerHome(true)') && app.includes('setActiveLedger(null)')],
   ["阻止重複加入同一帳本", app.includes('api.ledger.join.mutate') && db.includes('你已經加入這個帳本，不需要重複加入') && router.includes('CONFLICT')],
   ["帳本退出／轉讓／刪除入口與角色提示", app.includes('requestLeaveLedger') && app.includes('onLeaveLedger={requestLeaveLedger}') && app.includes('performLeaveLedger("transfer"') && app.includes('performLeaveLedger("leave"') && app.includes('action: "delete"') && app.includes('再次確認刪除帳本')],
   ["移除 hamburger drawer", !app.includes('function Drawer') && !app.includes('drawerBackdrop') && !app.includes('drawerItem')],
-  ["暱稱更新與主頁個人設定接線", app.includes('PersonalSettingsCard') && app.includes('api.profile.updateName.mutate') && app.includes('使用者暱稱') && app.includes('onUpdateNickname')],
-  ["登出與收支修改／刪除雙重確認", app.includes('確認登出') && app.includes('再次確認編輯') && app.includes('再次確認移除')],
+  ["暱稱更新與獨立個人設定頁接線", app.includes('PersonalSettingsPage') && app.includes('current => current === "profile"') && app.includes('api.profile.updateName.mutate') && app.includes('使用者暱稱') && app.includes('onUpdateNickname')],
+  ["登出確認、編輯單次確認與刪除二次確認", app.includes('確認登出') && app.includes('編輯收支') && app.includes('開啟編輯') && app.includes('再次確認移除')],
 ];
 
 const failed = checks.filter(([, passed]) => !passed).map(([label]) => label);

@@ -22,6 +22,11 @@ const mocks = vi.hoisted(() => ({
   getTransactions: vi.fn(),
   joinLedgerByInviteCode: vi.fn(),
   leaveLedger: vi.fn(),
+  renameLedger: vi.fn(),
+  transferLedgerOwnership: vi.fn(),
+  listTravelPlans: vi.fn(),
+  createTravelPlan: vi.fn(),
+  deleteTravelPlan: vi.fn(),
   logActivity: vi.fn(),
   listBudgets: vi.fn(),
   listLedgersForUser: vi.fn(),
@@ -64,6 +69,11 @@ describe("typed ledger workflow contract", () => {
     mocks.createLedger.mockResolvedValue(adminAccess.ledger);
     mocks.joinLedgerByInviteCode.mockResolvedValue(adminAccess.ledger);
     mocks.leaveLedger.mockResolvedValue({ success: true });
+    mocks.renameLedger.mockResolvedValue({ id: 1, name: "新名稱" });
+    mocks.transferLedgerOwnership.mockResolvedValue({ success: true });
+    mocks.listTravelPlans.mockResolvedValue([]);
+    mocks.createTravelPlan.mockResolvedValue({ id: 21, name: "台南三日遊" });
+    mocks.deleteTravelPlan.mockResolvedValue({ success: true });
     mocks.updateUserName.mockResolvedValue({ id: 1, name: "新暱稱" });
     mocks.createCategory.mockResolvedValue(11);
     mocks.createPaymentMethod.mockResolvedValue(12);
@@ -148,6 +158,41 @@ describe("typed ledger workflow contract", () => {
     expect(mocks.createTransaction).toHaveBeenLastCalledWith(
       expect.objectContaining({ userId: 1, splitType: "amount" }),
     );
+  });
+
+  it("forwards ledger rename, direct ownership transfer, and independent travel plans", async () => {
+    const caller = appRouter.createCaller(createTestContext());
+    await caller.ledger.rename({ ledgerId: 1, name: "  週末旅行帳本  " });
+    await caller.ledger.transferOwnership({ ledgerId: 1, targetUserId: 2 });
+    await caller.ledger.travelPlans({ ledgerId: 1 });
+    await caller.ledger.createTravelPlan({
+      ledgerId: 1,
+      name: "台南三日遊",
+      budget: 15000,
+      startDate: "2026-09-01",
+      endDate: "2026-09-03",
+      notes: "不納入每月預算",
+    });
+    await caller.ledger.deleteTravelPlan({ ledgerId: 1, planId: 21 });
+
+    expect(mocks.renameLedger).toHaveBeenCalledWith({ ledgerId: 1, name: "週末旅行帳本", userId: 1 });
+    expect(mocks.transferLedgerOwnership).toHaveBeenCalledWith({ ledgerId: 1, targetUserId: 2, userId: 1 });
+    expect(mocks.listTravelPlans).toHaveBeenCalledWith(1);
+    expect(mocks.createTravelPlan).toHaveBeenCalledWith(expect.objectContaining({
+      ledgerId: 1,
+      name: "台南三日遊",
+      budget: 15000,
+      userId: 1,
+      startDate: expect.any(Date),
+      endDate: expect.any(Date),
+    }));
+    expect(mocks.deleteTravelPlan).toHaveBeenCalledWith({ ledgerId: 1, planId: 21, userId: 1 });
+  });
+
+  it("enforces the budget ceiling at the typed router boundary", async () => {
+    const caller = appRouter.createCaller(createTestContext());
+    await expect(caller.ledger.upsertBudget({ ledgerId: 1, categoryId: 0, amount: 100_000_001, month: "2026-08" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    await expect(caller.ledger.createTravelPlan({ ledgerId: 1, name: "超額", budget: 100_000_001, startDate: "2026-09-01", endDate: "2026-09-03" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
   it("executes category, payment method, budget, and recurring mutations", async () => {

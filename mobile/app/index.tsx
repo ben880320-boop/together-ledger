@@ -8,6 +8,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { encode as encodeBase64 } from "base-64";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import QRCode from "react-native-qrcode-svg";
+import Svg, { Circle } from "react-native-svg";
 import {
   createContext,
   useCallback,
@@ -27,6 +28,7 @@ import {
   ScrollView,
   Share,
   StyleSheet,
+  Switch,
   Text as NativeTextComponent,
   TextInput,
   View,
@@ -55,19 +57,25 @@ const colors = {
   blue: "#6D8EA8",
 };
 
-type AppearanceTheme = "rose" | "graphite" | "latte" | "mint";
-type AppearanceFont = "system" | "rounded" | "serif";
-type AppearanceScale = "small" | "standard" | "large";
+type AppearanceTheme = "rose" | "graphite" | "latte" | "mint" | "ocean" | "sunset";
+type AppearanceFont = "system" | "rounded" | "serif" | "clean" | "mono";
+type AppearanceScale = "tiny" | "small" | "standard" | "large" | "xl";
 type AppearancePreferences = {
   theme: AppearanceTheme;
   font: AppearanceFont;
   scale: AppearanceScale;
+  compactMode: boolean;
+  reduceMotion: boolean;
+  autoReceiptNote: boolean;
 };
 
 const appearanceDefaults: AppearancePreferences = {
   theme: "rose",
   font: "system",
   scale: "standard",
+  compactMode: false,
+  reduceMotion: false,
+  autoReceiptNote: true,
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
 const appearancePalettes: Record<AppearanceTheme, typeof colors> = {
@@ -104,13 +112,46 @@ const appearancePalettes: Record<AppearanceTheme, typeof colors> = {
     rose: "#4D9381",
     roseSoft: "#DDEFE8",
     burgundy: "#315F55",
+    sage: "#5D8B72",
+    orange: "#C88D62",
+    blue: "#4E8990",
+  },
+  ocean: {
+    ...colors,
+    background: "#F2F7FB",
+    surface: "#FCFEFF",
+    ink: "#213747",
+    muted: "#6A8291",
+    border: "#D9E6EE",
+    rose: "#397D9B",
+    roseSoft: "#DDECF3",
+    burgundy: "#294D61",
+    sage: "#568B78",
+    orange: "#C88A5F",
+    blue: "#397D9B",
+  },
+  sunset: {
+    ...colors,
+    background: "#FFF7EF",
+    surface: "#FFFCF7",
+    ink: "#4B3029",
+    muted: "#9A7468",
+    border: "#F0DCCB",
+    rose: "#D17B61",
+    roseSoft: "#FBE4D9",
+    burgundy: "#75473B",
+    sage: "#7C946D",
+    orange: "#D17B61",
+    blue: "#758BA4",
   },
 };
 
 const appearanceScaleMap: Record<AppearanceScale, number> = {
+  tiny: 0.82,
   small: 0.9,
   standard: 1,
   large: 1.12,
+  xl: 1.25,
 };
 const appearanceFontMap: Record<AppearanceFont, string> = {
   system: Platform.select({ android: "sans-serif", ios: "System" }) || "sans-serif",
@@ -118,6 +159,8 @@ const appearanceFontMap: Record<AppearanceFont, string> = {
     Platform.select({ android: "sans-serif-rounded", ios: "System" }) ||
     "sans-serif",
   serif: Platform.select({ android: "serif", ios: "Times New Roman" }) || "serif",
+  clean: Platform.select({ android: "sans-serif-condensed", ios: "System" }) || "sans-serif",
+  mono: Platform.select({ android: "monospace", ios: "Menlo" }) || "monospace",
 };
 
 type AppearanceContextValue = {
@@ -164,6 +207,7 @@ function AppearanceProvider({ children }: { children: ReactNode }) {
     }),
     [preferences, updatePreferences]
   );
+  styles = createStyles(value.palette);
   return (
     <AppearanceContext.Provider value={value}>
       <View style={{ flex: 1, backgroundColor: value.palette.background }}>
@@ -264,6 +308,16 @@ type SettlementHistory = {
   settledAt: Date | string;
 };
 type Budget = { id: number; categoryId: number; amount: number; month: string };
+type TravelPlan = {
+  id: number;
+  ledgerId: number;
+  createdBy: number;
+  name: string;
+  budget: number;
+  startDate: Date | string;
+  endDate: Date | string;
+  notes: string | null;
+};
 type Recurring = {
   id: number;
   title: string;
@@ -369,6 +423,7 @@ function AppContent() {
   const [settlement, setSettlement] = useState<Settlement | null>(null);
   const [settlementHistory, setSettlementHistory] = useState<SettlementHistory[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
+  const [travelPlans, setTravelPlans] = useState<TravelPlan[]>([]);
   const [recurring, setRecurring] = useState<Recurring[]>([]);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [ledgerModal, setLedgerModal] = useState<"create" | "join" | null>(
@@ -377,16 +432,24 @@ function AppContent() {
   const [transactionModal, setTransactionModal] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [budgetModal, setBudgetModal] = useState(false);
+  const [travelPlanModal, setTravelPlanModal] = useState(false);
   const [recurringModal, setRecurringModal] = useState(false);
   const [settingsModal, setSettingsModal] = useState<
     "category" | "payment" | null
   >(null);
+  const [ledgerManageModal, setLedgerManageModal] = useState<"rename" | "transfer" | null>(null);
+  const [travelPlanName, setTravelPlanName] = useState("");
+  const [travelPlanBudget, setTravelPlanBudget] = useState("");
+  const [travelPlanStartDate, setTravelPlanStartDate] = useState("");
+  const [travelPlanEndDate, setTravelPlanEndDate] = useState("");
+  const [travelPlanNotes, setTravelPlanNotes] = useState("");
   const [ledgerName, setLedgerName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [pendingInviteCode, setPendingInviteCode] = useState("");
   const [ledgerType, setLedgerType] = useState<"couple" | "roommate" | "family">("couple");
   const [activeAction, setActiveAction] = useState<DrawerAction>("overview");
   const [ledgerHome, setLedgerHome] = useState(false);
+  const [homePage, setHomePage] = useState<"ledgers" | "profile">("ledgers");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -404,6 +467,7 @@ function AppContent() {
       nextSettlement,
       nextHistory,
       nextBudgets,
+      nextTravelPlans,
       nextRecurring,
       nextActivityLogs,
     ] = await Promise.all([
@@ -417,6 +481,7 @@ function AppContent() {
       api.ledger.settlement.summary.query({ ledgerId }),
       api.ledger.settlement.history.query({ ledgerId }),
       api.ledger.budgets.query({ ledgerId, month }),
+      api.ledger.travelPlans.query({ ledgerId }),
       api.ledger.recurring.query({ ledgerId }),
       api.ledger.activityLogs.query({ ledgerId, limit: 100 }),
     ]);
@@ -430,6 +495,7 @@ function AppContent() {
     setSettlement(nextSettlement as Settlement);
     setSettlementHistory(nextHistory as SettlementHistory[]);
     setBudgets(nextBudgets as Budget[]);
+    setTravelPlans(nextTravelPlans as TravelPlan[]);
     setRecurring(nextRecurring as Recurring[]);
     setActivityLogs(nextActivityLogs as ActivityLog[]);
   }, []);
@@ -451,6 +517,7 @@ function AppContent() {
       setLedgers(nextLedgers);
       // Never restore the last open ledger after a cold start. The app always opens at the ledger home.
       setLedgerHome(true);
+      setHomePage("ledgers");
       setActiveLedger(null);
       if (nextLedgers.length === 0) {
         setMembers([]);
@@ -463,6 +530,7 @@ function AppContent() {
         setSettlement(null);
         setSettlementHistory([]);
         setBudgets([]);
+        setTravelPlans([]);
         setRecurring([]);
         setActivityLogs([]);
       }
@@ -541,13 +609,100 @@ function AppContent() {
     setSettlement(null);
     setSettlementHistory([]);
     setBudgets([]);
+    setTravelPlans([]);
     setRecurring([]);
     setActivityLogs([]);
   };
   const leaveLedger = () => {
     clearLedgerWorkspace();
     setLedgerHome(true);
+    setHomePage("ledgers");
     setError("");
+  };
+  const updateLedgerName = async (name: string) => {
+    if (!activeLedger) return;
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setError("帳本名稱不能是空白。");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.ledger.rename.mutate({ ledgerId: activeLedger.id, name: trimmed });
+      const nextLedger = { ...activeLedger, name: trimmed };
+      setActiveLedger(nextLedger);
+      setLedgers(current => current.map(item => item.id === nextLedger.id ? nextLedger : item));
+      setLedgerManageModal(null);
+      setError("");
+      Alert.alert("已更新帳本名稱", `帳本已改為「${trimmed}」。`);
+    } catch (renameError) {
+      setError(renameError instanceof Error ? renameError.message : "帳本名稱更新失敗。");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const transferOwnership = async (targetUserId: number) => {
+    if (!activeLedger) return;
+    setBusy(true);
+    try {
+      await api.ledger.transferOwnership.mutate({ ledgerId: activeLedger.id, targetUserId });
+      await refresh();
+      setLedgerManageModal(null);
+      Alert.alert("已完成轉讓", "帳本所有權已轉讓，新的持有者會保留管理權限。你仍會留在帳本中。");
+    } catch (transferError) {
+      setError(transferError instanceof Error ? transferError.message : "帳本所有權轉讓失敗。");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const createTravelPlan = async () => {
+    if (!activeLedger) return;
+    const budget = Number(travelPlanBudget);
+    if (!travelPlanName.trim() || !Number.isInteger(budget) || budget <= 0) {
+      setError("請輸入出遊名稱與正整數預算。");
+      return;
+    }
+    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(travelPlanStartDate) || !/^\\d{4}-\\d{2}-\\d{2}$/.test(travelPlanEndDate) || travelPlanStartDate > travelPlanEndDate) {
+      setError("請輸入有效的日期範圍（YYYY-MM-DD）。");
+      return;
+    }
+    setBusy(true);
+    try {
+      await api.ledger.createTravelPlan.mutate({
+        ledgerId: activeLedger.id,
+        name: travelPlanName.trim(),
+        budget,
+        startDate: new Date(`${travelPlanStartDate}T00:00:00`),
+        endDate: new Date(`${travelPlanEndDate}T23:59:59`),
+        notes: travelPlanNotes.trim() || undefined,
+      });
+      setTravelPlanName("");
+      setTravelPlanBudget("");
+      setTravelPlanStartDate("");
+      setTravelPlanEndDate("");
+      setTravelPlanNotes("");
+      setTravelPlanModal(false);
+      setError("");
+      await refresh();
+    } catch (planError) {
+      setError(planError instanceof Error ? planError.message : "出遊規劃建立失敗。");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const removeTravelPlan = (planId: number) => {
+    if (!activeLedger) return;
+    Alert.alert("刪除出遊規劃", "刪除後不會影響帳本交易，但規劃資料無法復原。", [
+      { text: "取消", style: "cancel" },
+      { text: "確定刪除", style: "destructive", onPress: async () => {
+        try {
+          await api.ledger.deleteTravelPlan.mutate({ ledgerId: activeLedger.id, planId });
+          await refresh();
+        } catch (planError) {
+          setError(planError instanceof Error ? planError.message : "出遊規劃刪除失敗。");
+        }
+      } },
+    ]);
   };
   const updateNickname = async (name: string) => {
     const trimmed = name.trim();
@@ -731,21 +886,14 @@ function AppContent() {
     setTransactionModal(true);
   };
   const openEditTransaction = (transaction: Transaction) => {
-    Alert.alert("確認編輯", "即將修改這筆收支。要繼續嗎？", [
+    Alert.alert("編輯收支", "將開啟編輯表單；尚未儲存前不會修改帳本資料。", [
       { text: "取消", style: "cancel" },
       {
-        text: "下一步",
-        onPress: () =>
-          Alert.alert("再次確認編輯", "確認後會開啟編輯表單，儲存才會套用修改。", [
-            { text: "取消", style: "cancel" },
-            {
-              text: "開始編輯",
-              onPress: () => {
-                setEditingTransaction(transaction);
-                setTransactionModal(true);
-              },
-            },
-          ]),
+        text: "開啟編輯",
+        onPress: () => {
+          setEditingTransaction(transaction);
+          setTransactionModal(true);
+        },
       },
     ]);
   };
@@ -810,32 +958,45 @@ function AppContent() {
     );
   if (!user)
     return <LoginScreen error={error} busy={busy} onLogin={handleLogin} />;
+  const homeHeaderAction = (
+    <View style={styles.headerActions}>
+      <Pressable
+        onPress={() => setHomePage(current => current === "profile" ? "ledgers" : "profile")}
+        style={styles.headerBackButton}
+        accessibilityLabel="個人設定"
+        accessibilityRole="button"
+      >
+        <MaterialCommunityIcons name={homePage === "profile" ? "arrow-left" : "account-outline"} size={19} color={palette.rose} />
+      </Pressable>
+      <Pressable onPress={logout} style={styles.headerBackButton} accessibilityLabel="登出">
+        <MaterialCommunityIcons name="logout" size={19} color={palette.muted} />
+      </Pressable>
+    </View>
+  );
+
   if (ledgers.length === 0)
     return (
       <>
         <AppHeader
-          title="共帳"
-          caption="建立你的共同財務空間"
-          action={
-            <Pressable onPress={logout} style={styles.headerBackButton} accessibilityLabel="登出">
-              <MaterialCommunityIcons name="logout" size={19} color={colors.muted} />
-            </Pressable>
-          }
+          title={homePage === "profile" ? "個人設定" : "共帳"}
+          caption={homePage === "profile" ? "管理你的 App 偏好" : "建立你的共同財務空間"}
+          action={homeHeaderAction}
         />
-        <EmptyLedger
-          user={user}
-          onUpdateNickname={updateNickname}
-          onLogout={logout}
-          error={error}
-          onCreate={() => {
-            setError("");
-            setLedgerModal("create");
-          }}
-          onJoin={() => {
-            setError("");
-            setLedgerModal("join");
-          }}
-        />
+        {homePage === "profile" ? (
+          <PersonalSettingsPage user={user} error={error} onUpdateNickname={updateNickname} onLogout={logout} onBack={() => setHomePage("ledgers")} />
+        ) : (
+          <EmptyLedger
+            error={error}
+            onCreate={() => {
+              setError("");
+              setLedgerModal("create");
+            }}
+            onJoin={() => {
+              setError("");
+              setLedgerModal("join");
+            }}
+          />
+        )}
         <LedgerModal
           mode={ledgerModal}
           ledgerName={ledgerName}
@@ -859,29 +1020,26 @@ function AppContent() {
     return (
       <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "bottom"]}>
         <AppHeader
-          title="我的帳本"
-          caption="選擇要進入的共同空間"
-          action={
-            <Pressable onPress={logout} style={styles.headerBackButton} accessibilityLabel="登出">
-              <MaterialCommunityIcons name="logout" size={19} color={colors.muted} />
-            </Pressable>
-          }
+          title={homePage === "profile" ? "個人設定" : "我的帳本"}
+          caption={homePage === "profile" ? "管理你的 App 偏好" : "選擇要進入的共同空間"}
+          action={homeHeaderAction}
         />
-        <LedgerHome
-          user={user}
-          onUpdateNickname={updateNickname}
-          onLogout={logout}
-          ledgers={ledgers}
-          onSelect={selectLedger}
-          onCreate={() => {
-            setError("");
-            setLedgerModal("create");
-          }}
-          onJoin={() => {
-            setError("");
-            setLedgerModal("join");
-          }}
-        />
+        {homePage === "profile" ? (
+          <PersonalSettingsPage user={user} error={error} onUpdateNickname={updateNickname} onLogout={logout} onBack={() => setHomePage("ledgers")} />
+        ) : (
+          <LedgerHome
+            ledgers={ledgers}
+            onSelect={selectLedger}
+            onCreate={() => {
+              setError("");
+              setLedgerModal("create");
+            }}
+            onJoin={() => {
+              setError("");
+              setLedgerModal("join");
+            }}
+          />
+        )}
         <LedgerModal
           mode={ledgerModal}
           ledgerName={ledgerName}
@@ -948,9 +1106,12 @@ function AppContent() {
       <PlanningSection
         analytics={analytics}
         budgets={budgets}
+        travelPlans={travelPlans}
         categories={categories}
         recurring={recurring}
         onBudget={() => setBudgetModal(true)}
+        onTravelPlan={() => setTravelPlanModal(true)}
+        onDeleteTravelPlan={removeTravelPlan}
         onRecurring={() => setRecurringModal(true)}
       />
     ) : (
@@ -962,6 +1123,8 @@ function AppContent() {
         paymentMethods={paymentMethods}
         history={settlementHistory}
         activityLogs={activityLogs}
+        onRenameLedger={() => setLedgerManageModal("rename")}
+        onTransferOwnership={() => setLedgerManageModal("transfer")}
         onCategory={() => setSettingsModal("category")}
         onPayment={() => setSettingsModal("payment")}
         onArchiveCategory={archiveCategoryItem}
@@ -1108,6 +1271,41 @@ function AppContent() {
           }
         }}
       />
+      <LedgerManageModal
+        visible={ledgerManageModal !== null}
+        mode={ledgerManageModal || "rename"}
+        ledger={activeLedger!}
+        members={members}
+        user={user}
+        error={error}
+        busy={busy}
+        onClose={() => {
+          setLedgerManageModal(null);
+          setError("");
+        }}
+        onRename={updateLedgerName}
+        onTransfer={transferOwnership}
+      />
+      <TravelPlanModal
+        visible={travelPlanModal}
+        name={travelPlanName}
+        budget={travelPlanBudget}
+        startDate={travelPlanStartDate}
+        endDate={travelPlanEndDate}
+        notes={travelPlanNotes}
+        error={error}
+        busy={busy}
+        setName={setTravelPlanName}
+        setBudget={setTravelPlanBudget}
+        setStartDate={setTravelPlanStartDate}
+        setEndDate={setTravelPlanEndDate}
+        setNotes={setTravelPlanNotes}
+        onClose={() => {
+          setTravelPlanModal(false);
+          setError("");
+        }}
+        onSubmit={createTravelPlan}
+      />
       <SettingsModal
         visible={settingsModal !== null}
         mode={settingsModal || "category"}
@@ -1252,6 +1450,7 @@ function LedgerSelector({
   activeLedgerId: number;
   onSelect: (ledger: Ledger) => void;
 }) {
+  const { palette } = useAppearance();
   return (
     <View style={styles.ledgerSelector}>
       <Text style={styles.selectorLabel}>目前帳本</Text>
@@ -1268,7 +1467,7 @@ function LedgerSelector({
             <MaterialCommunityIcons
               name={ledger.type === "couple" ? "heart-outline" : "account-group-outline"}
               size={15}
-              color={ledger.id === activeLedgerId ? colors.rose : colors.muted}
+              color={ledger.id === activeLedgerId ? palette.rose : palette.muted}
             />
             <Text
               numberOfLines={1}
@@ -1287,22 +1486,17 @@ function LedgerSelector({
 }
 
 function LedgerHome({
-  user,
-  onUpdateNickname,
-  onLogout,
   ledgers,
   onSelect,
   onCreate,
   onJoin,
 }: {
-  user: User;
-  onUpdateNickname: (name: string) => void | Promise<void>;
-  onLogout: () => void;
   ledgers: Ledger[];
   onSelect: (ledger: Ledger) => void;
   onCreate: () => void;
   onJoin: () => void;
 }) {
+  const { palette } = useAppearance();
   return (
     <ScrollView contentContainerStyle={styles.ledgerHomeContent}>
       <SectionIntro
@@ -1320,14 +1514,14 @@ function LedgerHome({
             <MaterialCommunityIcons
               name={ledger.type === "couple" ? "heart-outline" : "account-group-outline"}
               size={23}
-              color={colors.rose}
+              color={palette.rose}
             />
           </View>
           <View style={styles.memberPaymentName}>
             <Text style={styles.cardTitle}>{ledger.name}</Text>
             <Text style={styles.rowSubtitle}>點擊進入共同帳本</Text>
           </View>
-          <MaterialCommunityIcons name="chevron-right" size={22} color={colors.muted} />
+          <MaterialCommunityIcons name="chevron-right" size={22} color={palette.muted} />
         </Pressable>
       ))}
       <View style={styles.actionRow}>
@@ -1336,30 +1530,19 @@ function LedgerHome({
           <Text style={styles.actionButtonText}>建立帳本</Text>
         </Pressable>
         <Pressable onPress={onJoin} style={styles.secondaryActionButton}>
-          <MaterialCommunityIcons name="account-multiple-plus-outline" size={19} color={colors.rose} />
+          <MaterialCommunityIcons name="account-multiple-plus-outline" size={19} color={palette.rose} />
           <Text style={styles.secondaryActionButtonText}>加入帳本</Text>
         </Pressable>
       </View>
-      <PersonalSettingsCard
-        user={user}
-        onUpdateNickname={onUpdateNickname}
-        onLogout={onLogout}
-      />
     </ScrollView>
   );
 }
 
 function EmptyLedger({
-  user,
-  onUpdateNickname,
-  onLogout,
   error,
   onCreate,
   onJoin,
 }: {
-  user: User;
-  onUpdateNickname: (name: string) => void | Promise<void>;
-  onLogout: () => void;
   error: string;
   onCreate: () => void;
   onJoin: () => void;
@@ -1404,11 +1587,6 @@ function EmptyLedger({
           />
           <Text style={styles.secondaryButtonText}>使用邀請碼加入</Text>
         </Pressable>
-        <PersonalSettingsCard
-          user={user}
-          onUpdateNickname={onUpdateNickname}
-          onLogout={onLogout}
-        />
       </ScrollView>
     </SafeAreaView>
   );
@@ -1439,6 +1617,7 @@ function Overview({
   onDelete: (transaction: Transaction) => void;
   onSettle: () => void;
 }) {
+  const { palette } = useAppearance();
   const memberNames = members
     .map(item => item.user.name || item.user.email || "成員")
     .join(" ＆ ");
@@ -1509,7 +1688,7 @@ function Overview({
         <MaterialCommunityIcons
           name="chart-donut"
           size={36}
-          color={colors.rose}
+          color={palette.rose}
         />
       </View>
       <View style={styles.card}>
@@ -1573,7 +1752,7 @@ function Overview({
         <MaterialCommunityIcons
           name="star-outline"
           size={21}
-          color={colors.rose}
+          color={palette.rose}
         />
         <View style={styles.insightText}>
           <Text style={styles.insightTitle}>共同財務摘要</Text>
@@ -1589,7 +1768,7 @@ function Overview({
           <MaterialCommunityIcons
             name="hand-coin-outline"
             size={22}
-            color={colors.rose}
+            color={palette.rose}
           />
         </View>
         <View style={styles.settlementText}>
@@ -1619,10 +1798,11 @@ function StatCard({
   value: string;
   icon: keyof typeof MaterialCommunityIcons.glyphMap;
 }) {
+  const { palette } = useAppearance();
   return (
     <View style={styles.statCard}>
       <View style={styles.statIcon}>
-        <MaterialCommunityIcons name={icon} size={17} color={colors.rose} />
+        <MaterialCommunityIcons name={icon} size={17} color={palette.rose} />
       </View>
       <Text style={styles.statLabel}>{label}</Text>
       <Text style={styles.statValue}>{value}</Text>
@@ -1641,6 +1821,7 @@ function CalendarSection({
   onEdit: (transaction: Transaction) => void;
   onDelete: (transaction: Transaction) => void;
 }) {
+  const { palette } = useAppearance();
   const month = currentMonth();
   const [selected, setSelected] = useState(dateKey(new Date()));
   const [year, monthNumber] = month.split("-").map(Number);
@@ -1711,8 +1892,8 @@ function CalendarSection({
                       {
                         backgroundColor:
                           (totalByDay.get(day) || 0) > 0
-                            ? colors.orange
-                            : colors.sage,
+                            ? palette.orange
+                            : palette.sage,
                       },
                     ]}
                   />
@@ -1747,6 +1928,59 @@ function CalendarSection({
   );
 }
 
+function ExpenseDonut({
+  categories,
+}: {
+  categories: Analytics["categories"];
+}) {
+  const { palette } = useAppearance();
+  const size = 172;
+  const strokeWidth = 23;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const total = categories.reduce((sum, item) => sum + item.amount, 0);
+  let offset = 0;
+  return (
+    <View style={styles.donutWrap}>
+      <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <Circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          stroke={palette.border}
+          strokeWidth={strokeWidth}
+          fill="none"
+        />
+        {categories.map(category => {
+          const length = total > 0 ? (category.amount / total) * circumference : 0;
+          const dashOffset = -offset;
+          offset += length;
+          return (
+            <Circle
+              key={category.id}
+              cx={size / 2}
+              cy={size / 2}
+              r={radius}
+              stroke={category.color || palette.rose}
+              strokeWidth={strokeWidth}
+              strokeLinecap="butt"
+              fill="none"
+              strokeDasharray={`${length} ${circumference - length}`}
+              strokeDashoffset={dashOffset}
+              rotation="-90"
+              origin={`${size / 2}, ${size / 2}`}
+            />
+          );
+        })}
+      </Svg>
+      <View style={styles.donutCenter}>
+        <Text style={styles.donutCenterLabel}>總支出</Text>
+        <Text style={styles.donutCenterValue}>{money(total)}</Text>
+      </View>
+    </View>
+  );
+}
+
 function AnalysisSection({
   analytics,
   previousAnalytics,
@@ -1754,6 +1988,7 @@ function AnalysisSection({
   analytics: Analytics | null;
   previousAnalytics: Analytics | null;
 }) {
+  const { palette } = useAppearance();
   const expenseChange = previousAnalytics?.expense
     ? Math.round(
         (((analytics?.expense || 0) - previousAnalytics.expense) /
@@ -1795,13 +2030,33 @@ function AnalysisSection({
               : "與上月相比持平"}
         </Text>
       </View>
+      {!!analytics?.categories.length && (
+        <View style={styles.card}>
+          <View style={styles.cardHeading}>
+            <Text style={styles.cardTitle}>支出比例</Text>
+            <MaterialCommunityIcons name="chart-donut" size={20} color={palette.rose} />
+          </View>
+          <View style={styles.donutLayout}>
+            <ExpenseDonut categories={analytics.categories} />
+            <View style={styles.donutLegend}>
+              {analytics.categories.slice(0, 5).map(category => (
+                <View key={`legend-${category.id}`} style={styles.donutLegendRow}>
+                  <View style={[styles.donutLegendDot, { backgroundColor: category.color || palette.rose }]} />
+                  <Text style={styles.donutLegendName} numberOfLines={1}>{category.name}</Text>
+                  <Text style={styles.donutLegendAmount}>{money(category.amount)}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        </View>
+      )}
       <View style={styles.card}>
         <View style={styles.cardHeading}>
           <Text style={styles.cardTitle}>支出分類</Text>
           <MaterialCommunityIcons
             name="chart-donut"
             size={20}
-            color={colors.rose}
+            color={palette.rose}
           />
         </View>
         {analytics?.categories.length ? (
@@ -1837,7 +2092,7 @@ function AnalysisSection({
           <CompareItem
             label="本月支出"
             value={analytics?.expense || 0}
-            color={colors.rose}
+            color={palette.rose}
           />
           <CompareItem
             label="上月支出"
@@ -1859,6 +2114,7 @@ function CompareItem({
   value: number;
   color: string;
 }) {
+  const { palette } = useAppearance();
   return (
     <View style={styles.compareItem}>
       <View style={[styles.compareSwatch, { backgroundColor: color }]} />
@@ -1871,18 +2127,25 @@ function CompareItem({
 function PlanningSection({
   analytics,
   budgets,
+  travelPlans,
   categories,
   recurring,
   onBudget,
+  onTravelPlan,
+  onDeleteTravelPlan,
   onRecurring,
 }: {
   analytics: Analytics | null;
   budgets: Budget[];
+  travelPlans: TravelPlan[];
   categories: Category[];
   recurring: Recurring[];
   onBudget: () => void;
+  onTravelPlan: () => void;
+  onDeleteTravelPlan: (planId: number) => void;
   onRecurring: () => void;
 }) {
+  const { palette } = useAppearance();
   const totalBudget = budgets.find(item => item.categoryId === 0);
   const spent = analytics?.expense || 0;
   const totalPercent = totalBudget
@@ -1909,7 +2172,7 @@ function PlanningSection({
             <MaterialCommunityIcons
               name="pencil-outline"
               size={17}
-              color={colors.rose}
+              color={palette.rose}
             />
           </Pressable>
         </View>
@@ -1922,7 +2185,7 @@ function PlanningSection({
                   {
                     width: `${totalPercent}%`,
                     backgroundColor:
-                      totalPercent >= 100 ? "#C25C5C" : colors.rose,
+                      totalPercent >= 100 ? "#C25C5C" : palette.rose,
                   },
                 ]}
               />
@@ -1942,6 +2205,36 @@ function PlanningSection({
           <Pressable onPress={onBudget} style={styles.dashedButton}>
             <Text style={styles.dashedButtonText}>設定每月總預算</Text>
           </Pressable>
+        )}
+      </View>
+      <View style={styles.card}>
+        <View style={styles.cardHeading}>
+          <View>
+            <Text style={styles.cardTitle}>出遊規劃</Text>
+            <Text style={styles.cardHint}>獨立於每月預算</Text>
+          </View>
+          <Pressable onPress={onTravelPlan} style={styles.outlineIconButton}>
+            <MaterialCommunityIcons name="map-plus" size={18} color={palette.rose} />
+          </Pressable>
+        </View>
+        {travelPlans.length === 0 ? (
+          <EmptyInline text="安排旅行或聚會預算，日期範圍不會影響每月預算。" />
+        ) : (
+          travelPlans.map(plan => (
+            <View key={plan.id} style={styles.travelPlanRow}>
+              <View style={styles.travelPlanIcon}>
+                <MaterialCommunityIcons name="map-marker-path" size={18} color={palette.rose} />
+              </View>
+              <View style={styles.memberPaymentName}>
+                <Text style={styles.rowTitle}>{plan.name}</Text>
+                <Text style={styles.rowSubtitle}>{dateKey(plan.startDate)} 至 {dateKey(plan.endDate)} · {money(plan.budget)}</Text>
+                {!!plan.notes && <Text style={styles.rowSubtitle}>{plan.notes}</Text>}
+              </View>
+              <Pressable onPress={() => onDeleteTravelPlan(plan.id)} style={styles.rowActionButton} accessibilityLabel={`刪除${plan.name}`}>
+                <MaterialCommunityIcons name="trash-can-outline" size={17} color={palette.rose} />
+              </Pressable>
+            </View>
+          ))
         )}
       </View>
       <View style={styles.card}>
@@ -1981,7 +2274,7 @@ function PlanningSection({
                       {
                         width: `${Math.max(percent ? 5 : 0, percent)}%`,
                         backgroundColor:
-                          percent >= 100 ? "#C25C5C" : colors.sage,
+                          percent >= 100 ? "#C25C5C" : palette.sage,
                       },
                     ]}
                   />
@@ -1997,7 +2290,7 @@ function PlanningSection({
         <View style={styles.cardHeading}>
           <Text style={styles.cardTitle}>固定收支</Text>
           <Pressable onPress={onRecurring} style={styles.outlineIconButton}>
-            <MaterialCommunityIcons name="plus" size={18} color={colors.rose} />
+            <MaterialCommunityIcons name="plus" size={18} color={palette.rose} />
           </Pressable>
         </View>
         {recurring.length === 0 ? (
@@ -2009,7 +2302,7 @@ function PlanningSection({
                 <MaterialCommunityIcons
                   name={item.type === "expense" ? "cash-minus" : "cash-plus"}
                   size={18}
-                  color={item.type === "expense" ? colors.rose : colors.sage}
+                  color={item.type === "expense" ? palette.rose : palette.sage}
                 />
               </View>
               <View style={styles.memberPaymentName}>
@@ -2034,14 +2327,18 @@ function PlanningSection({
   );
 }
 
-function PersonalSettingsCard({
+function PersonalSettingsPage({
   user,
+  error,
   onUpdateNickname,
   onLogout,
+  onBack,
 }: {
   user: User;
+  error: string;
   onUpdateNickname: (name: string) => void | Promise<void>;
   onLogout: () => void;
+  onBack: () => void;
 }) {
   const { preferences, palette, updatePreferences } = useAppearance();
   const [nickname, setNickname] = useState(user.name || "");
@@ -2050,20 +2347,34 @@ function PersonalSettingsCard({
     { key: "graphite", label: "石墨", color: "#58677A" },
     { key: "latte", label: "拿鐵", color: "#B87955" },
     { key: "mint", label: "薄荷", color: "#4D9381" },
+    { key: "ocean", label: "海洋", color: "#397D9B" },
+    { key: "sunset", label: "夕暮", color: "#D17B61" },
   ];
   const fonts: Array<{ key: AppearanceFont; label: string; preview: string }> = [
     { key: "system", label: "系統", preview: "Aa" },
     { key: "rounded", label: "圓體", preview: "Aa" },
     { key: "serif", label: "襯線", preview: "Aa" },
+    { key: "clean", label: "清爽細字", preview: "Aa" },
+    { key: "mono", label: "等寬", preview: "Aa" },
   ];
   const scales: Array<{ key: AppearanceScale; label: string }> = [
+    { key: "tiny", label: "特小" },
     { key: "small", label: "小" },
     { key: "standard", label: "標準" },
     { key: "large", label: "大" },
+    { key: "xl", label: "特大" },
   ];
   return (
-    <View style={styles.card}>
-      <View style={styles.cardHeading}>
+    <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["bottom"]}>
+      <ScrollView contentContainerStyle={styles.profileContent}>
+        <SectionIntro
+          eyebrow="YOUR SPACE"
+          title="把共帳調成你的樣子"
+          body="這些偏好只會影響你的裝置，不會改變共同帳本資料。"
+        />
+        {!!error && <Text style={styles.globalError}>{error}</Text>}
+        <View style={styles.card}>
+          <View style={styles.cardHeading}>
         <View style={styles.personalizationHeading}>
           <MaterialCommunityIcons name="account-cog-outline" size={19} color={palette.rose} />
           <Text style={styles.cardTitle}>個人設定</Text>
@@ -2136,14 +2447,41 @@ function PersonalSettingsCard({
           </Pressable>
         ))}
       </View>
+      <View style={styles.preferenceRow}>
+        <View style={styles.preferenceCopy}>
+          <Text style={styles.rowTitle}>緊湊清單</Text>
+          <Text style={styles.rowSubtitle}>讓交易與帳本列表顯示更多內容</Text>
+        </View>
+        <Switch value={preferences.compactMode} onValueChange={value => updatePreferences({ compactMode: value })} trackColor={{ false: palette.border, true: palette.roseSoft }} thumbColor={preferences.compactMode ? palette.rose : palette.muted} />
+      </View>
+      <View style={styles.preferenceRow}>
+        <View style={styles.preferenceCopy}>
+          <Text style={styles.rowTitle}>減少動態效果</Text>
+          <Text style={styles.rowSubtitle}>降低切換時的視覺動態，適合需要穩定畫面時使用</Text>
+        </View>
+        <Switch value={preferences.reduceMotion} onValueChange={value => updatePreferences({ reduceMotion: value })} trackColor={{ false: palette.border, true: palette.roseSoft }} thumbColor={preferences.reduceMotion ? palette.rose : palette.muted} />
+      </View>
+      <View style={styles.preferenceRow}>
+        <View style={styles.preferenceCopy}>
+          <Text style={styles.rowTitle}>掃描自動填入摘要</Text>
+          <Text style={styles.rowSubtitle}>辨識到店家或品項時，自動放入備註欄</Text>
+        </View>
+        <Switch value={preferences.autoReceiptNote} onValueChange={value => updatePreferences({ autoReceiptNote: value })} trackColor={{ false: palette.border, true: palette.roseSoft }} thumbColor={preferences.autoReceiptNote ? palette.rose : palette.muted} />
+      </View>
       <Pressable
         onPress={onLogout}
         style={({ pressed }) => [styles.outlineButton, pressed && styles.pressed]}
       >
-        <MaterialCommunityIcons name="logout" size={17} color={colors.rose} />
+        <MaterialCommunityIcons name="logout" size={17} color={palette.rose} />
         <Text style={styles.outlineButtonText}>登出帳號</Text>
       </Pressable>
-    </View>
+      <Pressable onPress={onBack} style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
+        <MaterialCommunityIcons name="arrow-left" size={17} color={palette.rose} />
+        <Text style={styles.secondaryButtonText}>返回我的帳本</Text>
+      </Pressable>
+        </View>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -2161,6 +2499,8 @@ function SettingsSection({
   onArchivePayment,
   onRefresh,
   onLeaveLedger,
+  onRenameLedger,
+  onTransferOwnership,
   onRoleChange,
 }: {
   ledger: Ledger;
@@ -2176,8 +2516,11 @@ function SettingsSection({
   onArchivePayment: (paymentMethodId: number) => void;
   onRefresh: () => void;
   onLeaveLedger: () => void;
+  onRenameLedger: () => void;
+  onTransferOwnership: () => void;
   onRoleChange: (memberId: number, role: "admin" | "member" | "viewer") => void;
 }) {
+  const { palette } = useAppearance();
   const [showQr, setShowQr] = useState(false);
   const me = members.find(item => item.user.id === user.id);
   const isAdmin = me?.member.role === "admin";
@@ -2212,7 +2555,7 @@ function SettingsSection({
         name: preset.name,
         type: preset.type,
         icon: preset.icon,
-        color: colors.rose,
+        color: palette.rose,
       });
     onRefresh();
   };
@@ -2242,7 +2585,28 @@ function SettingsSection({
       <View style={styles.card}>
         <View style={styles.cardHeading}>
           <View style={styles.personalizationHeading}>
-            <MaterialCommunityIcons name="account-switch-outline" size={19} color={colors.rose} />
+            <MaterialCommunityIcons name="account-switch-outline" size={19} color={palette.rose} />
+            <Text style={styles.cardTitle}>帳本管理</Text>
+          </View>
+        </View>
+        <Text style={styles.rowSubtitle}>名稱、持有者與成員權限可以分開管理，避免為了交接而被迫退出。</Text>
+        <View style={styles.settingsActionGrid}>
+          <Pressable onPress={onRenameLedger} style={styles.settingsActionButton}>
+            <MaterialCommunityIcons name="pencil-outline" size={17} color={palette.rose} />
+            <Text style={styles.settingsActionText}>修改帳本名稱</Text>
+          </Pressable>
+          {isAdmin && members.length > 1 && (
+            <Pressable onPress={onTransferOwnership} style={styles.settingsActionButton}>
+              <MaterialCommunityIcons name="account-switch-outline" size={17} color={palette.rose} />
+              <Text style={styles.settingsActionText}>直接轉讓所有權</Text>
+            </Pressable>
+          )}
+        </View>
+      </View>
+      <View style={styles.card}>
+        <View style={styles.cardHeading}>
+          <View style={styles.personalizationHeading}>
+            <MaterialCommunityIcons name="exit-to-app" size={19} color={palette.rose} />
             <Text style={styles.cardTitle}>帳本生命週期</Text>
           </View>
         </View>
@@ -2255,7 +2619,7 @@ function SettingsSection({
           onPress={onLeaveLedger}
           style={({ pressed }) => [styles.dangerButton, pressed && styles.pressed]}
         >
-          <MaterialCommunityIcons name="exit-to-app" size={18} color={colors.rose} />
+          <MaterialCommunityIcons name="exit-to-app" size={18} color={palette.rose} />
           <Text style={styles.dangerButtonText}>退出／移除目前帳本</Text>
         </Pressable>
       </View>
@@ -2266,7 +2630,7 @@ function SettingsSection({
             <MaterialCommunityIcons
               name="share-variant"
               size={18}
-              color={colors.rose}
+              color={palette.rose}
             />
           </Pressable>
         </View>
@@ -2278,7 +2642,7 @@ function SettingsSection({
         >
           <Text style={styles.inviteCodeLarge}>{ledger.inviteCode}</Text>
           <View style={styles.inviteCopyHint}>
-            <MaterialCommunityIcons name="content-copy" size={16} color={colors.rose} />
+            <MaterialCommunityIcons name="content-copy" size={16} color={palette.rose} />
             <Text style={styles.inviteCopyHintText}>點擊複製</Text>
           </View>
         </Pressable>
@@ -2289,7 +2653,7 @@ function SettingsSection({
           onPress={() => setShowQr(value => !value)}
           style={styles.dashedButton}
         >
-          <MaterialCommunityIcons name="qrcode" size={17} color={colors.rose} />
+          <MaterialCommunityIcons name="qrcode" size={17} color={palette.rose} />
           <Text style={styles.dashedButtonText}>
             {showQr ? "收起 QR Code" : "顯示 QR Code"}
           </Text>
@@ -2299,8 +2663,8 @@ function SettingsSection({
             <QRCode
               value={inviteLink}
               size={156}
-              color={colors.ink}
-              backgroundColor={colors.surface}
+              color={palette.ink}
+              backgroundColor={palette.surface}
             />
             <Text style={styles.qrCaption}>{inviteLink}</Text>
           </View>
@@ -2361,7 +2725,7 @@ function SettingsSection({
               <MaterialCommunityIcons
                 name="shield-account-outline"
                 size={20}
-                color={colors.muted}
+                color={palette.muted}
               />
             )}
           </View>
@@ -2371,7 +2735,7 @@ function SettingsSection({
         <View style={styles.cardHeading}>
           <Text style={styles.cardTitle}>分類</Text>
           <Pressable onPress={onCategory} style={styles.outlineIconButton}>
-            <MaterialCommunityIcons name="plus" size={18} color={colors.rose} />
+            <MaterialCommunityIcons name="plus" size={18} color={palette.rose} />
           </Pressable>
         </View>
         {categories.length === 0 ? (
@@ -2400,7 +2764,7 @@ function SettingsSection({
         <View style={styles.cardHeading}>
           <Text style={styles.cardTitle}>支付方式</Text>
           <Pressable onPress={onPayment} style={styles.outlineIconButton}>
-            <MaterialCommunityIcons name="plus" size={18} color={colors.rose} />
+            <MaterialCommunityIcons name="plus" size={18} color={palette.rose} />
           </Pressable>
         </View>
         {paymentMethods.length === 0 ? (
@@ -2456,7 +2820,7 @@ function SettingsSection({
             return (
               <View key={item.id} style={styles.historyRow}>
                 <View style={styles.historyIcon}>
-                  <MaterialCommunityIcons name="check" size={16} color={colors.sage} />
+                  <MaterialCommunityIcons name="check" size={16} color={palette.sage} />
                 </View>
                 <View style={styles.memberPaymentName}>
                   <Text style={styles.rowTitle}>{monthLabel(item.month)} 已結算</Text>
@@ -2483,6 +2847,7 @@ function SectionIntro({
   title: string;
   body: string;
 }) {
+  const { palette } = useAppearance();
   return (
     <View style={styles.sectionIntro}>
       <Text style={styles.eyebrow}>{eyebrow}</Text>
@@ -2514,19 +2879,20 @@ function TransactionRow({
   onEdit: (transaction: Transaction) => void;
   onDelete: (transaction: Transaction) => void;
 }) {
+  const { palette } = useAppearance();
   const category = categories.find(item => item.id === transaction.categoryId);
   return (
     <View style={styles.transactionRow}>
       <View
         style={[
           styles.transactionIcon,
-          { backgroundColor: transaction.type === "income" ? "#E6F0E3" : colors.roseSoft },
+          { backgroundColor: transaction.type === "income" ? "#E6F0E3" : palette.roseSoft },
         ]}
       >
         <MaterialCommunityIcons
           name={transaction.type === "income" ? "cash-plus" : "receipt-text-outline"}
           size={18}
-          color={transaction.type === "income" ? colors.sage : colors.rose}
+          color={transaction.type === "income" ? palette.sage : palette.rose}
         />
       </View>
       <View style={styles.memberPaymentName}>
@@ -2538,10 +2904,10 @@ function TransactionRow({
       </Text>
       <View style={styles.transactionActions}>
         <Pressable accessibilityLabel="編輯收支" onPress={() => onEdit(transaction)} style={styles.rowActionButton}>
-          <MaterialCommunityIcons name="pencil-outline" size={16} color={colors.muted} />
+          <MaterialCommunityIcons name="pencil-outline" size={16} color={palette.muted} />
         </Pressable>
         <Pressable accessibilityLabel="移除收支" onPress={() => onDelete(transaction)} style={styles.rowActionButton}>
-          <MaterialCommunityIcons name="trash-can-outline" size={16} color={colors.rose} />
+          <MaterialCommunityIcons name="trash-can-outline" size={16} color={palette.rose} />
         </Pressable>
       </View>
     </View>
@@ -2555,6 +2921,7 @@ function QuickNav({
   active: DrawerAction;
   onSelect: (action: DrawerAction) => void;
 }) {
+  const { palette } = useAppearance();
   const items: Array<{
     key: DrawerAction;
     label: string;
@@ -2584,7 +2951,7 @@ function QuickNav({
           <MaterialCommunityIcons
             name={item.icon}
             size={20}
-            color={active === item.key ? colors.rose : colors.muted}
+            color={active === item.key ? palette.rose : palette.muted}
           />
           <Text style={[styles.quickNavLabel, active === item.key && styles.quickNavLabelActive]}>
             {item.label}
@@ -2620,6 +2987,7 @@ function LedgerModal({
   onClose: () => void;
   onSubmit: () => void;
 }) {
+  const { palette } = useAppearance();
   return (
     <Modal
       visible={Boolean(mode)}
@@ -2705,6 +3073,150 @@ function LedgerModal({
   );
 }
 
+function LedgerManageModal({
+  visible,
+  mode,
+  ledger,
+  members,
+  user,
+  error,
+  busy,
+  onClose,
+  onRename,
+  onTransfer,
+}: {
+  visible: boolean;
+  mode: "rename" | "transfer";
+  ledger: Ledger;
+  members: LedgerMember[];
+  user: User;
+  error: string;
+  busy: boolean;
+  onClose: () => void;
+  onRename: (name: string) => void;
+  onTransfer: (targetUserId: number) => void;
+}) {
+  const { palette } = useAppearance();
+  const [draftName, setDraftName] = useState(ledger.name);
+  useEffect(() => {
+    if (visible) setDraftName(ledger.name);
+  }, [visible, ledger.name]);
+  const others = members.filter(item => item.user.id !== user.id);
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <Pressable style={styles.modalDismiss} onPress={onClose} />
+        <View style={styles.modalCard}>
+          <View style={styles.modalHandle} />
+          <Text style={styles.modalTitle}>{mode === "rename" ? "修改帳本名稱" : "直接轉讓所有權"}</Text>
+          <Text style={styles.modalDescription}>
+            {mode === "rename" ? "名稱會同步更新到所有成員的帳本列表。" : "轉讓後你仍會留在帳本中，但會成為一般成員。"}
+          </Text>
+          {mode === "rename" ? (
+            <>
+              <TextInput
+                value={draftName}
+                onChangeText={setDraftName}
+                placeholder="輸入帳本名稱"
+                placeholderTextColor={palette.muted}
+                style={styles.input}
+                maxLength={128}
+                autoFocus
+              />
+              {!!error && <Text style={styles.errorText}>{error}</Text>}
+              <Pressable disabled={busy} onPress={() => onRename(draftName)} style={[styles.primaryButton, busy && styles.disabled]}>
+                <Text style={styles.primaryButtonText}>{busy ? "儲存中…" : "儲存名稱"}</Text>
+                {busy && <ActivityIndicator color="#FFFFFF" />}
+              </Pressable>
+            </>
+          ) : (
+            <View style={styles.modalOptionList}>
+              {others.length === 0 ? (
+                <Text style={styles.emptyText}>目前沒有其他可接任的成員。</Text>
+              ) : others.map(item => (
+                <Pressable key={item.user.id} disabled={busy} onPress={() => onTransfer(item.user.id)} style={styles.modalOptionRow}>
+                  <View style={styles.avatarSmall}>
+                    <Text style={styles.avatarSmallText}>{(item.user.name || "成").slice(0, 1)}</Text>
+                  </View>
+                  <View style={styles.memberPaymentName}>
+                    <Text style={styles.rowTitle}>{item.user.name || item.user.email || `成員 ${item.user.id}`}</Text>
+                    <Text style={styles.rowSubtitle}>{item.member.role === "admin" ? "管理員" : item.member.role === "viewer" ? "檢視者" : "一般成員"}</Text>
+                  </View>
+                  <MaterialCommunityIcons name="chevron-right" size={20} color={palette.muted} />
+                </Pressable>
+              ))}
+            </View>
+          )}
+          <Pressable onPress={onClose} style={styles.modalCancel}>
+            <Text style={styles.modalCancelText}>取消</Text>
+          </Pressable>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+function TravelPlanModal({
+  visible,
+  name,
+  budget,
+  startDate,
+  endDate,
+  notes,
+  error,
+  busy,
+  setName,
+  setBudget,
+  setStartDate,
+  setEndDate,
+  setNotes,
+  onClose,
+  onSubmit,
+}: {
+  visible: boolean;
+  name: string;
+  budget: string;
+  startDate: string;
+  endDate: string;
+  notes: string;
+  error: string;
+  busy: boolean;
+  setName: (value: string) => void;
+  setBudget: (value: string) => void;
+  setStartDate: (value: string) => void;
+  setEndDate: (value: string) => void;
+  setNotes: (value: string) => void;
+  onClose: () => void;
+  onSubmit: () => void;
+}) {
+  const { palette } = useAppearance();
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <Pressable style={styles.modalDismiss} onPress={onClose} />
+        <ScrollView contentContainerStyle={styles.modalCard} keyboardShouldPersistTaps="handled">
+          <View style={styles.modalHandle} />
+          <Text style={styles.modalTitle}>新增出遊規劃</Text>
+          <Text style={styles.modalDescription}>設定旅行、聚會或短期目標預算，不會納入每月預算。</Text>
+          <TextInput value={name} onChangeText={setName} placeholder="例如：台南三日遊" placeholderTextColor={palette.muted} style={styles.input} />
+          <TextInput value={budget} onChangeText={setBudget} placeholder="預算金額" placeholderTextColor={palette.muted} keyboardType="number-pad" style={styles.input} />
+          <TextInput value={startDate} onChangeText={setStartDate} placeholder="開始日期 YYYY-MM-DD" placeholderTextColor={palette.muted} keyboardType="numbers-and-punctuation" style={styles.input} maxLength={10} />
+          <TextInput value={endDate} onChangeText={setEndDate} placeholder="結束日期 YYYY-MM-DD" placeholderTextColor={palette.muted} keyboardType="numbers-and-punctuation" style={styles.input} maxLength={10} />
+          <TextInput value={notes} onChangeText={setNotes} placeholder="備註（選填）" placeholderTextColor={palette.muted} style={[styles.input, styles.multilineInput]} multiline maxLength={1000} />
+          {!!error && <Text style={styles.errorText}>{error}</Text>}
+          <Pressable disabled={busy} onPress={onSubmit} style={[styles.primaryButton, busy && styles.disabled]}>
+            <Text style={styles.primaryButtonText}>{busy ? "建立中…" : "建立出遊規劃"}</Text>
+            {busy && <ActivityIndicator color="#FFFFFF" />}
+          </Pressable>
+          <Pressable onPress={onClose} style={styles.modalCancel}>
+            <Text style={styles.modalCancelText}>取消</Text>
+          </Pressable>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
 function TransactionModal({
   visible,
   editingTransaction,
@@ -2738,6 +3250,7 @@ function TransactionModal({
     splits: { userId: number; shareAmount: number }[];
   }) => void;
 }) {
+  const { palette } = useAppearance();
   const [amountText, setAmountText] = useState("");
   const [type, setType] = useState<"expense" | "income">("expense");
   const [categoryId, setCategoryId] = useState("");
@@ -2806,8 +3319,8 @@ function TransactionModal({
   const pickReceipt = async (source: "camera" | "library") => {
     try {
       const result = source === "camera"
-        ? await ImagePicker.launchCameraAsync({ base64: true, quality: 0.8, allowsEditing: true })
-        : await ImagePicker.launchImageLibraryAsync({ base64: true, quality: 0.8, allowsEditing: true, mediaTypes: ["images"] });
+        ? await ImagePicker.launchCameraAsync({ base64: true, quality: 0.68, allowsEditing: false, exif: false })
+        : await ImagePicker.launchImageLibraryAsync({ base64: true, quality: 0.68, allowsEditing: false, mediaTypes: ["images"], selectionLimit: 1 });
       if (!result.canceled) await scanReceiptAsset(result.assets[0]);
     } catch (pickerError) {
       setLocalError(pickerError instanceof Error ? pickerError.message : "無法開啟影像選取功能。");
@@ -2914,11 +3427,11 @@ function TransactionModal({
             </Text>
             <View style={styles.receiptActions}>
               <Pressable disabled={scanning} onPress={() => pickReceipt("camera")} style={styles.receiptButton}>
-                <MaterialCommunityIcons name="camera-outline" size={17} color={colors.rose} />
+                <MaterialCommunityIcons name="camera-outline" size={17} color={palette.rose} />
                 <Text style={styles.receiptButtonText}>{scanning ? "辨識中…" : "拍照掃描發票"}</Text>
               </Pressable>
               <Pressable disabled={scanning} onPress={() => pickReceipt("library")} style={styles.receiptButton}>
-                <MaterialCommunityIcons name="image-multiple-outline" size={17} color={colors.rose} />
+                <MaterialCommunityIcons name="image-multiple-outline" size={17} color={palette.rose} />
                 <Text style={styles.receiptButtonText}>從相簿選圖</Text>
               </Pressable>
             </View>
@@ -2927,7 +3440,7 @@ function TransactionModal({
                 <MaterialCommunityIcons
                   name="credit-card-outline"
                   size={19}
-                  color={colors.rose}
+                  color={palette.rose}
                 />
                 <View style={styles.setupNoticeCopy}>
                   <Text style={styles.setupNoticeTitle}>尚未建立支付方式</Text>
@@ -3011,7 +3524,7 @@ function TransactionModal({
             <Field label="日期">
               <Pressable onPress={() => setDatePickerVisible(true)} style={styles.datePickerTrigger}>
                 <Text style={styles.datePickerText}>{dateText}</Text>
-                <MaterialCommunityIcons name="calendar-month-outline" size={19} color={colors.rose} />
+                <MaterialCommunityIcons name="calendar-month-outline" size={19} color={palette.rose} />
               </Pressable>
             </Field>
             <Field label="分攤方式">
@@ -3100,9 +3613,9 @@ function TransactionModal({
       <View style={styles.calendarOverlay}>
         <View style={styles.dateCalendarCard}>
           <View style={styles.calendarHeader}>
-            <Pressable onPress={() => changeCalendarMonth(-1)} style={styles.calendarArrow}><MaterialCommunityIcons name="chevron-left" size={22} color={colors.ink} /></Pressable>
+            <Pressable onPress={() => changeCalendarMonth(-1)} style={styles.calendarArrow}><MaterialCommunityIcons name="chevron-left" size={22} color={palette.ink} /></Pressable>
             <Text style={styles.calendarMonthTitle}>{calendarMonth.replace("-", " / ")}</Text>
-            <Pressable onPress={() => changeCalendarMonth(1)} style={styles.calendarArrow}><MaterialCommunityIcons name="chevron-right" size={22} color={colors.ink} /></Pressable>
+            <Pressable onPress={() => changeCalendarMonth(1)} style={styles.calendarArrow}><MaterialCommunityIcons name="chevron-right" size={22} color={palette.ink} /></Pressable>
           </View>
           <View style={styles.calendarWeekRow}>{["日", "一", "二", "三", "四", "五", "六"].map(day => <Text key={day} style={styles.calendarWeekday}>{day}</Text>)}</View>
           <View style={styles.calendarGrid}>
@@ -3137,6 +3650,7 @@ function OptionScroller({
   value: number;
   onChange: (value: number) => void;
 }) {
+  const { palette } = useAppearance();
   return items.length === 0 ? (
     <Text style={styles.rowSubtitle}>尚未建立選項，請先到設定新增。</Text>
   ) : (
@@ -3168,6 +3682,8 @@ function OptionScroller({
   );
 }
 
+const MAX_BUDGET_AMOUNT = 100_000_000;
+
 function BudgetModal({
   visible,
   categories,
@@ -3188,12 +3704,13 @@ function BudgetModal({
     month: string;
   }) => void;
 }) {
-  const [categoryId, setCategoryId] = useState("0");
+  const { palette } = useAppearance();
+  const [categoryId, setCategoryId] = useState<number>(0);
   const [amount, setAmount] = useState("");
   const [localError, setLocalError] = useState("");
   useEffect(() => {
     if (visible) {
-      setCategoryId("0");
+      setCategoryId(0);
       setAmount("");
       setLocalError("");
     }
@@ -3226,15 +3743,16 @@ function BudgetModal({
                   label: `${item.icon} ${item.name}`,
                 })),
             ]}
-            value={Number(categoryId)}
-            onChange={value => setCategoryId(String(value))}
+            value={categoryId}
+            onChange={value => setCategoryId(value)}
           />
           <TextInput
             value={amount}
             onChangeText={setAmount}
             keyboardType="numeric"
-            placeholder="預算金額"
-            placeholderTextColor="#B9A69E"
+            placeholder="預算金額（最高 NT$ 100,000,000）"
+            placeholderTextColor={palette.muted}
+            maxLength={9}
             style={styles.input}
           />
           {!!localError && <Text style={styles.errorText}>{localError}</Text>}
@@ -3245,9 +3763,13 @@ function BudgetModal({
                 setLocalError("請輸入正整數預算。");
                 return;
               }
+              if (value > MAX_BUDGET_AMOUNT) {
+                setLocalError("預算上限為 NT$ 100,000,000，請分開規劃較大的目標。");
+                return;
+              }
               onSubmit({
                 ledgerId,
-                categoryId: Number(categoryId),
+                categoryId: Number(categoryId) || 0,
                 amount: value,
                 month,
               });
@@ -3291,6 +3813,7 @@ function RecurringModal({
     dayOfMonth: number;
   }) => void;
 }) {
+  const { palette } = useAppearance();
   const [title, setTitle] = useState("");
   const [amount, setAmount] = useState("");
   const [type, setType] = useState<"expense" | "income">("expense");
@@ -3493,6 +4016,7 @@ function SettingsModal({
     icon: string;
   }) => void;
 }) {
+  const { palette } = useAppearance();
   const [name, setName] = useState("");
   const [type, setType] = useState<"expense" | "income">("expense");
   const [parent, setParent] = useState("0");
@@ -3611,16 +4135,16 @@ function SettingsModal({
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (palette: typeof colors) => StyleSheet.create({
   flex: { flex: 1 },
-  screen: { flex: 1, backgroundColor: colors.background },
+  screen: { flex: 1, backgroundColor: palette.background },
   loadingScreen: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: colors.background,
+    backgroundColor: palette.background,
   },
-  loadingText: { marginTop: 12, color: colors.muted, fontSize: 13 },
+  loadingText: { marginTop: 12, color: palette.muted, fontSize: 13 },
   loginContent: {
     flexGrow: 1,
     paddingHorizontal: 28,
@@ -3633,11 +4157,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 20,
-    backgroundColor: colors.roseSoft,
+    backgroundColor: palette.roseSoft,
   },
   brandTitle: {
     marginTop: 13,
-    color: colors.ink,
+    color: palette.ink,
     fontSize: 26,
     fontWeight: "700",
     letterSpacing: 1,
@@ -3650,14 +4174,14 @@ const styles = StyleSheet.create({
   },
   loginHeading: {
     marginTop: 52,
-    color: colors.ink,
+    color: palette.ink,
     fontSize: 31,
     fontWeight: "700",
     lineHeight: 42,
   },
   loginDescription: {
     marginTop: 14,
-    color: colors.muted,
+    color: palette.muted,
     fontSize: 15,
     lineHeight: 23,
   },
@@ -3665,12 +4189,12 @@ const styles = StyleSheet.create({
     marginTop: 34,
     padding: 20,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: palette.border,
     borderRadius: 22,
-    backgroundColor: colors.surface,
+    backgroundColor: palette.surface,
   },
-  formTitle: { color: colors.ink, fontSize: 18, fontWeight: "700" },
-  formBody: { marginTop: 8, color: colors.muted, fontSize: 13, lineHeight: 21 },
+  formTitle: { color: palette.ink, fontSize: 18, fontWeight: "700" },
+  formBody: { marginTop: 8, color: palette.muted, fontSize: 13, lineHeight: 21 },
   privacyText: {
     marginTop: 22,
     color: "#AE9C94",
@@ -3686,7 +4210,7 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   selectorLabel: {
-    color: colors.muted,
+    color: palette.muted,
     fontSize: 11,
     fontWeight: "700",
     letterSpacing: 0.5,
@@ -3703,38 +4227,38 @@ const styles = StyleSheet.create({
     marginRight: 8,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+    borderColor: palette.border,
+    backgroundColor: palette.surface,
   },
   ledgerChipActive: {
-    borderColor: colors.roseSoft,
-    backgroundColor: colors.roseSoft,
+    borderColor: palette.roseSoft,
+    backgroundColor: palette.roseSoft,
   },
   ledgerChipText: {
-    color: colors.muted,
+    color: palette.muted,
     fontSize: 12,
     fontWeight: "600",
   },
   ledgerChipTextActive: {
-    color: colors.rose,
+    color: palette.rose,
     fontWeight: "800",
   },
   sectionIntro: { marginBottom: 20 },
   eyebrow: {
-    color: colors.rose,
+    color: palette.rose,
     fontSize: 11,
     fontWeight: "700",
     letterSpacing: 1.6,
   },
   sectionTitle: {
     marginTop: 7,
-    color: colors.ink,
+    color: palette.ink,
     fontSize: 27,
     fontWeight: "700",
   },
   sectionBody: {
     marginTop: 8,
-    color: colors.muted,
+    color: palette.muted,
     fontSize: 13,
     lineHeight: 20,
   },
@@ -3746,7 +4270,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#FBE9E7",
     fontSize: 12,
   },
-  headerSafe: { backgroundColor: colors.surface },
+  headerSafe: { backgroundColor: palette.surface },
   headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   appHeader: {
     minHeight: 74,
@@ -3754,7 +4278,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 20,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomColor: palette.border,
   },
   menuButton: {
     width: 44,
@@ -3764,15 +4288,15 @@ const styles = StyleSheet.create({
     borderRadius: 14,
   },
   headerTitleWrap: { flex: 1, marginLeft: 8 },
-  headerTitle: { color: colors.ink, fontSize: 21, fontWeight: "700" },
-  headerCaption: { marginTop: 2, color: colors.muted, fontSize: 11 },
+  headerTitle: { color: palette.ink, fontSize: 21, fontWeight: "700" },
+  headerCaption: { marginTop: 2, color: palette.muted, fontSize: 11 },
   headerAddButton: {
     width: 44,
     height: 44,
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 14,
-    backgroundColor: colors.rose,
+    backgroundColor: palette.rose,
   },
   headerSpacer: { width: 44 },
   headerBackButton: {
@@ -3791,8 +4315,8 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     paddingBottom: 8,
     borderTopWidth: 1,
-    borderTopColor: colors.border,
-    backgroundColor: colors.surface,
+    borderTopColor: palette.border,
+    backgroundColor: palette.surface,
   },
   quickNavItem: {
     minWidth: 58,
@@ -3802,10 +4326,11 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 13,
   },
-  quickNavItemActive: { backgroundColor: colors.roseSoft },
-  quickNavLabel: { color: colors.muted, fontSize: 10, fontWeight: "600" },
-  quickNavLabelActive: { color: colors.rose, fontWeight: "800" },
+  quickNavItemActive: { backgroundColor: palette.roseSoft },
+  quickNavLabel: { color: palette.muted, fontSize: 10, fontWeight: "600" },
+  quickNavLabelActive: { color: palette.rose, fontWeight: "800" },
   ledgerHomeContent: { flexGrow: 1, padding: 18, paddingBottom: 40 },
+  profileContent: { flexGrow: 1, padding: 18, paddingBottom: 42 },
   ledgerHomeCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -3813,9 +4338,9 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     padding: 16,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: palette.border,
     borderRadius: 19,
-    backgroundColor: colors.surface,
+    backgroundColor: palette.surface,
   },
   ledgerHomeIcon: {
     width: 44,
@@ -3823,7 +4348,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 15,
-    backgroundColor: colors.roseSoft,
+    backgroundColor: palette.roseSoft,
   },
   secondaryActionButton: {
     flex: 1,
@@ -3833,11 +4358,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 7,
     borderWidth: 1,
-    borderColor: colors.roseSoft,
+    borderColor: palette.roseSoft,
     borderRadius: 16,
-    backgroundColor: colors.surface,
+    backgroundColor: palette.surface,
   },
-  secondaryActionButtonText: { color: colors.rose, fontSize: 14, fontWeight: "700" },
+  secondaryActionButtonText: { color: palette.rose, fontSize: 14, fontWeight: "700" },
   inviteCodeCopy: {
     flexDirection: "row",
     alignItems: "center",
@@ -3845,15 +4370,24 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 13,
     borderRadius: 14,
-    backgroundColor: colors.roseSoft,
+    backgroundColor: palette.roseSoft,
   },
   inviteCopyHint: { flexDirection: "row", alignItems: "center", gap: 5 },
-  inviteCopyHintText: { color: colors.rose, fontSize: 11, fontWeight: "700" },
+  inviteCopyHintText: { color: palette.rose, fontSize: 11, fontWeight: "700" },
   personalizationHeading: { flexDirection: "row", alignItems: "center", gap: 7 },
+  preferenceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: palette.border,
+  },
+  preferenceCopy: { flex: 1 },
   personalizationLabel: {
     marginTop: 14,
     marginBottom: 8,
-    color: colors.muted,
+    color: palette.muted,
     fontSize: 11,
     fontWeight: "700",
   },
@@ -3867,16 +4401,16 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 10,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: palette.border,
     borderRadius: 12,
-    backgroundColor: colors.surface,
+    backgroundColor: palette.surface,
   },
   appearanceOptionActive: {
-    borderColor: colors.rose,
-    backgroundColor: colors.roseSoft,
+    borderColor: palette.rose,
+    backgroundColor: palette.roseSoft,
   },
-  appearanceOptionText: { color: colors.ink, fontSize: 12, fontWeight: "700" },
-  fontPreview: { color: colors.ink, fontSize: 17, fontWeight: "700" },
+  appearanceOptionText: { color: palette.ink, fontSize: 12, fontWeight: "700" },
+  fontPreview: { color: palette.ink, fontSize: 17, fontWeight: "700" },
   themeDot: { width: 12, height: 12, borderRadius: 6 },
   emptyContent: {
     flexGrow: 1,
@@ -3891,18 +4425,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 34,
-    backgroundColor: colors.roseSoft,
+    backgroundColor: palette.roseSoft,
   },
   emptyTitle: {
     marginTop: 25,
-    color: colors.ink,
+    color: palette.ink,
     fontSize: 28,
     fontWeight: "700",
   },
   emptyDescription: {
     maxWidth: 330,
     marginTop: 12,
-    color: colors.muted,
+    color: palette.muted,
     fontSize: 14,
     lineHeight: 23,
     textAlign: "center",
@@ -3911,15 +4445,15 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     padding: 18,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: palette.border,
     borderRadius: 20,
-    backgroundColor: colors.surface,
+    backgroundColor: palette.surface,
   },
   heroCard: {
     marginBottom: 14,
     padding: 24,
     borderRadius: 25,
-    backgroundColor: colors.burgundy,
+    backgroundColor: palette.burgundy,
   },
   heroEyebrow: { color: "#E8C9CA", fontSize: 12, letterSpacing: 1 },
   heroTitle: {
@@ -3950,19 +4484,19 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 7,
     borderRadius: 16,
-    backgroundColor: colors.rose,
+    backgroundColor: palette.rose,
   },
   actionButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
   inviteBadge: {
     justifyContent: "center",
     paddingHorizontal: 15,
     borderRadius: 16,
-    backgroundColor: colors.roseSoft,
+    backgroundColor: palette.roseSoft,
   },
-  inviteBadgeLabel: { color: colors.muted, fontSize: 10 },
+  inviteBadgeLabel: { color: palette.muted, fontSize: 10 },
   inviteBadgeValue: {
     marginTop: 3,
-    color: colors.rose,
+    color: palette.rose,
     fontSize: 17,
     fontWeight: "800",
     letterSpacing: 1.5,
@@ -3972,9 +4506,9 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 15,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: palette.border,
     borderRadius: 19,
-    backgroundColor: colors.surface,
+    backgroundColor: palette.surface,
   },
   statIcon: {
     width: 30,
@@ -3983,12 +4517,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 9,
     borderRadius: 11,
-    backgroundColor: colors.roseSoft,
+    backgroundColor: palette.roseSoft,
   },
-  statLabel: { color: colors.muted, fontSize: 12 },
+  statLabel: { color: palette.muted, fontSize: 12 },
   statValue: {
     marginTop: 7,
-    color: colors.ink,
+    color: palette.ink,
     fontSize: 18,
     fontWeight: "700",
   },
@@ -3999,30 +4533,84 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     padding: 18,
     borderRadius: 19,
-    backgroundColor: colors.roseSoft,
+    backgroundColor: palette.roseSoft,
   },
-  balanceLabel: { color: colors.muted, fontSize: 12 },
+  balanceLabel: { color: palette.muted, fontSize: 12 },
   balanceValue: {
     marginTop: 7,
-    color: colors.ink,
+    color: palette.ink,
     fontSize: 23,
     fontWeight: "700",
   },
   trendText: {
     maxWidth: 130,
-    color: colors.rose,
+    color: palette.rose,
     fontSize: 12,
     lineHeight: 18,
     textAlign: "right",
   },
+  donutLayout: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+  },
+  donutWrap: {
+    width: 172,
+    height: 172,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  donutCenter: {
+    position: "absolute",
+    alignItems: "center",
+    justifyContent: "center",
+    maxWidth: 105,
+  },
+  donutCenterLabel: { color: palette.muted, fontSize: 11 },
+  donutCenterValue: { marginTop: 4, color: palette.ink, fontSize: 13, fontWeight: "800" },
+  donutLegend: { flex: 1, gap: 10 },
+  donutLegendRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+  donutLegendDot: { width: 9, height: 9, borderRadius: 5 },
+  donutLegendName: { flex: 1, color: palette.ink, fontSize: 11 },
+  donutLegendAmount: { color: palette.muted, fontSize: 10 },
   cardHeading: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 14,
   },
-  cardTitle: { color: colors.ink, fontSize: 16, fontWeight: "700" },
-  cardHint: { color: colors.muted, fontSize: 11 },
+  cardTitle: { color: palette.ink, fontSize: 16, fontWeight: "700" },
+  cardHint: { color: palette.muted, fontSize: 11 },
+  travelPlanRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 64,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: palette.border,
+  },
+  travelPlanIcon: {
+    width: 34,
+    height: 34,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
+    backgroundColor: palette.roseSoft,
+  },
+  settingsActionGrid: { gap: 9 },
+  settingsActionButton: {
+    minHeight: 46,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 13,
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 14,
+    backgroundColor: palette.background,
+  },
+  settingsActionText: { color: palette.ink, fontSize: 13, fontWeight: "600" },
   memberPaymentRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -4037,9 +4625,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 12,
-    backgroundColor: colors.roseSoft,
+    backgroundColor: palette.roseSoft,
   },
-  avatarText: { color: colors.rose, fontWeight: "800" },
+  avatarText: { color: palette.rose, fontWeight: "800" },
+  avatarSmall: {
+    width: 30,
+    height: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 10,
+    backgroundColor: palette.roseSoft,
+  },
+  avatarSmallText: { color: palette.rose, fontSize: 12, fontWeight: "800" },
   memberPaymentName: { flex: 1 },
   historyRow: {
     flexDirection: "row",
@@ -4047,7 +4644,7 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomColor: palette.border,
   },
   historyIcon: {
     width: 30,
@@ -4058,34 +4655,34 @@ const styles = StyleSheet.create({
     backgroundColor: "#EAF0EB",
   },
   historyAmount: {
-    color: colors.ink,
+    color: palette.ink,
     fontSize: 13,
     fontWeight: "700",
   },
-  rowTitle: { color: colors.ink, fontSize: 13, fontWeight: "600" },
+  rowTitle: { color: palette.ink, fontSize: 13, fontWeight: "600" },
   rowSubtitle: {
     marginTop: 4,
-    color: colors.muted,
+    color: palette.muted,
     fontSize: 11,
     lineHeight: 17,
   },
-  rowAmount: { color: colors.ink, fontSize: 13, fontWeight: "700" },
-  incomeText: { color: colors.sage },
+  rowAmount: { color: palette.ink, fontSize: 13, fontWeight: "700" },
+  incomeText: { color: palette.sage },
   insightCard: {
     flexDirection: "row",
     gap: 12,
     marginBottom: 14,
     padding: 17,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: palette.border,
     borderRadius: 19,
-    backgroundColor: colors.surface,
+    backgroundColor: palette.surface,
   },
   insightText: { flex: 1 },
-  insightTitle: { color: colors.ink, fontSize: 14, fontWeight: "700" },
+  insightTitle: { color: palette.ink, fontSize: 14, fontWeight: "700" },
   insightBody: {
     marginTop: 5,
-    color: colors.muted,
+    color: palette.muted,
     fontSize: 12,
     lineHeight: 19,
   },
@@ -4107,10 +4704,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFE3DB",
   },
   settlementText: { flex: 1 },
-  settlementTitle: { color: colors.ink, fontSize: 14, fontWeight: "700" },
+  settlementTitle: { color: palette.ink, fontSize: 14, fontWeight: "700" },
   settlementBody: {
     marginTop: 5,
-    color: colors.muted,
+    color: palette.muted,
     fontSize: 12,
     lineHeight: 18,
   },
@@ -4118,7 +4715,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 9,
     borderRadius: 11,
-    backgroundColor: colors.rose,
+    backgroundColor: palette.rose,
   },
   smallButtonText: { color: "#FFFFFF", fontSize: 11, fontWeight: "700" },
   outlineButton: {
@@ -4129,11 +4726,11 @@ const styles = StyleSheet.create({
     gap: 7,
     marginTop: 16,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: palette.border,
     borderRadius: 13,
-    backgroundColor: colors.surface,
+    backgroundColor: palette.surface,
   },
-  outlineButtonText: { color: colors.rose, fontSize: 12, fontWeight: "700" },
+  outlineButtonText: { color: palette.rose, fontSize: 12, fontWeight: "700" },
   dangerButton: {
     minHeight: 44,
     flexDirection: "row",
@@ -4146,7 +4743,7 @@ const styles = StyleSheet.create({
     borderRadius: 13,
     backgroundColor: "#FFF4F0",
   },
-  dangerButtonText: { color: colors.rose, fontSize: 12, fontWeight: "700" },
+  dangerButtonText: { color: palette.rose, fontSize: 12, fontWeight: "700" },
   transactionRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -4187,7 +4784,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#F2E8E3",
   },
   progressFill: { height: 10, borderRadius: 6 },
-  progressHint: { marginTop: 8, color: colors.muted, fontSize: 11 },
+  progressHint: { marginTop: 8, color: palette.muted, fontSize: 11 },
   warningText: { color: "#B4575D" },
   budgetRow: { marginBottom: 15 },
   recurringRow: {
@@ -4204,7 +4801,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 12,
-    backgroundColor: colors.roseSoft,
+    backgroundColor: palette.roseSoft,
   },
   outlineIconButton: {
     width: 34,
@@ -4227,7 +4824,7 @@ const styles = StyleSheet.create({
     borderColor: "#D9B9B5",
     borderRadius: 13,
   },
-  dashedButtonText: { color: colors.rose, fontSize: 13, fontWeight: "700" },
+  dashedButtonText: { color: palette.rose, fontSize: 13, fontWeight: "700" },
   emptyInline: {
     flexDirection: "row",
     alignItems: "center",
@@ -4236,13 +4833,13 @@ const styles = StyleSheet.create({
   },
   emptyInlineText: {
     flex: 1,
-    color: colors.muted,
+    color: palette.muted,
     fontSize: 12,
     lineHeight: 18,
   },
   inviteCodeLarge: {
     marginVertical: 9,
-    color: colors.rose,
+    color: palette.rose,
     fontSize: 30,
     fontWeight: "900",
     letterSpacing: 4,
@@ -4256,7 +4853,7 @@ const styles = StyleSheet.create({
   },
   qrCaption: {
     marginTop: 12,
-    color: colors.muted,
+    color: palette.muted,
     fontSize: 10,
     textAlign: "center",
   },
@@ -4264,15 +4861,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 9,
     paddingVertical: 7,
     borderRadius: 10,
-    backgroundColor: colors.roseSoft,
+    backgroundColor: palette.roseSoft,
   },
-  rolePillText: { color: colors.rose, fontSize: 10, fontWeight: "700" },
+  rolePillText: { color: palette.rose, fontSize: 10, fontWeight: "700" },
   settingsPillRow: { gap: 8, paddingTop: 12, paddingBottom: 2 },
   settingsRemovePill: { paddingHorizontal: 10, paddingVertical: 8, borderRadius: 11, backgroundColor: "#FFF4F0", borderWidth: 1, borderColor: "#EAC9C5" },
-  settingsRemovePillText: { color: colors.rose, fontSize: 11, fontWeight: "700" },
+  settingsRemovePillText: { color: palette.rose, fontSize: 11, fontWeight: "700" },
   activityLogScroll: { maxHeight: 250 },
   activityLogRow: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 54, borderBottomWidth: 1, borderBottomColor: "#F5ECE7" },
-  activityLogDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.rose },
+  activityLogDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: palette.rose },
   weekRow: {
     flexDirection: "row",
     justifyContent: "space-around",
@@ -4280,7 +4877,7 @@ const styles = StyleSheet.create({
   },
   weekLabel: {
     width: "14.28%",
-    color: colors.muted,
+    color: palette.muted,
     fontSize: 11,
     textAlign: "center",
   },
@@ -4292,9 +4889,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 12,
   },
-  calendarSelected: { backgroundColor: colors.roseSoft },
-  calendarDay: { color: colors.ink, fontSize: 13 },
-  calendarDaySelected: { color: colors.rose, fontWeight: "800" },
+  calendarSelected: { backgroundColor: palette.roseSoft },
+  calendarDay: { color: palette.ink, fontSize: 13 },
+  calendarDaySelected: { color: palette.rose, fontWeight: "800" },
   calendarDot: { width: 5, height: 5, marginTop: 4, borderRadius: 3 },
   paymentOverviewScroll: { maxHeight: 170 },
   recentTransactionsScroll: { maxHeight: 286 },
@@ -4302,19 +4899,19 @@ const styles = StyleSheet.create({
   rowActionButton: { width: 28, height: 28, alignItems: "center", justifyContent: "center", borderRadius: 9, backgroundColor: "#FBF3EF" },
   receiptActions: { flexDirection: "row", gap: 8, marginBottom: 14 },
   receiptButton: { flex: 1, minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, borderWidth: 1, borderColor: "#E3C3C4", borderRadius: 12, backgroundColor: "#FFF9F6" },
-  receiptButtonText: { color: colors.rose, fontSize: 11, fontWeight: "700" },
+  receiptButtonText: { color: palette.rose, fontSize: 11, fontWeight: "700" },
   datePickerTrigger: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, borderWidth: 1, borderColor: "#E7D8D1", borderRadius: 13, backgroundColor: "#FFFCFA" },
-  datePickerText: { color: colors.ink, fontSize: 14, fontWeight: "700" },
+  datePickerText: { color: palette.ink, fontSize: 14, fontWeight: "700" },
   calendarOverlay: { flex: 1, alignItems: "center", justifyContent: "center", padding: 20, backgroundColor: "rgba(58,47,43,0.32)" },
-  dateCalendarCard: { width: "100%", maxWidth: 360, padding: 18, borderRadius: 22, backgroundColor: colors.surface },
+  dateCalendarCard: { width: "100%", maxWidth: 360, padding: 18, borderRadius: 22, backgroundColor: palette.surface },
   calendarHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 14 },
-  calendarArrow: { width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: colors.roseSoft },
-  calendarMonthTitle: { color: colors.ink, fontSize: 16, fontWeight: "800" },
+  calendarArrow: { width: 36, height: 36, alignItems: "center", justifyContent: "center", borderRadius: 12, backgroundColor: palette.roseSoft },
+  calendarMonthTitle: { color: palette.ink, fontSize: 16, fontWeight: "800" },
   calendarWeekRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 6 },
-  calendarWeekday: { width: "14.28%", color: colors.muted, fontSize: 11, textAlign: "center" },
+  calendarWeekday: { width: "14.28%", color: palette.muted, fontSize: 11, textAlign: "center" },
   calendarDayCell: { width: "14.28%", height: 42, alignItems: "center", justifyContent: "center", borderRadius: 12 },
-  calendarDayActive: { backgroundColor: colors.rose },
-  calendarDayText: { color: colors.ink, fontSize: 13, fontWeight: "600" },
+  calendarDayActive: { backgroundColor: palette.rose },
+  calendarDayText: { color: palette.ink, fontSize: 13, fontWeight: "600" },
   calendarDayTextActive: { color: "#FFFFFF", fontWeight: "800" },
   smallMark: {
     width: 36,
@@ -4322,7 +4919,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 12,
-    backgroundColor: colors.roseSoft,
+    backgroundColor: palette.roseSoft,
   },
   modalBackdrop: {
     flex: 1,
@@ -4337,7 +4934,7 @@ const styles = StyleSheet.create({
     paddingBottom: 30,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
-    backgroundColor: colors.surface,
+    backgroundColor: palette.surface,
   },
   modalHandle: {
     alignSelf: "center",
@@ -4348,14 +4945,14 @@ const styles = StyleSheet.create({
   },
   modalTitle: {
     marginTop: 22,
-    color: colors.ink,
+    color: palette.ink,
     fontSize: 22,
     fontWeight: "700",
   },
   modalDescription: {
     marginTop: 8,
     marginBottom: 18,
-    color: colors.muted,
+    color: palette.muted,
     fontSize: 13,
     lineHeight: 20,
   },
@@ -4364,17 +4961,17 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     paddingHorizontal: 15,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: palette.border,
     borderRadius: 14,
     backgroundColor: "#FFFAF7",
-    color: colors.ink,
+    color: palette.ink,
     fontSize: 15,
   },
   textarea: { minHeight: 80, paddingTop: 14, textAlignVertical: "top" },
   field: { marginBottom: 14 },
   fieldLabel: {
     marginBottom: 8,
-    color: colors.ink,
+    color: palette.ink,
     fontSize: 12,
     fontWeight: "700",
   },
@@ -4383,42 +4980,42 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: palette.border,
     borderRadius: 12,
-    backgroundColor: colors.surface,
+    backgroundColor: palette.surface,
   },
   optionChipActive: {
-    borderColor: colors.rose,
-    backgroundColor: colors.roseSoft,
+    borderColor: palette.rose,
+    backgroundColor: palette.roseSoft,
   },
-  optionChipText: { color: colors.muted, fontSize: 12 },
-  optionChipTextActive: { color: colors.rose, fontWeight: "700" },
+  optionChipText: { color: palette.muted, fontSize: 12 },
+  optionChipTextActive: { color: palette.rose, fontWeight: "700" },
   segmentRow: { flexDirection: "row", gap: 8, marginBottom: 14 },
   segment: {
     flex: 1,
     alignItems: "center",
     paddingVertical: 12,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: palette.border,
     borderRadius: 12,
   },
-  segmentActive: { borderColor: colors.rose, backgroundColor: colors.roseSoft },
-  segmentText: { color: colors.muted, fontSize: 12, fontWeight: "600" },
-  segmentTextActive: { color: colors.rose },
+  segmentActive: { borderColor: palette.rose, backgroundColor: palette.roseSoft },
+  segmentText: { color: palette.muted, fontSize: 12, fontWeight: "600" },
+  segmentTextActive: { color: palette.rose },
   miniSegment: {
     flex: 1,
     alignItems: "center",
     paddingVertical: 10,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: palette.border,
     borderRadius: 11,
   },
   miniSegmentActive: {
-    borderColor: colors.rose,
-    backgroundColor: colors.roseSoft,
+    borderColor: palette.rose,
+    backgroundColor: palette.roseSoft,
   },
-  miniSegmentText: { color: colors.muted, fontSize: 11 },
-  miniSegmentTextActive: { color: colors.rose, fontWeight: "700" },
+  miniSegmentText: { color: palette.muted, fontSize: 11 },
+  miniSegmentTextActive: { color: palette.rose, fontWeight: "700" },
   splitInputRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -4430,10 +5027,10 @@ const styles = StyleSheet.create({
     minHeight: 42,
     paddingHorizontal: 11,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: palette.border,
     borderRadius: 11,
     backgroundColor: "#FFFAF7",
-    color: colors.ink,
+    color: palette.ink,
   },
   primaryButton: {
     minHeight: 52,
@@ -4442,7 +5039,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 8,
     borderRadius: 16,
-    backgroundColor: colors.rose,
+    backgroundColor: palette.rose,
   },
   primaryButtonText: {
     color: "#FFFFFF",
@@ -4460,9 +5057,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E3C3C4",
     borderRadius: 16,
-    backgroundColor: colors.surface,
+    backgroundColor: palette.surface,
   },
-  secondaryButtonText: { color: colors.rose, fontSize: 15, fontWeight: "700" },
+  secondaryButtonText: { color: palette.rose, fontSize: 15, fontWeight: "700" },
   setupNotice: {
     flexDirection: "row",
     alignItems: "center",
@@ -4470,19 +5067,19 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     padding: 12,
     borderRadius: 13,
-    backgroundColor: colors.roseSoft,
+    backgroundColor: palette.roseSoft,
   },
   setupNoticeCopy: {
     flex: 1,
   },
   setupNoticeTitle: {
-    color: colors.ink,
+    color: palette.ink,
     fontSize: 12,
     fontWeight: "800",
   },
   setupNoticeBody: {
     marginTop: 3,
-    color: colors.muted,
+    color: palette.muted,
     fontSize: 11,
     lineHeight: 16,
   },
@@ -4490,10 +5087,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 7,
     borderRadius: 10,
-    backgroundColor: colors.surface,
+    backgroundColor: palette.surface,
   },
   setupNoticeButtonText: {
-    color: colors.rose,
+    color: palette.rose,
     fontSize: 12,
     fontWeight: "800",
   },
@@ -4504,7 +5101,23 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   modalCancel: { alignItems: "center", paddingVertical: 15 },
-  modalCancelText: { color: colors.muted, fontSize: 14 },
+  modalCancelText: { color: palette.muted, fontSize: 14 },
+  modalOptionList: { gap: 8 },
+  modalOptionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    minHeight: 54,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 14,
+    backgroundColor: palette.background,
+  },
+  emptyText: { color: palette.muted, fontSize: 13, lineHeight: 20 },
+  multilineInput: { minHeight: 80, textAlignVertical: "top" },
   pressed: { opacity: 0.82, transform: [{ scale: 0.98 }] },
   disabled: { opacity: 0.58 },
 });
+
+let styles = createStyles(colors);

@@ -35,6 +35,11 @@ import {
   listRecurring,
   listSettlements,
   upsertBudget,
+  renameLedger,
+  transferLedgerOwnership,
+  listTravelPlans,
+  createTravelPlan,
+  deleteTravelPlan,
 } from "./db";
 import { TRPCError } from "@trpc/server";
 import { invokeLLM } from "./_core/llm";
@@ -99,6 +104,21 @@ export const appRouter = router({
         await requireLedger(input.ledgerId, ctx.user.id);
         return leaveLedger({ ...input, userId: ctx.user.id });
       }),
+    rename: protectedProcedure
+      .input(z.object({ ledgerId: z.number().int().positive(), name: z.string().trim().min(1).max(128) }))
+      .mutation(({ ctx, input }) => renameLedger({ ...input, userId: ctx.user.id })),
+    transferOwnership: protectedProcedure
+      .input(z.object({ ledgerId: z.number().int().positive(), targetUserId: z.number().int().positive() }))
+      .mutation(({ ctx, input }) => transferLedgerOwnership({ ...input, userId: ctx.user.id })),
+    travelPlans: protectedProcedure
+      .input(z.object({ ledgerId: z.number().int().positive() }))
+      .query(({ ctx, input }) => requireLedger(input.ledgerId, ctx.user.id).then(() => listTravelPlans(input.ledgerId))),
+    createTravelPlan: protectedProcedure
+      .input(z.object({ ledgerId: z.number().int().positive(), name: z.string().trim().min(1).max(128), budget: z.number().int().positive().max(100_000_000), startDate: z.coerce.date(), endDate: z.coerce.date(), notes: z.string().trim().max(1000).optional() }))
+      .mutation(({ ctx, input }) => createTravelPlan({ ...input, userId: ctx.user.id })),
+    deleteTravelPlan: protectedProcedure
+      .input(z.object({ ledgerId: z.number().int().positive(), planId: z.number().int().positive() }))
+      .mutation(({ ctx, input }) => deleteTravelPlan({ ...input, userId: ctx.user.id })),
     detail: protectedProcedure
       .input(z.object({ ledgerId: z.number().int().positive() }))
       .query(({ ctx, input }) => requireLedger(input.ledgerId, ctx.user.id).then(access => access.ledger)),
@@ -110,6 +130,9 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const access = await requireLedger(input.ledgerId, ctx.user.id);
         if (access.member.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "只有管理員可以修改成員權限" });
+        if (input.userId === access.ledger.createdBy && input.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "帳本持有者必須保留管理員權限；如需交接請使用轉讓所有權。" });
+        const target = await getLedgerAccess(input.ledgerId, input.userId);
+        if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "找不到此帳本成員。" });
         await updateLedgerMemberRole(input);
         return { success: true } as const;
       }),
@@ -217,12 +240,12 @@ export const appRouter = router({
       .mutation(async ({ input }) => {
         const response = await invokeLLM({
           model: "gemini-3-flash-preview",
-          maxTokens: 4096,
+          maxTokens: 768,
           messages: [
             { role: "system", content: "你是台灣發票欄位擷取助手。只輸出 JSON，若看不清楚請使用 null，不要猜測。金額輸出整數新台幣，日期輸出 YYYY-MM-DD，note 輸出店家或品項摘要。" },
             { role: "user", content: [
-              { type: "text", text: "請辨識這張發票，回傳 amount、date、note、confidence。" },
-              { type: "image_url", image_url: { url: input.imageDataUrl, detail: "high" } },
+              { type: "text", text: "只擷取發票金額、日期與店家或品項摘要；看不清楚的欄位回傳 null，不要解釋。" },
+              { type: "image_url", image_url: { url: input.imageDataUrl, detail: "low" } },
             ] },
           ],
           response_format: { type: "json_schema", json_schema: {
@@ -284,7 +307,7 @@ export const appRouter = router({
       .input(z.object({ ledgerId: z.number().int().positive(), month: z.string().regex(/^\d{4}-\d{2}$/) }))
       .query(({ ctx, input }) => requireLedger(input.ledgerId, ctx.user.id).then(() => listBudgets(input.ledgerId, input.month))),
     upsertBudget: protectedProcedure
-      .input(z.object({ ledgerId: z.number().int().positive(), categoryId: z.number().int().nonnegative(), amount: z.number().int().positive(), month: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .input(z.object({ ledgerId: z.number().int().positive(), categoryId: z.number().int().nonnegative(), amount: z.number().int().positive().max(100_000_000), month: z.string().regex(/^\d{4}-\d{2}$/) }))
       .mutation(({ ctx, input }) => requireLedger(input.ledgerId, ctx.user.id).then(() => upsertBudget(input))),
     recurring: protectedProcedure
       .input(z.object({ ledgerId: z.number().int().positive() }))

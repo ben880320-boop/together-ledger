@@ -111,6 +111,18 @@ export const budgets = mysqlTable("budgets", {
   month: varchar("month", { length: 16 }).notNull(), // e.g. "2026-08"
 });
 
+export const travelPlans = mysqlTable("travelPlans", {
+  id: int("id").autoincrement().primaryKey(),
+  ledgerId: int("ledgerId").notNull(),
+  createdBy: int("createdBy").notNull(),
+  name: varchar("name", { length: 128 }).notNull(),
+  budget: int("budget").notNull(),
+  startDate: timestamp("startDate").notNull(),
+  endDate: timestamp("endDate").notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
 export const activityLogs = mysqlTable("activityLogs", {
   id: int("id").autoincrement().primaryKey(),
   ledgerId: int("ledgerId").notNull(),

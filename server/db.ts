@@ -13,6 +13,7 @@ import {
   settlements,
   transactionSplits,
   transactions,
+  travelPlans,
   users,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
@@ -196,16 +197,8 @@ export async function leaveLedger(input: {
   }
 
   if (input.action === "transfer") {
-    if (!input.transferToUserId || input.transferToUserId === input.userId) throw new Error("請選擇另一位帳本成員接任持有者。");
-    const target = await db
-      .select()
-      .from(ledgerMembers)
-      .where(and(eq(ledgerMembers.ledgerId, input.ledgerId), eq(ledgerMembers.userId, input.transferToUserId)))
-      .limit(1);
-    if (!target[0]) throw new Error("接任者必須是目前帳本成員。");
-    await db.update(ledgers).set({ createdBy: input.transferToUserId }).where(eq(ledgers.id, input.ledgerId));
-    await db.update(ledgerMembers).set({ role: "admin" }).where(and(eq(ledgerMembers.ledgerId, input.ledgerId), eq(ledgerMembers.userId, input.transferToUserId)));
-    await db.update(ledgerMembers).set({ role: "member" }).where(and(eq(ledgerMembers.ledgerId, input.ledgerId), eq(ledgerMembers.userId, input.userId)));
+    if (!input.transferToUserId) throw new Error("請選擇另一位帳本成員接任持有者。");
+    await transferLedgerOwnership({ ledgerId: input.ledgerId, userId: input.userId, targetUserId: input.transferToUserId });
     await db.delete(ledgerMembers).where(and(eq(ledgerMembers.ledgerId, input.ledgerId), eq(ledgerMembers.userId, input.userId)));
     return { action: "transfer" as const, transferToUserId: input.transferToUserId };
   }
@@ -216,6 +209,7 @@ export async function leaveLedger(input: {
   if (transactionIds.length > 0) await db.delete(transactionSplits).where(inArray(transactionSplits.transactionId, transactionIds));
   await db.delete(activityLogs).where(eq(activityLogs.ledgerId, input.ledgerId));
   await db.delete(budgets).where(eq(budgets.ledgerId, input.ledgerId));
+  await db.delete(travelPlans).where(eq(travelPlans.ledgerId, input.ledgerId));
   await db.delete(recurringTransactions).where(eq(recurringTransactions.ledgerId, input.ledgerId));
   await db.delete(settlements).where(eq(settlements.ledgerId, input.ledgerId));
   await db.delete(transactions).where(eq(transactions.ledgerId, input.ledgerId));
@@ -231,6 +225,63 @@ export async function updateUserName(userId: number, name: string) {
   await db.update(users).set({ name }).where(eq(users.id, userId));
   const rows = await db.select().from(users).where(eq(users.id, userId)).limit(1);
   return rows[0];
+}
+
+export async function renameLedger(input: { ledgerId: number; userId: number; name: string }) {
+  const db = requireDb();
+  const name = input.name.trim();
+  if (!name) throw new Error("帳本名稱不能是空白。");
+  if (name.length > 128) throw new Error("帳本名稱不可超過 128 個字元。");
+  const access = await getLedgerAccess(input.ledgerId, input.userId);
+  if (!access || access.ledger.createdBy !== input.userId || access.member.role !== "admin") {
+    throw new Error("只有帳本持有者可以修改帳本名稱。");
+  }
+  await db.update(ledgers).set({ name }).where(eq(ledgers.id, input.ledgerId));
+  return (await getLedgerAccess(input.ledgerId, input.userId))?.ledger;
+}
+
+export async function transferLedgerOwnership(input: { ledgerId: number; userId: number; targetUserId: number }) {
+  const db = requireDb();
+  const access = await getLedgerAccess(input.ledgerId, input.userId);
+  if (!access || access.ledger.createdBy !== input.userId || access.member.role !== "admin") {
+    throw new Error("只有目前帳本持有者可以轉讓所有權。");
+  }
+  if (input.targetUserId === input.userId) throw new Error("新的持有者必須是另一位帳本成員。");
+  const target = await db.select().from(ledgerMembers).where(and(eq(ledgerMembers.ledgerId, input.ledgerId), eq(ledgerMembers.userId, input.targetUserId))).limit(1);
+  if (!target[0]) throw new Error("接任者必須是目前帳本成員。");
+  await db.update(ledgers).set({ createdBy: input.targetUserId }).where(eq(ledgers.id, input.ledgerId));
+  await db.update(ledgerMembers).set({ role: "member" }).where(and(eq(ledgerMembers.ledgerId, input.ledgerId), eq(ledgerMembers.userId, input.userId)));
+  await db.update(ledgerMembers).set({ role: "admin" }).where(and(eq(ledgerMembers.ledgerId, input.ledgerId), eq(ledgerMembers.userId, input.targetUserId)));
+  return { ledgerId: input.ledgerId, targetUserId: input.targetUserId };
+}
+
+export async function listTravelPlans(ledgerId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(travelPlans).where(eq(travelPlans.ledgerId, ledgerId)).orderBy(asc(travelPlans.startDate));
+}
+
+export async function createTravelPlan(input: { ledgerId: number; userId: number; name: string; budget: number; startDate: Date; endDate: Date; notes?: string }) {
+  const db = requireDb();
+  const name = input.name.trim();
+  if (!name) throw new Error("出遊規劃名稱不能是空白。");
+  if (input.endDate.getTime() < input.startDate.getTime()) throw new Error("結束日期不能早於開始日期。");
+  if (!Number.isSafeInteger(input.budget) || input.budget <= 0 || input.budget > 100_000_000) throw new Error("出遊預算必須介於 1 與 100,000,000 之間。");
+  const access = await getLedgerAccess(input.ledgerId, input.userId);
+  if (!access) throw new Error("你不是此帳本的成員。");
+  const result = await db.insert(travelPlans).values({ ledgerId: input.ledgerId, createdBy: input.userId, name, budget: input.budget, startDate: input.startDate, endDate: input.endDate, notes: input.notes?.trim() || null });
+  return Number(result[0].insertId);
+}
+
+export async function deleteTravelPlan(input: { ledgerId: number; userId: number; planId: number }) {
+  const db = requireDb();
+  const access = await getLedgerAccess(input.ledgerId, input.userId);
+  if (!access) throw new Error("你不是此帳本的成員。");
+  const plan = await db.select().from(travelPlans).where(and(eq(travelPlans.id, input.planId), eq(travelPlans.ledgerId, input.ledgerId))).limit(1);
+  if (!plan[0]) throw new Error("找不到出遊規劃。");
+  if (plan[0].createdBy !== input.userId && access.member.role !== "admin") throw new Error("只有建立者或帳本管理員可以刪除出遊規劃。");
+  await db.delete(travelPlans).where(eq(travelPlans.id, input.planId));
+  return { deleted: true };
 }
 
 export async function getLedgerMembers(ledgerId: number) {
