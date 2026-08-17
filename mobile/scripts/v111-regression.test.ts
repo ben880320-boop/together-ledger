@@ -141,6 +141,7 @@ describe("Together Ledger v1.2.3 Android wiring", () => {
     expect(workflow).toContain("workflow_dispatch:");
     expect(workflow).toContain("push:");
     expect(workflow).toContain("branches:\n      - main");
+    expect(workflow).toContain('      - "release/**"');
     expect(workflow).toContain("android-actions/setup-android@v3");
     expect(workflow).toContain("pnpm run prebuild:android");
     expect(workflow).toContain("assembleRelease");
