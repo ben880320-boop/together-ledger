@@ -221,4 +221,4 @@
 - [x] 修正 pnpm lockfile／patchedDependencies 設定，使 Web 專案檢查點能順利部署
 - [x] 擴充主題回歸測試，執行凍結相依、型別、單元與核心流程驗證
 - [x] 建置 v1.2.4 主題升級版 GitHub Release，驗證 Android APK、SHA-256 與內嵌 JavaScript bundle
-- [ ] 向使用者交付 v1.2.4 主題升級版 Release 與 Android APK 下載資訊
+- [x] 向使用者交付 v1.2.4 主題升級版 Release 與 Android APK 下載資訊
