@@ -6,7 +6,7 @@ const mobileRoot = resolve(process.cwd(), "mobile");
 const readMobile = (relativePath: string) =>
   readFileSync(resolve(mobileRoot, relativePath), "utf8");
 
-describe("Together Ledger v1.1.1 Android wiring", () => {
+describe("Together Ledger v1.2.0 Android wiring", () => {
   it("registers a concrete OAuth callback route with state verification", () => {
     const callbackPath = resolve(mobileRoot, "app/oauth/callback.tsx");
     expect(existsSync(callbackPath)).toBe(true);
@@ -23,27 +23,50 @@ describe("Together Ledger v1.1.1 Android wiring", () => {
     expect(app).toContain("@react-native-community/datetimepicker");
     expect(app).toContain("DateTimePicker");
     expect(app).toContain("dateKey(value)");
+    expect(app).toContain("const dateKeyPattern = /^(\\d{4})-(\\d{2})-(\\d{2})$/;");
     expect(app).toContain("選擇開始日期");
     expect(app).toContain("選擇結束日期");
     expect(app).toContain('display={Platform.OS === "android" ? "calendar" : "spinner"}');
-    expect(app).toContain("T00:00:00");
-    expect(app).toContain("T23:59:59");
+    expect(app).toContain("const localDateFromKey = (value: string, endOfDay = false) =>");
+    expect(app).toContain("endOfDay ? 23 : 0");
+    expect(app).toContain("endOfDay ? 59 : 0");
   });
 
   it("uses the themed confirmation surface instead of native Alert", () => {
     const app = readMobile("app/index.tsx");
     expect(app).toContain("function ConfirmModal(");
     expect(app).toContain("<ConfirmModal request={confirmRequest}");
+    expect((app.match(/<ConfirmModal request=\{confirmRequest\}/g) || []).length).toBeGreaterThanOrEqual(3);
     expect(app).toContain("confirmOverlay");
     expect(app).not.toContain("Alert.alert");
     expect(app).toContain("再次確認移除");
+    expect((app.match(/name=\"logout\"/g) || []).length).toBe(1);
+  });
+
+  it("wires v1.2.0 appearance, settings management, and home search", () => {
+    const app = readMobile("app/index.tsx");
+    expect(app).toContain('label: "海洋"');
+    expect(app).toContain('label: "星空"');
+    expect(app).toContain("AppearanceCardStyle");
+    expect(app).toContain("AppearanceNavStyle");
+    expect(app).toContain("updateCategory");
+    expect(app).toContain("setCategoryActive");
+    expect(app).toContain("updatePaymentMethod");
+    expect(app).toContain("setPaymentMethodActive");
+    expect(app).toContain("categorySort");
+    expect(app).toContain("paymentSort");
+    expect(app).toContain("sort-variant");
+    expect(app).toContain("settingsFilterActions");
+    expect(app).toContain("主題、字體與版型會立即套用並保存在這台裝置");
+    expect(app).toContain("搜尋帳本名稱");
+    expect(app).toContain("ledgerQuery");
   });
 
   it("ships the intended app version and deep-link configuration", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
       expo?: { version?: string; scheme?: string };
     };
-    expect(appJson.expo?.version).toBe("1.1.1");
+    expect(appJson.expo?.version).toBe("1.2.0");
     expect(appJson.expo?.scheme).toBe("togetherledger");
   });
 });

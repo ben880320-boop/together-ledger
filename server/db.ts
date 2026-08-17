@@ -306,8 +306,18 @@ export async function getCategories(ledgerId: number) {
   return db.select().from(categories).where(eq(categories.ledgerId, ledgerId)).orderBy(asc(categories.name));
 }
 
+async function assertUniqueCategoryName(input: { ledgerId: number; id?: number; name: string }) {
+  const db = requireDb();
+  const existing = await db.select({ id: categories.id, name: categories.name }).from(categories).where(eq(categories.ledgerId, input.ledgerId));
+  const normalized = input.name.trim().toLocaleLowerCase();
+  if (existing.some(item => item.id !== input.id && item.name.trim().toLocaleLowerCase() === normalized)) {
+    throw new Error("同一帳本內已有相同名稱的分類，請改用其他名稱。");
+  }
+}
+
 export async function createCategory(input: { ledgerId: number; parentCategoryId?: number; name: string; type: "expense" | "income"; icon: string; color: string }) {
   const db = requireDb();
+  await assertUniqueCategoryName(input);
   const result = await db.insert(categories).values({
     ledgerId: input.ledgerId,
     parentCategoryId: input.parentCategoryId ?? 0,
@@ -318,21 +328,52 @@ export async function createCategory(input: { ledgerId: number; parentCategoryId
   });
   return Number(result[0].insertId);
 }
-
+export async function updateCategory(input: { ledgerId: number; id: number; name: string; type: "expense" | "income"; icon: string; color: string }) {
+  const db = requireDb();
+  await assertUniqueCategoryName(input);
+  await db.update(categories).set({ name: input.name, type: input.type, icon: input.icon, color: input.color }).where(and(eq(categories.id, input.id), eq(categories.ledgerId, input.ledgerId)));
+  return input.id;
+}
+export async function setCategoryActive(input: { ledgerId: number; id: number; isActive: number }) {
+  const db = requireDb();
+  await db.update(categories).set({ isActive: input.isActive }).where(and(eq(categories.id, input.id), eq(categories.ledgerId, input.ledgerId)));
+  return input.id;
+}
 export async function getPaymentMethods(ledgerId: number) {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(paymentMethods).where(eq(paymentMethods.ledgerId, ledgerId)).orderBy(asc(paymentMethods.id));
 }
 
+async function assertUniquePaymentMethodName(input: { ledgerId: number; id?: number; name: string }) {
+  const db = requireDb();
+  const existing = await db.select({ id: paymentMethods.id, name: paymentMethods.name }).from(paymentMethods).where(eq(paymentMethods.ledgerId, input.ledgerId));
+  const normalized = input.name.trim().toLocaleLowerCase();
+  if (existing.some(item => item.id !== input.id && item.name.trim().toLocaleLowerCase() === normalized)) {
+    throw new Error("同一帳本內已有相同名稱的支付方式，請改用其他名稱。");
+  }
+}
+
 export async function createPaymentMethod(input: { ledgerId: number; name: string; icon: string }) {
   const db = requireDb();
+  await assertUniquePaymentMethodName(input);
   const result = await db.insert(paymentMethods).values({
     ledgerId: input.ledgerId,
     name: input.name,
     icon: input.icon,
   });
   return Number(result[0].insertId);
+}
+export async function updatePaymentMethod(input: { ledgerId: number; id: number; name: string; icon: string }) {
+  const db = requireDb();
+  await assertUniquePaymentMethodName(input);
+  await db.update(paymentMethods).set({ name: input.name, icon: input.icon }).where(and(eq(paymentMethods.id, input.id), eq(paymentMethods.ledgerId, input.ledgerId)));
+  return input.id;
+}
+export async function setPaymentMethodActive(input: { ledgerId: number; id: number; isActive: number }) {
+  const db = requireDb();
+  await db.update(paymentMethods).set({ isActive: input.isActive }).where(and(eq(paymentMethods.id, input.id), eq(paymentMethods.ledgerId, input.ledgerId)));
+  return input.id;
 }
 
 export async function getTransactions(ledgerId: number, limit = 100) {

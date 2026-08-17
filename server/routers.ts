@@ -8,8 +8,12 @@ import {
   archiveCategory,
   archivePaymentMethod,
   createCategory,
+  updateCategory,
+  setCategoryActive,
   createLedger,
   createPaymentMethod,
+  updatePaymentMethod,
+  setPaymentMethodActive,
   createRecurring,
   createSettlement,
   createTransaction,
@@ -155,6 +159,22 @@ export const appRouter = router({
         await logActivity({ ledgerId: input.ledgerId, userId: ctx.user.id, action: "delete", entityType: "category", entityId: id, summary: "停用分類" });
         return id;
       }),
+    updateCategory: protectedProcedure
+      .input(z.object({ ledgerId: z.number().int().positive(), categoryId: z.number().int().positive(), name: z.string().trim().min(1).max(64), type: z.enum(["expense", "income"]), icon: z.string().max(32), color: z.string().max(32) }))
+      .mutation(async ({ ctx, input }) => {
+        await requireLedger(input.ledgerId, ctx.user.id);
+        const id = await updateCategory({ ledgerId: input.ledgerId, id: input.categoryId, name: input.name, type: input.type, icon: input.icon, color: input.color });
+        await logActivity({ ledgerId: input.ledgerId, userId: ctx.user.id, action: "update", entityType: "category", entityId: id, summary: `修改分類：${input.name}` });
+        return id;
+      }),
+    setCategoryActive: protectedProcedure
+      .input(z.object({ ledgerId: z.number().int().positive(), categoryId: z.number().int().positive(), isActive: z.union([z.literal(0), z.literal(1)]) }))
+      .mutation(async ({ ctx, input }) => {
+        await requireLedger(input.ledgerId, ctx.user.id);
+        const id = await setCategoryActive({ ledgerId: input.ledgerId, id: input.categoryId, isActive: input.isActive });
+        await logActivity({ ledgerId: input.ledgerId, userId: ctx.user.id, action: input.isActive ? "create" : "delete", entityType: "category", entityId: id, summary: input.isActive ? "恢復分類" : "停用分類" });
+        return id;
+      }),
     paymentMethods: protectedProcedure
       .input(z.object({ ledgerId: z.number().int().positive() }))
       .query(({ ctx, input }) => requireLedger(input.ledgerId, ctx.user.id).then(() => getPaymentMethods(input.ledgerId))),
@@ -172,6 +192,22 @@ export const appRouter = router({
         await requireLedger(input.ledgerId, ctx.user.id);
         const id = await archivePaymentMethod({ ledgerId: input.ledgerId, id: input.paymentMethodId });
         await logActivity({ ledgerId: input.ledgerId, userId: ctx.user.id, action: "delete", entityType: "paymentMethod", entityId: id, summary: "停用支付方式" });
+        return id;
+      }),
+    updatePaymentMethod: protectedProcedure
+      .input(z.object({ ledgerId: z.number().int().positive(), paymentMethodId: z.number().int().positive(), name: z.string().trim().min(1).max(64), icon: z.string().trim().max(16) }))
+      .mutation(async ({ ctx, input }) => {
+        await requireLedger(input.ledgerId, ctx.user.id);
+        const id = await updatePaymentMethod({ ledgerId: input.ledgerId, id: input.paymentMethodId, name: input.name, icon: input.icon });
+        await logActivity({ ledgerId: input.ledgerId, userId: ctx.user.id, action: "update", entityType: "paymentMethod", entityId: id, summary: `修改支付方式：${input.name}` });
+        return id;
+      }),
+    setPaymentMethodActive: protectedProcedure
+      .input(z.object({ ledgerId: z.number().int().positive(), paymentMethodId: z.number().int().positive(), isActive: z.union([z.literal(0), z.literal(1)]) }))
+      .mutation(async ({ ctx, input }) => {
+        await requireLedger(input.ledgerId, ctx.user.id);
+        const id = await setPaymentMethodActive({ ledgerId: input.ledgerId, id: input.paymentMethodId, isActive: input.isActive });
+        await logActivity({ ledgerId: input.ledgerId, userId: ctx.user.id, action: input.isActive ? "create" : "delete", entityType: "paymentMethod", entityId: id, summary: input.isActive ? "恢復支付方式" : "停用支付方式" });
         return id;
       }),
     transactions: protectedProcedure

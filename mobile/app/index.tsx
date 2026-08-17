@@ -57,13 +57,26 @@ const colors = {
   blue: "#6D8EA8",
 };
 
-type AppearanceTheme = "rose" | "graphite" | "latte" | "mint" | "ocean" | "sunset";
+type AppearanceTheme =
+  | "rose"
+  | "graphite"
+  | "latte"
+  | "mint"
+  | "ocean"
+  | "sunset"
+  | "starry"
+  | "forest"
+  | "lavender";
 type AppearanceFont = "system" | "rounded" | "serif" | "clean" | "mono";
 type AppearanceScale = "tiny" | "small" | "standard" | "large" | "xl";
+type AppearanceCardStyle = "soft" | "outlined" | "flat";
+type AppearanceNavStyle = "pill" | "line" | "minimal";
 type AppearancePreferences = {
   theme: AppearanceTheme;
   font: AppearanceFont;
   scale: AppearanceScale;
+  cardStyle: AppearanceCardStyle;
+  navStyle: AppearanceNavStyle;
   compactMode: boolean;
   reduceMotion: boolean;
   autoReceiptNote: boolean;
@@ -73,6 +86,8 @@ const appearanceDefaults: AppearancePreferences = {
   theme: "rose",
   font: "system",
   scale: "standard",
+  cardStyle: "soft",
+  navStyle: "pill",
   compactMode: false,
   reduceMotion: false,
   autoReceiptNote: true,
@@ -145,6 +160,48 @@ const appearancePalettes: Record<AppearanceTheme, typeof colors> = {
     orange: "#D17B61",
     blue: "#758BA4",
   },
+  starry: {
+    ...colors,
+    background: "#EEF1FA",
+    surface: "#FBFCFF",
+    ink: "#252B48",
+    muted: "#707895",
+    border: "#DDE2F2",
+    rose: "#6D63B8",
+    roseSoft: "#E8E6FA",
+    burgundy: "#34345C",
+    sage: "#6B9A9A",
+    orange: "#C58B62",
+    blue: "#5E78B5",
+  },
+  forest: {
+    ...colors,
+    background: "#F1F7F0",
+    surface: "#FCFFFB",
+    ink: "#294233",
+    muted: "#6F8874",
+    border: "#D8E8D7",
+    rose: "#5A956F",
+    roseSoft: "#E0F0E1",
+    burgundy: "#365C46",
+    sage: "#5C9568",
+    orange: "#C38C5C",
+    blue: "#568A92",
+  },
+  lavender: {
+    ...colors,
+    background: "#F7F1FB",
+    surface: "#FFFCFF",
+    ink: "#43354E",
+    muted: "#887A93",
+    border: "#E9DDF0",
+    rose: "#9C6BB3",
+    roseSoft: "#F0E3F6",
+    burgundy: "#64456F",
+    sage: "#79A08A",
+    orange: "#C9906B",
+    blue: "#7184B1",
+  },
 };
 
 const appearanceScaleMap: Record<AppearanceScale, number> = {
@@ -208,7 +265,7 @@ function AppearanceProvider({ children }: { children: ReactNode }) {
     }),
     [preferences, updatePreferences]
   );
-  styles = createStyles(value.palette);
+  styles = createStyles(value.palette, preferences);
   return (
     <AppearanceContext.Provider value={value}>
       <View style={{ flex: 1, backgroundColor: value.palette.background }}>
@@ -352,6 +409,28 @@ const OAUTH_PORTAL_URL = (
 ).replace(/\/$/, "");
 const money = (value: number) =>
   `NT$ ${Math.round(value || 0).toLocaleString("zh-TW")}`;
+const dateKeyPattern = /^(\d{4})-(\d{2})-(\d{2})$/;
+const isValidDateKey = (value: string) => {
+  const match = dateKeyPattern.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const candidate = new Date(year, month - 1, day);
+  return candidate.getFullYear() === year && candidate.getMonth() === month - 1 && candidate.getDate() === day;
+};
+const localDateFromKey = (value: string, endOfDay = false) => {
+  const match = dateKeyPattern.exec(value);
+  if (!match) return new Date(NaN);
+  return new Date(
+    Number(match[1]),
+    Number(match[2]) - 1,
+    Number(match[3]),
+    endOfDay ? 23 : 0,
+    endOfDay ? 59 : 0,
+    endOfDay ? 59 : 0,
+  );
+};
 const dateKey = (date: Date | string) => {
   const d = new Date(date);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -682,7 +761,7 @@ function AppContent() {
       setError("請輸入出遊名稱與正整數預算。");
       return;
     }
-    if (!/^\\d{4}-\\d{2}-\\d{2}$/.test(travelPlanStartDate) || !/^\\d{4}-\\d{2}-\\d{2}$/.test(travelPlanEndDate) || travelPlanStartDate > travelPlanEndDate) {
+    if (!isValidDateKey(travelPlanStartDate) || !isValidDateKey(travelPlanEndDate) || travelPlanStartDate > travelPlanEndDate) {
       setError("請輸入有效的日期範圍（YYYY-MM-DD）。");
       return;
     }
@@ -692,8 +771,8 @@ function AppContent() {
         ledgerId: activeLedger.id,
         name: travelPlanName.trim(),
         budget,
-        startDate: new Date(`${travelPlanStartDate}T00:00:00`),
-        endDate: new Date(`${travelPlanEndDate}T23:59:59`),
+        startDate: localDateFromKey(travelPlanStartDate),
+        endDate: localDateFromKey(travelPlanEndDate, true),
         notes: travelPlanNotes.trim() || undefined,
       });
       setTravelPlanName("");
@@ -973,7 +1052,7 @@ function AppContent() {
     );
   if (!user)
     return <LoginScreen error={error} busy={busy} onLogin={handleLogin} />;
-  const homeHeaderAction = (
+    const homeHeaderAction = (
     <View style={styles.headerActions}>
       <Pressable
         onPress={() => setHomePage(current => current === "profile" ? "ledgers" : "profile")}
@@ -982,9 +1061,6 @@ function AppContent() {
         accessibilityRole="button"
       >
         <MaterialCommunityIcons name={homePage === "profile" ? "arrow-left" : "account-outline"} size={19} color={palette.rose} />
-      </Pressable>
-      <Pressable onPress={logout} style={styles.headerBackButton} accessibilityLabel="登出">
-        <MaterialCommunityIcons name="logout" size={19} color={palette.muted} />
       </Pressable>
     </View>
   );
@@ -1028,6 +1104,7 @@ function AppContent() {
           }}
           onSubmit={finishLedgerAction}
         />
+        <ConfirmModal request={confirmRequest} onClose={() => setConfirmRequest(null)} />
       </>
     );
 
@@ -1071,6 +1148,7 @@ function AppContent() {
           }}
           onSubmit={finishLedgerAction}
         />
+        <ConfirmModal request={confirmRequest} onClose={() => setConfirmRequest(null)} />
       </SafeAreaView>
     );
 
@@ -1513,6 +1591,12 @@ function LedgerHome({
   onJoin: () => void;
 }) {
   const { palette } = useAppearance();
+  const [ledgerQuery, setLedgerQuery] = useState("");
+  const visibleLedgers = useMemo(() => {
+    const query = ledgerQuery.trim().toLocaleLowerCase();
+    if (!query) return ledgers;
+    return ledgers.filter(ledger => ledger.name.toLocaleLowerCase().includes(query));
+  }, [ledgerQuery, ledgers]);
   return (
     <ScrollView contentContainerStyle={styles.ledgerHomeContent}>
       <SectionIntro
@@ -1520,7 +1604,19 @@ function LedgerHome({
         title="選擇共同帳本"
         body="先選擇要進入的空間，也可以建立新的帳本或使用邀請碼加入。"
       />
-      {ledgers.map(ledger => (
+      <TextInput
+        value={ledgerQuery}
+        onChangeText={setLedgerQuery}
+        placeholder="搜尋帳本名稱"
+        placeholderTextColor={palette.muted}
+        style={styles.input}
+        accessibilityLabel="搜尋帳本名稱"
+      />
+      <View style={styles.settingsFilterRow}>
+        <Text style={styles.rowSubtitle}>{visibleLedgers.length} 個帳本</Text>
+        {!!ledgerQuery.trim() && <Pressable onPress={() => setLedgerQuery("")}><Text style={styles.settingsFilterText}>清除搜尋</Text></Pressable>}
+      </View>
+      {visibleLedgers.length === 0 ? <EmptyInline text="找不到符合的帳本名稱。" /> : visibleLedgers.map(ledger => (
         <Pressable
           key={ledger.id}
           onPress={() => onSelect(ledger)}
@@ -2365,6 +2461,9 @@ function PersonalSettingsPage({
     { key: "mint", label: "薄荷", color: "#4D9381" },
     { key: "ocean", label: "海洋", color: "#397D9B" },
     { key: "sunset", label: "夕暮", color: "#D17B61" },
+    { key: "starry", label: "星空", color: "#6D63B8" },
+    { key: "forest", label: "森林", color: "#5A956F" },
+    { key: "lavender", label: "薰衣草", color: "#9C6BB3" },
   ];
   const fonts: Array<{ key: AppearanceFont; label: string; preview: string }> = [
     { key: "system", label: "系統", preview: "Aa" },
@@ -2379,6 +2478,16 @@ function PersonalSettingsPage({
     { key: "standard", label: "標準" },
     { key: "large", label: "大" },
     { key: "xl", label: "特大" },
+  ];
+  const cardStyles: Array<{ key: AppearanceCardStyle; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap; hint: string }> = [
+    { key: "soft", label: "柔和卡片", icon: "card-outline", hint: "圓角與柔和層次" },
+    { key: "outlined", label: "清晰邊框", icon: "border-all", hint: "邊界更明確" },
+    { key: "flat", label: "純淨平面", icon: "view-agenda-outline", hint: "減少卡片框線" },
+  ];
+  const navStyles: Array<{ key: AppearanceNavStyle; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }> = [
+    { key: "pill", label: "膠囊選取", icon: "view-dashboard-outline" },
+    { key: "line", label: "底線選取", icon: "format-align-bottom" },
+    { key: "minimal", label: "極簡導覽", icon: "dots-horizontal" },
   ];
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["bottom"]}>
@@ -2397,6 +2506,7 @@ function PersonalSettingsPage({
         </View>
         <Text style={styles.cardHint}>主頁可調整</Text>
       </View>
+      <Text style={styles.cardHint}>主題、字體與版型會立即套用並保存在這台裝置；共同帳本資料不會因此改變。</Text>
       <Text style={styles.personalizationLabel}>使用者暱稱</Text>
       <TextInput
         value={nickname}
@@ -2460,6 +2570,45 @@ function PersonalSettingsPage({
             ]}
           >
             <Text style={styles.appearanceOptionText}>{scale.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+      <Text style={styles.personalizationLabel}>介面卡片樣式</Text>
+      <View style={styles.appearanceGrid}>
+        {cardStyles.map(option => (
+          <Pressable
+            key={option.key}
+            accessibilityRole="button"
+            accessibilityLabel={`選擇${option.label}`}
+            onPress={() => updatePreferences({ cardStyle: option.key })}
+            style={[
+              styles.appearanceStyleOption,
+              preferences.cardStyle === option.key && styles.appearanceOptionActive,
+            ]}
+          >
+            <MaterialCommunityIcons name={option.icon} size={18} color={palette.rose} />
+            <View style={styles.appearanceStyleCopy}>
+              <Text style={styles.appearanceOptionText}>{option.label}</Text>
+              <Text style={styles.appearanceStyleHint}>{option.hint}</Text>
+            </View>
+          </Pressable>
+        ))}
+      </View>
+      <Text style={styles.personalizationLabel}>底部導覽樣式</Text>
+      <View style={styles.optionRow}>
+        {navStyles.map(option => (
+          <Pressable
+            key={option.key}
+            accessibilityRole="button"
+            accessibilityLabel={`選擇${option.label}`}
+            onPress={() => updatePreferences({ navStyle: option.key })}
+            style={[
+              styles.appearanceOption,
+              preferences.navStyle === option.key && styles.appearanceOptionActive,
+            ]}
+          >
+            <MaterialCommunityIcons name={option.icon} size={17} color={palette.rose} />
+            <Text style={styles.appearanceOptionText}>{option.label}</Text>
           </Pressable>
         ))}
       </View>
@@ -2591,6 +2740,81 @@ function SettingsSection({
         ledgerId: ledger.id,
         ...preset,
       });
+    onRefresh();
+  };
+  const [categoryQuery, setCategoryQuery] = useState("");
+  const [paymentQuery, setPaymentQuery] = useState("");
+  const [showInactiveCategories, setShowInactiveCategories] = useState(false);
+  const [showInactivePayments, setShowInactivePayments] = useState(false);
+  const [categorySort, setCategorySort] = useState<"name" | "status">("name");
+  const [paymentSort, setPaymentSort] = useState<"name" | "status">("name");
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
+  const [editingPayment, setEditingPayment] = useState<PaymentMethod | null>(null);
+  const [draftCategoryName, setDraftCategoryName] = useState("");
+  const [draftCategoryIcon, setDraftCategoryIcon] = useState("");
+  const [draftCategoryType, setDraftCategoryType] = useState<"expense" | "income">("expense");
+  const [draftPaymentName, setDraftPaymentName] = useState("");
+  const [draftPaymentIcon, setDraftPaymentIcon] = useState("");
+  const [settingsBusy, setSettingsBusy] = useState(false);
+  const visibleCategories = [...categories]
+    .filter(item => {
+      const matchesQuery = `${item.name} ${item.icon}`.toLowerCase().includes(categoryQuery.trim().toLowerCase());
+      return matchesQuery && (showInactiveCategories || item.isActive !== 0);
+    })
+    .sort((left, right) =>
+      categorySort === "status"
+        ? Number(right.isActive || 0) - Number(left.isActive || 0) || left.name.localeCompare(right.name, "zh-Hant")
+        : left.name.localeCompare(right.name, "zh-Hant")
+    );
+  const visiblePayments = [...paymentMethods]
+    .filter(item => {
+      const matchesQuery = `${item.name} ${item.icon}`.toLowerCase().includes(paymentQuery.trim().toLowerCase());
+      return matchesQuery && (showInactivePayments || item.isActive !== 0);
+    })
+    .sort((left, right) =>
+      paymentSort === "status"
+        ? Number(right.isActive || 0) - Number(left.isActive || 0) || left.name.localeCompare(right.name, "zh-Hant")
+        : left.name.localeCompare(right.name, "zh-Hant")
+    );
+  const startEditCategory = (item: Category) => {
+    setEditingCategory(item);
+    setDraftCategoryName(item.name);
+    setDraftCategoryIcon(item.icon);
+    setDraftCategoryType(item.type);
+  };
+  const startEditPayment = (item: PaymentMethod) => {
+    setEditingPayment(item);
+    setDraftPaymentName(item.name);
+    setDraftPaymentIcon(item.icon);
+  };
+  const saveCategory = async () => {
+    if (!editingCategory || !draftCategoryName.trim()) return;
+    setSettingsBusy(true);
+    try {
+      await api.ledger.updateCategory.mutate({ ledgerId: ledger.id, categoryId: editingCategory.id, name: draftCategoryName.trim(), icon: draftCategoryIcon.trim() || "◌", type: draftCategoryType, color: editingCategory.color });
+      setEditingCategory(null);
+      onRefresh();
+    } finally {
+      setSettingsBusy(false);
+    }
+  };
+  const savePayment = async () => {
+    if (!editingPayment || !draftPaymentName.trim()) return;
+    setSettingsBusy(true);
+    try {
+      await api.ledger.updatePaymentMethod.mutate({ ledgerId: ledger.id, paymentMethodId: editingPayment.id, name: draftPaymentName.trim(), icon: draftPaymentIcon.trim() || "💳" });
+      setEditingPayment(null);
+      onRefresh();
+    } finally {
+      setSettingsBusy(false);
+    }
+  };
+  const restoreCategory = async (item: Category) => {
+    await api.ledger.setCategoryActive.mutate({ ledgerId: ledger.id, categoryId: item.id, isActive: 1 });
+    onRefresh();
+  };
+  const restorePayment = async (item: PaymentMethod) => {
+    await api.ledger.setPaymentMethodActive.mutate({ ledgerId: ledger.id, paymentMethodId: item.id, isActive: 1 });
     onRefresh();
   };
   return (
@@ -2751,10 +2975,27 @@ function SettingsSection({
       </View>
       <View style={styles.card}>
         <View style={styles.cardHeading}>
-          <Text style={styles.cardTitle}>分類</Text>
-          <Pressable onPress={onCategory} style={styles.outlineIconButton}>
+          <View style={styles.personalizationHeading}>
+            <MaterialCommunityIcons name="shape-outline" size={19} color={palette.rose} />
+            <Text style={styles.cardTitle}>分類管理</Text>
+          </View>
+          <Pressable onPress={onCategory} style={styles.outlineIconButton} accessibilityLabel="新增分類">
             <MaterialCommunityIcons name="plus" size={18} color={palette.rose} />
           </Pressable>
+        </View>
+        <TextInput value={categoryQuery} onChangeText={setCategoryQuery} placeholder="搜尋分類名稱或圖示" placeholderTextColor={palette.muted} style={styles.input} />
+        <View style={styles.settingsFilterRow}>
+          <Text style={styles.rowSubtitle}>{visibleCategories.length} 個顯示中 · 可編輯、停用或恢復</Text>
+          <View style={styles.settingsFilterActions}>
+            <Pressable onPress={() => setCategorySort(value => value === "name" ? "status" : "name")} style={styles.settingsFilterButton} accessibilityLabel="切換分類排序">
+              <MaterialCommunityIcons name="sort-variant" size={15} color={palette.rose} />
+              <Text style={styles.settingsFilterText}>{categorySort === "name" ? "依名稱" : "依狀態"}</Text>
+            </Pressable>
+            <Pressable onPress={() => setShowInactiveCategories(value => !value)} style={styles.settingsFilterButton}>
+              <MaterialCommunityIcons name={showInactiveCategories ? "eye-off-outline" : "eye-outline"} size={15} color={palette.rose} />
+              <Text style={styles.settingsFilterText}>{showInactiveCategories ? "隱藏停用" : "顯示停用"}</Text>
+            </Pressable>
+          </View>
         </View>
         {categories.length === 0 ? (
           <>
@@ -2763,27 +3004,53 @@ function SettingsSection({
               <Text style={styles.dashedButtonText}>加入預設分類建議</Text>
             </Pressable>
           </>
+        ) : visibleCategories.length === 0 ? (
+          <EmptyInline text="找不到符合的分類，或目前沒有啟用項目。" />
         ) : (
-          <>
-          <Text style={styles.rowSubtitle}>
-            {categories.filter(item => item.isActive !== 0).map(item => `${item.icon} ${item.name}`).join("　")}
-          </Text>
-          {isAdmin && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.settingsPillRow}>
-            {categories.filter(item => item.isActive !== 0).map(item => (
-              <Pressable key={item.id} onPress={() => onArchiveCategory(item.id)} style={styles.settingsRemovePill}>
-                <Text style={styles.settingsRemovePillText}>{item.icon} 移除 {item.name}</Text>
-              </Pressable>
+          <View style={styles.settingsList}>
+            {visibleCategories.map(item => (
+              <View key={item.id} style={styles.settingsListRow}>
+                <View style={styles.settingsListIcon}><Text style={styles.settingsListIconText}>{item.icon}</Text></View>
+                <View style={styles.memberPaymentName}>
+                  <Text style={styles.rowTitle}>{item.name}</Text>
+                  <Text style={styles.rowSubtitle}>{item.type === "expense" ? "支出分類" : "收入分類"}{item.isActive === 0 ? " · 已停用" : ""}</Text>
+                </View>
+                {isAdmin && <>
+                  <Pressable onPress={() => startEditCategory(item)} style={styles.outlineIconButton} accessibilityLabel={`編輯分類 ${item.name}`}>
+                    <MaterialCommunityIcons name="pencil-outline" size={17} color={palette.rose} />
+                  </Pressable>
+                  <Pressable onPress={() => item.isActive === 0 ? restoreCategory(item) : onArchiveCategory(item.id)} style={styles.outlineIconButton} accessibilityLabel={item.isActive === 0 ? `恢復分類 ${item.name}` : `停用分類 ${item.name}`}>
+                    <MaterialCommunityIcons name={item.isActive === 0 ? "restore" : "archive-outline"} size={17} color={palette.rose} />
+                  </Pressable>
+                </>}
+              </View>
             ))}
-          </ScrollView>}
-          </>
+          </View>
         )}
       </View>
       <View style={styles.card}>
         <View style={styles.cardHeading}>
-          <Text style={styles.cardTitle}>支付方式</Text>
-          <Pressable onPress={onPayment} style={styles.outlineIconButton}>
+          <View style={styles.personalizationHeading}>
+            <MaterialCommunityIcons name="credit-card-settings-outline" size={19} color={palette.rose} />
+            <Text style={styles.cardTitle}>支付方式管理</Text>
+          </View>
+          <Pressable onPress={onPayment} style={styles.outlineIconButton} accessibilityLabel="新增支付方式">
             <MaterialCommunityIcons name="plus" size={18} color={palette.rose} />
           </Pressable>
+        </View>
+        <TextInput value={paymentQuery} onChangeText={setPaymentQuery} placeholder="搜尋支付方式或圖示" placeholderTextColor={palette.muted} style={styles.input} />
+        <View style={styles.settingsFilterRow}>
+          <Text style={styles.rowSubtitle}>{visiblePayments.length} 個顯示中 · 可編輯、停用或恢復</Text>
+          <View style={styles.settingsFilterActions}>
+            <Pressable onPress={() => setPaymentSort(value => value === "name" ? "status" : "name")} style={styles.settingsFilterButton} accessibilityLabel="切換支付方式排序">
+              <MaterialCommunityIcons name="sort-variant" size={15} color={palette.rose} />
+              <Text style={styles.settingsFilterText}>{paymentSort === "name" ? "依名稱" : "依狀態"}</Text>
+            </Pressable>
+            <Pressable onPress={() => setShowInactivePayments(value => !value)} style={styles.settingsFilterButton}>
+              <MaterialCommunityIcons name={showInactivePayments ? "eye-off-outline" : "eye-outline"} size={15} color={palette.rose} />
+              <Text style={styles.settingsFilterText}>{showInactivePayments ? "隱藏停用" : "顯示停用"}</Text>
+            </Pressable>
+          </View>
         </View>
         {paymentMethods.length === 0 ? (
           <>
@@ -2792,19 +3059,28 @@ function SettingsSection({
               <Text style={styles.dashedButtonText}>加入常用支付方式建議</Text>
             </Pressable>
           </>
+        ) : visiblePayments.length === 0 ? (
+          <EmptyInline text="找不到符合的支付方式，或目前沒有啟用項目。" />
         ) : (
-          <>
-          <Text style={styles.rowSubtitle}>
-            {paymentMethods.filter(item => item.isActive !== 0).map(item => `${item.icon} ${item.name}`).join("　")}
-          </Text>
-          {isAdmin && <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.settingsPillRow}>
-            {paymentMethods.filter(item => item.isActive !== 0).map(item => (
-              <Pressable key={item.id} onPress={() => onArchivePayment(item.id)} style={styles.settingsRemovePill}>
-                <Text style={styles.settingsRemovePillText}>{item.icon} 移除 {item.name}</Text>
-              </Pressable>
+          <View style={styles.settingsList}>
+            {visiblePayments.map(item => (
+              <View key={item.id} style={styles.settingsListRow}>
+                <View style={styles.settingsListIcon}><Text style={styles.settingsListIconText}>{item.icon}</Text></View>
+                <View style={styles.memberPaymentName}>
+                  <Text style={styles.rowTitle}>{item.name}</Text>
+                  <Text style={styles.rowSubtitle}>{item.isActive === 0 ? "已停用" : "可用於新增收支"}</Text>
+                </View>
+                {isAdmin && <>
+                  <Pressable onPress={() => startEditPayment(item)} style={styles.outlineIconButton} accessibilityLabel={`編輯支付方式 ${item.name}`}>
+                    <MaterialCommunityIcons name="pencil-outline" size={17} color={palette.rose} />
+                  </Pressable>
+                  <Pressable onPress={() => item.isActive === 0 ? restorePayment(item) : onArchivePayment(item.id)} style={styles.outlineIconButton} accessibilityLabel={item.isActive === 0 ? `恢復支付方式 ${item.name}` : `停用支付方式 ${item.name}`}>
+                    <MaterialCommunityIcons name={item.isActive === 0 ? "restore" : "archive-outline"} size={17} color={palette.rose} />
+                  </Pressable>
+                </>}
+              </View>
             ))}
-          </ScrollView>}
-          </>
+          </View>
         )}
       </View>
       <View style={styles.card}>
@@ -2851,11 +3127,57 @@ function SettingsSection({
             );
           })
         )}
-      </View>
+            </View>
+      <Modal visible={Boolean(editingCategory)} transparent animationType="slide" onRequestClose={() => setEditingCategory(null)}>
+        <View style={styles.modalBackdrop}>
+          <Pressable style={styles.modalDismiss} onPress={() => setEditingCategory(null)} />
+          <View style={styles.modalCard}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>編輯分類</Text>
+            <Text style={styles.modalDescription}>修改名稱或圖示不會影響既有收支紀錄。</Text>
+            <TextInput value={draftCategoryName} onChangeText={setDraftCategoryName} placeholder="分類名稱" placeholderTextColor={palette.muted} style={styles.input} />
+            <TextInput value={draftCategoryIcon} onChangeText={setDraftCategoryIcon} placeholder="圖示，例如 🍜" placeholderTextColor={palette.muted} style={styles.input} />
+            <View style={styles.segmentRow}>
+              {(["expense", "income"] as const).map(item => (
+                <Pressable key={item} onPress={() => setDraftCategoryType(item)} style={[styles.segment, draftCategoryType === item && styles.segmentActive]}>
+                  <Text style={[styles.segmentText, draftCategoryType === item && styles.segmentTextActive]}>{item === "expense" ? "支出分類" : "收入分類"}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <View style={styles.confirmActions}>
+              <Pressable onPress={() => setEditingCategory(null)} style={[styles.confirmCancel, { borderColor: palette.border }]}>
+                <Text style={[styles.confirmCancelText, { color: palette.muted }]}>取消</Text>
+              </Pressable>
+              <Pressable disabled={settingsBusy || !draftCategoryName.trim()} onPress={saveCategory} style={[styles.confirmPrimary, { backgroundColor: palette.rose }, settingsBusy && styles.disabled]}>
+                <Text style={styles.confirmPrimaryText}>{settingsBusy ? "儲存中…" : "儲存分類"}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      <Modal visible={Boolean(editingPayment)} transparent animationType="slide" onRequestClose={() => setEditingPayment(null)}>
+        <View style={styles.modalBackdrop}>
+          <Pressable style={styles.modalDismiss} onPress={() => setEditingPayment(null)} />
+          <View style={styles.modalCard}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>編輯支付方式</Text>
+            <Text style={styles.modalDescription}>修改名稱或圖示不會影響既有收支紀錄。</Text>
+            <TextInput value={draftPaymentName} onChangeText={setDraftPaymentName} placeholder="支付方式名稱" placeholderTextColor={palette.muted} style={styles.input} />
+            <TextInput value={draftPaymentIcon} onChangeText={setDraftPaymentIcon} placeholder="圖示，例如 💳" placeholderTextColor={palette.muted} style={styles.input} />
+            <View style={styles.confirmActions}>
+              <Pressable onPress={() => setEditingPayment(null)} style={[styles.confirmCancel, { borderColor: palette.border }]}>
+                <Text style={[styles.confirmCancelText, { color: palette.muted }]}>取消</Text>
+              </Pressable>
+              <Pressable disabled={settingsBusy || !draftPaymentName.trim()} onPress={savePayment} style={[styles.confirmPrimary, { backgroundColor: palette.rose }, settingsBusy && styles.disabled]}>
+                <Text style={styles.confirmPrimaryText}>{settingsBusy ? "儲存中…" : "儲存支付方式"}</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </>
   );
 }
-
 function SectionIntro({
   eyebrow,
   title,
@@ -2939,7 +3261,7 @@ function QuickNav({
   active: DrawerAction;
   onSelect: (action: DrawerAction) => void;
 }) {
-  const { palette } = useAppearance();
+  const { palette, preferences } = useAppearance();
   const items: Array<{
     key: DrawerAction;
     label: string;
@@ -2952,7 +3274,7 @@ function QuickNav({
     { key: "settings", label: "設定", icon: "tune-variant" },
   ];
   return (
-    <View style={styles.quickNav}>
+    <View style={[styles.quickNav, preferences.navStyle === "minimal" && styles.quickNavMinimal]}>
       {items.map(item => (
         <Pressable
           key={item.key}
@@ -2962,7 +3284,7 @@ function QuickNav({
           onPress={() => onSelect(item.key)}
           style={({ pressed }) => [
             styles.quickNavItem,
-            active === item.key && styles.quickNavItemActive,
+            active === item.key && (preferences.navStyle === "line" ? styles.quickNavItemLineActive : styles.quickNavItemActive),
             pressed && styles.pressed,
           ]}
         >
@@ -4274,7 +4596,10 @@ function SettingsModal({
   );
 }
 
-const createStyles = (palette: typeof colors) => StyleSheet.create({
+const createStyles = (palette: typeof colors, preferences: AppearancePreferences = appearanceDefaults) => {
+  const cardRadius = preferences.cardStyle === "outlined" ? 14 : preferences.cardStyle === "flat" ? 10 : 20;
+  const cardBorderWidth = preferences.cardStyle === "flat" ? 0 : 1;
+  return StyleSheet.create({
   flex: { flex: 1 },
   screen: { flex: 1, backgroundColor: palette.background },
   loadingScreen: {
@@ -4457,6 +4782,11 @@ const createStyles = (palette: typeof colors) => StyleSheet.create({
     borderTopColor: palette.border,
     backgroundColor: palette.surface,
   },
+  quickNavMinimal: {
+    paddingTop: 4,
+    paddingBottom: 4,
+    borderTopWidth: 0,
+  },
   quickNavItem: {
     minWidth: 58,
     alignItems: "center",
@@ -4466,6 +4796,7 @@ const createStyles = (palette: typeof colors) => StyleSheet.create({
     borderRadius: 13,
   },
   quickNavItemActive: { backgroundColor: palette.roseSoft },
+  quickNavItemLineActive: { backgroundColor: "transparent", borderTopWidth: 2, borderTopColor: palette.rose, borderRadius: 0, paddingTop: 6 },
   quickNavLabel: { color: palette.muted, fontSize: 10, fontWeight: "600" },
   quickNavLabelActive: { color: palette.rose, fontWeight: "800" },
   ledgerHomeContent: { flexGrow: 1, padding: 18, paddingBottom: 40 },
@@ -4531,6 +4862,20 @@ const createStyles = (palette: typeof colors) => StyleSheet.create({
     fontWeight: "700",
   },
   optionRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  appearanceGrid: { gap: 8 },
+  appearanceStyleOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 14,
+    backgroundColor: palette.surface,
+  },
+  appearanceStyleCopy: { flex: 1, gap: 2 },
+  appearanceStyleHint: { color: palette.muted, fontSize: 11 },
   appearanceOption: {
     minWidth: 72,
     minHeight: 38,
@@ -4583,10 +4928,11 @@ const createStyles = (palette: typeof colors) => StyleSheet.create({
   card: {
     marginBottom: 14,
     padding: 18,
-    borderWidth: 1,
+    borderWidth: cardBorderWidth,
     borderColor: palette.border,
-    borderRadius: 20,
+    borderRadius: cardRadius,
     backgroundColor: palette.surface,
+    ...(preferences.cardStyle === "soft" ? { shadowColor: palette.ink, shadowOpacity: 0.04, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 1 } : {}),
   },
   heroCard: {
     marginBottom: 14,
@@ -5004,6 +5350,14 @@ const createStyles = (palette: typeof colors) => StyleSheet.create({
   },
   rolePillText: { color: palette.rose, fontSize: 10, fontWeight: "700" },
   settingsPillRow: { gap: 8, paddingTop: 12, paddingBottom: 2 },
+  settingsFilterRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 },
+  settingsFilterActions: { flex: 1, flexDirection: "row", justifyContent: "flex-end", flexWrap: "wrap", gap: 6 },
+  settingsFilterButton: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 8, paddingVertical: 6, borderRadius: 10, backgroundColor: palette.roseSoft },
+  settingsFilterText: { color: palette.rose, fontSize: 11, fontWeight: "700" },
+  settingsList: { gap: 7 },
+  settingsListRow: { minHeight: 54, flexDirection: "row", alignItems: "center", gap: 9, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: palette.border },
+  settingsListIcon: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 11, backgroundColor: palette.roseSoft },
+  settingsListIconText: { color: palette.rose, fontSize: 17 },
   settingsRemovePill: { paddingHorizontal: 10, paddingVertical: 8, borderRadius: 11, backgroundColor: "#FFF4F0", borderWidth: 1, borderColor: "#EAC9C5" },
   settingsRemovePillText: { color: palette.rose, fontSize: 11, fontWeight: "700" },
   activityLogScroll: { maxHeight: 250 },
@@ -5273,6 +5627,7 @@ const createStyles = (palette: typeof colors) => StyleSheet.create({
   multilineInput: { minHeight: 80, textAlignVertical: "top" },
   pressed: { opacity: 0.82, transform: [{ scale: 0.98 }] },
   disabled: { opacity: 0.58 },
-});
+  });
+};
 
-let styles = createStyles(colors);
+let styles = createStyles(colors, appearanceDefaults);

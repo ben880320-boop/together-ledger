@@ -4,8 +4,12 @@ import type { TrpcContext } from "./_core/context";
 
 const mocks = vi.hoisted(() => ({
   createCategory: vi.fn(),
+  updateCategory: vi.fn(),
+  setCategoryActive: vi.fn(),
   createLedger: vi.fn(),
   createPaymentMethod: vi.fn(),
+  updatePaymentMethod: vi.fn(),
+  setPaymentMethodActive: vi.fn(),
   createRecurring: vi.fn(),
   createSettlement: vi.fn(),
   createTransaction: vi.fn(),
@@ -76,7 +80,11 @@ describe("typed ledger workflow contract", () => {
     mocks.deleteTravelPlan.mockResolvedValue({ success: true });
     mocks.updateUserName.mockResolvedValue({ id: 1, name: "新暱稱" });
     mocks.createCategory.mockResolvedValue(11);
+    mocks.updateCategory.mockResolvedValue(11);
+    mocks.setCategoryActive.mockResolvedValue(11);
     mocks.createPaymentMethod.mockResolvedValue(12);
+    mocks.updatePaymentMethod.mockResolvedValue(12);
+    mocks.setPaymentMethodActive.mockResolvedValue(12);
     mocks.createRecurring.mockResolvedValue(13);
     mocks.createTransaction.mockResolvedValue(14);
     mocks.upsertBudget.mockResolvedValue(15);
@@ -221,6 +229,18 @@ describe("typed ledger workflow contract", () => {
     expect(mocks.createPaymentMethod).toHaveBeenCalledWith(expect.objectContaining({ name: "Cube 卡" }));
     expect(mocks.upsertBudget).toHaveBeenCalledWith(expect.objectContaining({ amount: 8000, month: "2026-08" }));
     expect(mocks.createRecurring).toHaveBeenCalledWith(expect.objectContaining({ frequency: "monthly", dayOfMonth: 5, userId: 1 }));
+  });
+
+  it("updates, searches through, and toggles managed categories and payment methods", async () => {
+    const caller = appRouter.createCaller(createTestContext());
+    await caller.ledger.updateCategory({ ledgerId: 1, categoryId: 11, name: "早午餐", type: "expense", icon: "🍳", color: "#C98558" });
+    await caller.ledger.setCategoryActive({ ledgerId: 1, categoryId: 11, isActive: 0 });
+    await caller.ledger.updatePaymentMethod({ ledgerId: 1, paymentMethodId: 12, name: "共同信用卡", icon: "💳" });
+    await caller.ledger.setPaymentMethodActive({ ledgerId: 1, paymentMethodId: 12, isActive: 1 });
+    expect(mocks.updateCategory).toHaveBeenCalledWith({ ledgerId: 1, id: 11, name: "早午餐", type: "expense", icon: "🍳", color: "#C98558" });
+    expect(mocks.setCategoryActive).toHaveBeenCalledWith({ ledgerId: 1, id: 11, isActive: 0 });
+    expect(mocks.updatePaymentMethod).toHaveBeenCalledWith({ ledgerId: 1, id: 12, name: "共同信用卡", icon: "💳" });
+    expect(mocks.setPaymentMethodActive).toHaveBeenCalledWith({ ledgerId: 1, id: 12, isActive: 1 });
   });
 
   it("enforces admin role changes and marks a computed settlement", async () => {
