@@ -15,7 +15,6 @@ permissions:
 
 env:
   NODE_VERSION: "22.x"
-  PNPM_VERSION: "10.4.1"
   EXPO_PUBLIC_APP_ID: "HDBmsjkFmtXoV2nyYfgboo"
   EXPO_PUBLIC_OAUTH_PORTAL_URL: "https://manus.im"
   EXPO_PUBLIC_API_BASE_URL: "https://togetherapp-hdbmsjkf.manus.space"
@@ -51,8 +50,6 @@ jobs:
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
