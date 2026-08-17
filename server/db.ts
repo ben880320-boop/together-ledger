@@ -4,11 +4,14 @@ import {
   InsertUser,
   User,
   activityLogs,
+  appNotifications,
   budgets,
   categories,
   ledgerMembers,
   ledgers,
+  notificationPreferences,
   paymentMethods,
+  pushDevices,
   recurringTransactions,
   settlements,
   transactionSplits,
@@ -35,6 +38,116 @@ export async function getDb() {
 function requireDb() {
   if (!_db) throw new Error("Database is not available");
   return _db;
+}
+
+export type NotificationPreferenceInput = {
+  incomeEnabled: number;
+  expenseEnabled: number;
+  minimumAmount: number;
+  monthlySettlementEnabled: number;
+  monthlyReminderDay: number;
+};
+
+const defaultNotificationPreferences: NotificationPreferenceInput = {
+  incomeEnabled: 0,
+  expenseEnabled: 0,
+  minimumAmount: 0,
+  monthlySettlementEnabled: 0,
+  monthlyReminderDay: 28,
+};
+
+export function normalizeNotificationPreferences(input: Partial<NotificationPreferenceInput>): NotificationPreferenceInput {
+  const minimumAmount = Math.max(0, Math.min(100_000_000, Math.trunc(input.minimumAmount ?? 0)));
+  const monthlyReminderDay = Math.max(1, Math.min(28, Math.trunc(input.monthlyReminderDay ?? 28)));
+  return {
+    incomeEnabled: input.incomeEnabled ? 1 : 0,
+    expenseEnabled: input.expenseEnabled ? 1 : 0,
+    minimumAmount,
+    monthlySettlementEnabled: input.monthlySettlementEnabled ? 1 : 0,
+    monthlyReminderDay,
+  };
+}
+
+export async function getNotificationPreferences(userId: number) {
+  const db = requireDb();
+  const existing = await db.select().from(notificationPreferences).where(eq(notificationPreferences.userId, userId)).limit(1);
+  if (existing[0]) return existing[0];
+  await db.insert(notificationPreferences).values({ userId, ...defaultNotificationPreferences });
+  const created = await db.select().from(notificationPreferences).where(eq(notificationPreferences.userId, userId)).limit(1);
+  return created[0]!;
+}
+
+export async function updateNotificationPreferences(userId: number, input: Partial<NotificationPreferenceInput>) {
+  const db = requireDb();
+  const next = normalizeNotificationPreferences(input);
+  const existing = await db.select({ id: notificationPreferences.id }).from(notificationPreferences).where(eq(notificationPreferences.userId, userId)).limit(1);
+  if (existing[0]) {
+    await db.update(notificationPreferences).set(next).where(eq(notificationPreferences.userId, userId));
+  } else {
+    await db.insert(notificationPreferences).values({ userId, ...next });
+  }
+  return getNotificationPreferences(userId);
+}
+
+export async function updateNotificationScheduleTaskUid(userId: number, scheduleCronTaskUid: string | null) {
+  const db = requireDb();
+  await getNotificationPreferences(userId);
+  await db.update(notificationPreferences).set({ scheduleCronTaskUid }).where(eq(notificationPreferences.userId, userId));
+  return getNotificationPreferences(userId);
+}
+
+export async function getNotificationPreferencesByScheduleTaskUid(taskUid: string) {
+  const db = requireDb();
+  const rows = await db.select().from(notificationPreferences).where(eq(notificationPreferences.scheduleCronTaskUid, taskUid)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function listMonthlyReminderPreferences() {
+  const db = requireDb();
+  return db.select().from(notificationPreferences).where(eq(notificationPreferences.monthlySettlementEnabled, 1));
+}
+
+export async function reconcilePushDeviceRegistration(
+  input: { userId: number; expoPushToken: string; platform: "android" | "ios" },
+  existing: { id: number; isActive: number } | undefined,
+  operations: {
+    update: () => Promise<unknown>;
+    create: () => Promise<unknown>;
+  }
+) {
+  if (existing) {
+    await operations.update();
+    return existing.isActive ? "refreshed" as const : "reactivated" as const;
+  }
+  await operations.create();
+  return "created" as const;
+}
+
+export async function upsertPushDevice(input: { userId: number; expoPushToken: string; platform: "android" | "ios" }) {
+  const db = requireDb();
+  const existing = await db.select({ id: pushDevices.id, isActive: pushDevices.isActive }).from(pushDevices).where(eq(pushDevices.expoPushToken, input.expoPushToken)).limit(1);
+  return reconcilePushDeviceRegistration(input, existing[0], {
+    update: () => db.update(pushDevices).set({ userId: input.userId, platform: input.platform, isActive: 1 }).where(eq(pushDevices.id, existing[0]!.id)),
+    create: () => db.insert(pushDevices).values({ ...input, isActive: 1 }),
+  });
+}
+
+export async function getActivePushTokens(userId: number) {
+  const db = requireDb();
+  return db.select({ token: pushDevices.expoPushToken }).from(pushDevices).where(and(eq(pushDevices.userId, userId), eq(pushDevices.isActive, 1)));
+}
+
+export async function disablePushDevice(expoPushToken: string) {
+  const db = requireDb();
+  await db.update(pushDevices).set({ isActive: 0 }).where(eq(pushDevices.expoPushToken, expoPushToken));
+}
+
+export async function createAppNotification(input: { userId: number; ledgerId?: number; kind: "income" | "expense" | "settlement"; title: string; body: string; dedupeKey: string }) {
+  const db = requireDb();
+  const existing = await db.select({ id: appNotifications.id }).from(appNotifications).where(eq(appNotifications.dedupeKey, input.dedupeKey)).limit(1);
+  if (existing[0]) return { created: false as const, id: existing[0].id };
+  const result = await db.insert(appNotifications).values({ ...input, ledgerId: input.ledgerId ?? null });
+  return { created: true as const, id: Number(result[0].insertId) };
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {

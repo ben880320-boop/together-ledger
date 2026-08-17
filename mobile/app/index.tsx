@@ -16,11 +16,13 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
 import {
   ActivityIndicator,
+  FlatList,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -42,6 +44,7 @@ import {
   getSessionToken,
   saveSessionToken,
 } from "../lib/api";
+import { requestExpoPushToken } from "../lib/notifications";
 
 const colors = {
   background: "#FBF7F3",
@@ -80,6 +83,22 @@ type AppearancePreferences = {
   compactMode: boolean;
   reduceMotion: boolean;
   autoReceiptNote: boolean;
+};
+
+type NotificationPreferences = {
+  incomeEnabled: number;
+  expenseEnabled: number;
+  minimumAmount: number;
+  monthlySettlementEnabled: number;
+  monthlyReminderDay: number;
+};
+
+const notificationDefaults: NotificationPreferences = {
+  incomeEnabled: 0,
+  expenseEnabled: 0,
+  minimumAmount: 0,
+  monthlySettlementEnabled: 0,
+  monthlyReminderDay: 28,
 };
 
 const appearanceDefaults: AppearancePreferences = {
@@ -542,6 +561,7 @@ function AppContent() {
   const { palette } = useAppearance();
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<User | null>(null);
+  const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>(notificationDefaults);
   const [ledgers, setLedgers] = useState<Ledger[]>([]);
   const [activeLedger, setActiveLedger] = useState<Ledger | null>(null);
   const [members, setMembers] = useState<LedgerMember[]>([]);
@@ -588,8 +608,12 @@ function AppContent() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
+  const ledgerRequestRef = useRef(0);
+  const ledgerSelectionRef = useRef(0);
+  const mutationGuardRef = useRef(new Set<string>());
 
   const reloadLedger = useCallback(async (ledgerId: number) => {
+    const requestId = ++ledgerRequestRef.current;
     await api.ledger.syncRecurring.mutate({ ledgerId }).catch(() => undefined);
     const month = currentMonth();
     const [
@@ -621,6 +645,7 @@ function AppContent() {
       api.ledger.recurring.query({ ledgerId }),
       api.ledger.activityLogs.query({ ledgerId, limit: 100 }),
     ]);
+    if (requestId !== ledgerRequestRef.current) return false;
     setMembers(nextMembers as LedgerMember[]);
     setCategories(nextCategories as Category[]);
     setPaymentMethods(nextPayments as PaymentMethod[]);
@@ -634,6 +659,7 @@ function AppContent() {
     setTravelPlans(nextTravelPlans as TravelPlan[]);
     setRecurring(nextRecurring as Recurring[]);
     setActivityLogs(nextActivityLogs as ActivityLog[]);
+    return true;
   }, []);
 
   const loadWorkspace = useCallback(async () => {
@@ -648,9 +674,13 @@ function AppContent() {
         return;
       }
       setUser(nextUser as User);
-      const rows = (await api.ledger.list.query()) as Array<{ ledger: Ledger }>;
+      const [rows, preferences] = await Promise.all([
+        api.ledger.list.query() as Promise<Array<{ ledger: Ledger }>>,
+        api.notifications.preferences.query() as Promise<NotificationPreferences>,
+      ]);
       const nextLedgers = rows.map(row => row.ledger);
       setLedgers(nextLedgers);
+      setNotificationPreferences(preferences);
       // Never restore the last open ledger after a cold start. The app always opens at the ledger home.
       setLedgerHome(true);
       setHomePage("ledgers");
@@ -715,8 +745,14 @@ function AppContent() {
     setError("");
     setLedgerModal("join");
   }, [ready, user, pendingInviteCode, ledgerModal]);
+  useEffect(() => {
+    if (!error) return;
+    const timeoutId = setTimeout(() => setError(current => current === error ? "" : current), 6_000);
+    return () => clearTimeout(timeoutId);
+  }, [error]);
 
   const selectLedger = async (ledger: Ledger) => {
+    const selectionId = ++ledgerSelectionRef.current;
     setLedgerHome(false);
     setActiveLedger(ledger);
     setBusy(true);
@@ -729,11 +765,13 @@ function AppContent() {
           : "切換帳本失敗。"
       );
     } finally {
-      setBusy(false);
+      if (selectionId === ledgerSelectionRef.current) setBusy(false);
     }
   };
 
   const clearLedgerWorkspace = () => {
+    ledgerRequestRef.current += 1;
+    ledgerSelectionRef.current += 1;
     setActiveLedger(null);
     setMembers([]);
     setCategories([]);
@@ -857,6 +895,41 @@ function AppContent() {
       setBusy(false);
     }
   };
+  const saveNotificationPreferences = async (next: NotificationPreferences) => {
+    const normalizedAmount = Math.max(0, Math.min(100_000_000, Math.trunc(next.minimumAmount)));
+    const normalizedReminderDay = Math.max(1, Math.min(28, Math.trunc(next.monthlyReminderDay)));
+    const wasNormalized = normalizedAmount !== next.minimumAmount || normalizedReminderDay !== next.monthlyReminderDay;
+    const requiresPush = next.incomeEnabled === 1 || next.expenseEnabled === 1 || next.monthlySettlementEnabled === 1;
+    const previous = notificationPreferences;
+    setNotificationPreferences(next);
+    setBusy(true);
+    try {
+      if (requiresPush) {
+        const expoPushToken = await requestExpoPushToken();
+        if (!expoPushToken) {
+          throw new Error("通知權限尚未開啟。請允許系統通知後再儲存提醒設定。");
+        }
+        await api.notifications.registerDevice.mutate({
+          expoPushToken,
+          platform: Platform.OS === "ios" ? "ios" : "android",
+        });
+      }
+      const saved = await api.notifications.updatePreferences.mutate({
+        incomeEnabled: next.incomeEnabled === 1,
+        expenseEnabled: next.expenseEnabled === 1,
+        minimumAmount: normalizedAmount,
+        monthlySettlementEnabled: next.monthlySettlementEnabled === 1,
+        monthlyReminderDay: normalizedReminderDay,
+      }) as NotificationPreferences;
+      setNotificationPreferences(saved);
+      setError(wasNormalized ? "提醒日期已調整為 1–28 日，通知門檻已限制在可支援範圍。" : "");
+    } catch (notificationError) {
+      setNotificationPreferences(previous);
+      setError(notificationError instanceof Error ? notificationError.message : "通知設定儲存失敗。");
+    } finally {
+      setBusy(false);
+    }
+  };
   const confirmDeleteLedger = () => {
     if (!activeLedger) return;
     setConfirmRequest({
@@ -919,7 +992,7 @@ function AppContent() {
   };
 
   const refresh = async () => {
-    if (activeLedger) {
+    if (activeLedger && !busy) {
       setBusy(true);
       try {
         await reloadLedger(activeLedger.id);
@@ -954,17 +1027,23 @@ function AppContent() {
   const finishLedgerAction = async () => {
     setError("");
     if (!ledgerModal) return;
-    if (ledgerModal === "create" && !ledgerName.trim()) {
+    const ledgerAction = ledgerModal;
+    if (ledgerAction === "create" && !ledgerName.trim()) {
       setError("請輸入帳本名稱。");
       return;
     }
-    if (ledgerModal === "join" && inviteCode.trim().length < 4) {
+    if (ledgerAction === "join" && inviteCode.trim().length < 4) {
       setError("請輸入有效的邀請碼。");
       return;
     }
+    const mutationKey = ledgerAction === "create"
+      ? `create-ledger-${ledgerName.trim().toLowerCase()}`
+      : `join-ledger-${inviteCode.trim().toUpperCase()}`;
+    if (mutationGuardRef.current.has(mutationKey)) return;
+    mutationGuardRef.current.add(mutationKey);
     setBusy(true);
     try {
-      if (ledgerModal === "create")
+      if (ledgerAction === "create")
         await api.ledger.create.mutate({
           name: ledgerName.trim(),
           type: ledgerType,
@@ -986,6 +1065,7 @@ function AppContent() {
       );
     } finally {
       setBusy(false);
+      mutationGuardRef.current.delete(mutationKey);
     }
   };
   const performLogout = async () => {
@@ -1109,7 +1189,7 @@ function AppContent() {
           action={homeHeaderAction}
         />
         {homePage === "profile" ? (
-          <PersonalSettingsPage user={user} error={error} onUpdateNickname={updateNickname} onLogout={logout} onBack={() => setHomePage("ledgers")} />
+          <PersonalSettingsPage user={user} error={error} notificationPreferences={notificationPreferences} onSaveNotificationPreferences={saveNotificationPreferences} onUpdateNickname={updateNickname} onLogout={logout} onBack={() => setHomePage("ledgers")} />
         ) : (
           <EmptyLedger
             error={error}
@@ -1152,7 +1232,7 @@ function AppContent() {
           action={homeHeaderAction}
         />
         {homePage === "profile" ? (
-          <PersonalSettingsPage user={user} error={error} onUpdateNickname={updateNickname} onLogout={logout} onBack={() => setHomePage("ledgers")} />
+          <PersonalSettingsPage user={user} error={error} notificationPreferences={notificationPreferences} onSaveNotificationPreferences={saveNotificationPreferences} onUpdateNickname={updateNickname} onLogout={logout} onBack={() => setHomePage("ledgers")} />
         ) : (
           <LedgerHome
             ledgers={ledgers}
@@ -1335,6 +1415,11 @@ function AppContent() {
           setSettingsModal("payment");
         }}
         onSubmit={async input => {
+          const mutationKey = editingTransaction
+            ? `update-transaction-${editingTransaction.id}`
+            : `create-transaction-${activeLedger!.id}`;
+          if (mutationGuardRef.current.has(mutationKey)) return;
+          mutationGuardRef.current.add(mutationKey);
           try {
             if (editingTransaction) {
               await api.ledger.updateTransaction.mutate({
@@ -1355,6 +1440,8 @@ function AppContent() {
                 ? mutationError.message
                 : "新增交易失敗。"
             );
+          } finally {
+            mutationGuardRef.current.delete(mutationKey);
           }
         }}
       />
@@ -1365,6 +1452,9 @@ function AppContent() {
         ledgerId={activeLedger!.id}
         onClose={() => setBudgetModal(false)}
         onSubmit={async input => {
+          const mutationKey = `budget-${input.ledgerId}-${input.month}`;
+          if (mutationGuardRef.current.has(mutationKey)) return;
+          mutationGuardRef.current.add(mutationKey);
           try {
             await api.ledger.upsertBudget.mutate(input);
             await afterMutation();
@@ -1374,6 +1464,8 @@ function AppContent() {
                 ? mutationError.message
                 : "預算儲存失敗。"
             );
+          } finally {
+            mutationGuardRef.current.delete(mutationKey);
           }
         }}
       />
@@ -1384,6 +1476,9 @@ function AppContent() {
         ledgerId={activeLedger!.id}
         onClose={() => setRecurringModal(false)}
         onSubmit={async input => {
+          const mutationKey = `recurring-${activeLedger!.id}-${input.name.trim().toLowerCase()}`;
+          if (mutationGuardRef.current.has(mutationKey)) return;
+          mutationGuardRef.current.add(mutationKey);
           try {
             await api.ledger.createRecurring.mutate({
               ledgerId: activeLedger!.id,
@@ -1396,6 +1491,8 @@ function AppContent() {
                 ? mutationError.message
                 : "固定收支儲存失敗。"
             );
+          } finally {
+            mutationGuardRef.current.delete(mutationKey);
           }
         }}
       />
@@ -1441,6 +1538,9 @@ function AppContent() {
         categories={categories}
         onClose={() => setSettingsModal(null)}
         onSubmit={async input => {
+          const mutationKey = `settings-${settingsModal}-${activeLedger!.id}-${input.name.trim().toLowerCase()}`;
+          if (mutationGuardRef.current.has(mutationKey)) return;
+          mutationGuardRef.current.add(mutationKey);
           try {
             if (settingsModal === "category")
               await api.ledger.createCategory.mutate({
@@ -1464,6 +1564,8 @@ function AppContent() {
                 ? mutationError.message
                 : "設定儲存失敗。"
             );
+          } finally {
+            mutationGuardRef.current.delete(mutationKey);
           }
                 }}
       />
@@ -1878,21 +1980,25 @@ function Overview({
         {transactions.length === 0 ? (
           <EmptyInline text="目前沒有收支記錄。" />
         ) : (
-          <ScrollView
+          <FlatList
             style={styles.recentTransactionsScroll}
-            nestedScrollEnabled
-            showsVerticalScrollIndicator
-          >
-            {transactions.slice(0, 8).map(tx => (
+            data={transactions.slice(0, 8)}
+            keyExtractor={tx => String(tx.id)}
+            renderItem={({ item: tx }) => (
               <TransactionRow
-                key={tx.id}
                 transaction={tx}
                 categories={categories}
                 onEdit={onEdit}
                 onDelete={onDelete}
               />
-            ))}
-          </ScrollView>
+            )}
+            nestedScrollEnabled
+            showsVerticalScrollIndicator
+            initialNumToRender={4}
+            maxToRenderPerBatch={4}
+            windowSize={3}
+            removeClippedSubviews
+          />
         )}
       </View>
       <View style={styles.insightCard}>
@@ -2477,18 +2583,24 @@ function PlanningSection({
 function PersonalSettingsPage({
   user,
   error,
+  notificationPreferences,
+  onSaveNotificationPreferences,
   onUpdateNickname,
   onLogout,
   onBack,
 }: {
   user: User;
   error: string;
+  notificationPreferences: NotificationPreferences;
+  onSaveNotificationPreferences: (preferences: NotificationPreferences) => void | Promise<void>;
   onUpdateNickname: (name: string) => void | Promise<void>;
   onLogout: () => void;
   onBack: () => void;
 }) {
   const { preferences, palette, updatePreferences } = useAppearance();
   const [nickname, setNickname] = useState(user.name || "");
+  const [notificationDraft, setNotificationDraft] = useState<NotificationPreferences>(notificationPreferences);
+  useEffect(() => setNotificationDraft(notificationPreferences), [notificationPreferences]);
   const themes: Array<{ key: AppearanceTheme; label: string; color: string }> = [
     { key: "rose", label: "玫瑰", color: "#B56C78" },
     { key: "graphite", label: "石墨", color: "#58677A" },
@@ -2668,6 +2780,37 @@ function PersonalSettingsPage({
         </View>
         <Switch value={preferences.autoReceiptNote} onValueChange={value => updatePreferences({ autoReceiptNote: value })} trackColor={{ false: palette.border, true: palette.roseSoft }} thumbColor={preferences.autoReceiptNote ? palette.rose : palette.muted} />
       </View>
+      <Text style={styles.personalizationLabel}>提醒與通知</Text>
+      <Text style={styles.cardHint}>可個別關閉收入、支出與月結算提醒；啟用後才會要求手機通知權限。</Text>
+      <View style={styles.preferenceRow}>
+        <View style={styles.preferenceCopy}>
+          <Text style={styles.rowTitle}>每月結算提醒</Text>
+          <Text style={styles.rowSubtitle}>在選定日期提醒你檢查共同帳本結算</Text>
+        </View>
+        <Switch value={notificationDraft.monthlySettlementEnabled === 1} onValueChange={value => setNotificationDraft(current => ({ ...current, monthlySettlementEnabled: value ? 1 : 0 }))} trackColor={{ false: palette.border, true: palette.roseSoft }} thumbColor={notificationDraft.monthlySettlementEnabled ? palette.rose : palette.muted} />
+      </View>
+      <Text style={styles.personalizationLabel}>每月提醒日期（1–28 日）</Text>
+      <TextInput value={String(notificationDraft.monthlyReminderDay)} onChangeText={value => setNotificationDraft(current => ({ ...current, monthlyReminderDay: Number(value.replace(/\D/g, "")) || 1 }))} keyboardType="number-pad" maxLength={2} style={styles.input} />
+      <View style={styles.preferenceRow}>
+        <View style={styles.preferenceCopy}>
+          <Text style={styles.rowTitle}>收入通知</Text>
+          <Text style={styles.rowSubtitle}>帳本成員新增收入時提醒</Text>
+        </View>
+        <Switch value={notificationDraft.incomeEnabled === 1} onValueChange={value => setNotificationDraft(current => ({ ...current, incomeEnabled: value ? 1 : 0 }))} trackColor={{ false: palette.border, true: palette.roseSoft }} thumbColor={notificationDraft.incomeEnabled ? palette.rose : palette.muted} />
+      </View>
+      <View style={styles.preferenceRow}>
+        <View style={styles.preferenceCopy}>
+          <Text style={styles.rowTitle}>支出通知</Text>
+          <Text style={styles.rowSubtitle}>帳本成員新增支出時提醒</Text>
+        </View>
+        <Switch value={notificationDraft.expenseEnabled === 1} onValueChange={value => setNotificationDraft(current => ({ ...current, expenseEnabled: value ? 1 : 0 }))} trackColor={{ false: palette.border, true: palette.roseSoft }} thumbColor={notificationDraft.expenseEnabled ? palette.rose : palette.muted} />
+      </View>
+      <Text style={styles.personalizationLabel}>通知金額門檻（NT$）</Text>
+      <TextInput value={String(notificationDraft.minimumAmount)} onChangeText={value => setNotificationDraft(current => ({ ...current, minimumAmount: Number(value.replace(/\D/g, "")) || 0 }))} keyboardType="number-pad" maxLength={9} placeholder="0 代表所有金額都提醒" placeholderTextColor={colors.muted} style={styles.input} />
+      <Pressable onPress={() => void onSaveNotificationPreferences(notificationDraft)} style={({ pressed }) => [styles.smallButton, pressed && styles.pressed]}>
+        <MaterialCommunityIcons name="bell-check-outline" size={17} color="#FFFFFF" />
+        <Text style={styles.smallButtonText}>儲存提醒設定</Text>
+      </Pressable>
       <Pressable
         onPress={onLogout}
         style={({ pressed }) => [styles.outlineButton, pressed && styles.pressed]}
@@ -3123,17 +3266,25 @@ function SettingsSection({
           <Text style={styles.cardTitle}>操作日誌</Text>
           <Text style={styles.cardHint}>{activityLogs.length} 筆</Text>
         </View>
-        {activityLogs.length === 0 ? <EmptyInline text="尚未有操作紀錄。" /> : <ScrollView style={styles.activityLogScroll} nestedScrollEnabled>
-          {activityLogs.slice(0, 100).map(log => (
-            <View key={log.log.id} style={styles.activityLogRow}>
+        {activityLogs.length === 0 ? <EmptyInline text="尚未有操作紀錄。" /> : <FlatList
+          style={styles.activityLogScroll}
+          data={activityLogs.slice(0, 100)}
+          keyExtractor={log => String(log.log.id)}
+          renderItem={({ item: log }) => (
+            <View style={styles.activityLogRow}>
               <View style={styles.activityLogDot} />
               <View style={styles.memberPaymentName}>
                 <Text style={styles.rowTitle}>{log.log.summary || `${log.log.action} ${log.log.entityType}`}</Text>
                 <Text style={styles.rowSubtitle}>{log.user.name || log.user.email || "成員"} · {new Date(log.log.createdAt).toLocaleString("zh-TW")}</Text>
               </View>
             </View>
-          ))}
-        </ScrollView>}
+          )}
+          nestedScrollEnabled
+          initialNumToRender={8}
+          maxToRenderPerBatch={8}
+          windowSize={5}
+          removeClippedSubviews
+        />}
       </View>
       <View style={styles.card}>
         <View style={styles.cardHeading}>

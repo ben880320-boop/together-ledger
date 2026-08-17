@@ -7,6 +7,8 @@ import { registerOAuthRoutes } from "./oauth";
 import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
+import { processMonthlySettlementReminderForTask } from "../notifications";
+import { sdk } from "./sdk";
 import { serveStatic, setupVite } from "./vite";
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -44,6 +46,25 @@ async function startServer() {
       createContext,
     })
   );
+  app.post("/api/scheduled/monthly-settlement-reminders", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron || !user.taskUid) {
+        return res.status(403).json({ error: "cron-only" });
+      }
+      const result = await processMonthlySettlementReminderForTask(user.taskUid);
+      return res.json({ ok: true, ...result, taskUid: user.taskUid });
+    } catch (error) {
+      const normalized = error instanceof Error ? error : new Error(String(error));
+      console.error("[Scheduled] monthly settlement reminders failed", normalized);
+      return res.status(500).json({
+        error: normalized.message,
+        stack: normalized.stack,
+        context: { path: req.path },
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);

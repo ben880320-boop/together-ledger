@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { customAlphabet } from "nanoid";
+import { parse as parseCookieHeader } from "cookie";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { systemRouter } from "./_core/systemRouter";
@@ -44,13 +45,64 @@ import {
   listTravelPlans,
   createTravelPlan,
   deleteTravelPlan,
+  getNotificationPreferences,
+  updateNotificationPreferences,
+  updateNotificationScheduleTaskUid,
+  upsertPushDevice,
 } from "./db";
 import { TRPCError } from "@trpc/server";
 import { invokeLLM } from "./_core/llm";
+import { notifyLedgerMembersAboutTransaction } from "./notifications";
+import { createHeartbeatJob, updateHeartbeatJob } from "./_core/heartbeat";
 
 const ledgerType = z.enum(["couple", "roommate", "family", "travel", "custom"]);
 const transactionType = z.enum(["expense", "income", "transfer"]);
 const splitType = z.enum(["equal", "custom", "amount", "none"]);
+const monthlySettlementReminderCron = "0 0 12 * * *"; // 20:00 Asia/Taipei (UTC+8), checked daily for the chosen day.
+
+type MonthlyReminderScheduleDependencies = {
+  getPreferences: typeof getNotificationPreferences;
+  createJob: typeof createHeartbeatJob;
+  updateJob: typeof updateHeartbeatJob;
+  saveTaskUid: typeof updateNotificationScheduleTaskUid;
+};
+
+const monthlyReminderScheduleDependencies: MonthlyReminderScheduleDependencies = {
+  getPreferences: getNotificationPreferences,
+  createJob: createHeartbeatJob,
+  updateJob: updateHeartbeatJob,
+  saveTaskUid: updateNotificationScheduleTaskUid,
+};
+
+export async function syncMonthlySettlementReminderSchedule(input: {
+  userId: number;
+  sessionToken: string;
+  monthlySettlementEnabled: boolean;
+  monthlyReminderDay: number;
+}, dependencies: MonthlyReminderScheduleDependencies = monthlyReminderScheduleDependencies) {
+  const current = await dependencies.getPreferences(input.userId);
+  if (!input.monthlySettlementEnabled) {
+    if (current.scheduleCronTaskUid) {
+      await dependencies.updateJob(current.scheduleCronTaskUid, { enable: false }, input.sessionToken);
+    }
+    return current.scheduleCronTaskUid;
+  }
+
+  const job = {
+    cron: monthlySettlementReminderCron,
+    path: "/api/scheduled/monthly-settlement-reminders",
+    method: "POST" as const,
+    payload: { reminderDay: input.monthlyReminderDay },
+    description: `Together Ledger 每月結算提醒（每月 ${input.monthlyReminderDay} 日，台北時間 20:00）`,
+  };
+  if (current.scheduleCronTaskUid) {
+    await dependencies.updateJob(current.scheduleCronTaskUid, { ...job, enable: true }, input.sessionToken);
+    return current.scheduleCronTaskUid;
+  }
+  const created = await dependencies.createJob({ ...job, name: `together-ledger-settlement-${input.userId}` }, input.sessionToken);
+  await dependencies.saveTaskUid(input.userId, created.taskUid);
+  return created.taskUid;
+}
 
 function monthRange(month: string) {
   const match = /^(\d{4})-(\d{2})$/.exec(month);
@@ -72,6 +124,41 @@ const generateInviteCode = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 6)
 
 export const appRouter = router({
   system: systemRouter,
+  notifications: router({
+    preferences: protectedProcedure.query(({ ctx }) => getNotificationPreferences(ctx.user.id)),
+    updatePreferences: protectedProcedure
+      .input(z.object({
+        incomeEnabled: z.boolean(),
+        expenseEnabled: z.boolean(),
+        minimumAmount: z.number().int().min(0).max(100_000_000),
+        monthlySettlementEnabled: z.boolean(),
+        monthlyReminderDay: z.number().int().min(1).max(28),
+      }))
+      .mutation(async ({ ctx, input }) => {
+        const authorization = ctx.req.headers.authorization;
+        const bearerToken = typeof authorization === "string" && authorization.startsWith("Bearer ")
+          ? authorization.slice("Bearer ".length)
+          : "";
+        const sessionToken = parseCookieHeader(ctx.req.headers.cookie ?? "")[COOKIE_NAME] ?? bearerToken;
+        if (!sessionToken) throw new TRPCError({ code: "UNAUTHORIZED", message: "請重新登入後再更新提醒設定" });
+        await syncMonthlySettlementReminderSchedule({
+          userId: ctx.user.id,
+          sessionToken,
+          monthlySettlementEnabled: input.monthlySettlementEnabled,
+          monthlyReminderDay: input.monthlyReminderDay,
+        });
+        return updateNotificationPreferences(ctx.user.id, {
+          incomeEnabled: input.incomeEnabled ? 1 : 0,
+          expenseEnabled: input.expenseEnabled ? 1 : 0,
+          minimumAmount: input.minimumAmount,
+          monthlySettlementEnabled: input.monthlySettlementEnabled ? 1 : 0,
+          monthlyReminderDay: input.monthlyReminderDay,
+        });
+      }),
+    registerDevice: protectedProcedure
+      .input(z.object({ expoPushToken: z.string().trim().regex(/^ExponentPushToken\[.+\]$|^ExpoPushToken\[.+\]$/, "無效的 Expo 推播 token"), platform: z.enum(["android", "ios"]) }))
+      .mutation(({ ctx, input }) => upsertPushDevice({ ...input, userId: ctx.user.id }).then(() => ({ success: true as const }))),
+  }),
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
     logout: publicProcedure.mutation(({ ctx }) => {
@@ -227,7 +314,7 @@ export const appRouter = router({
         splits: z.array(memberInput).default([]),
       }))
       .mutation(async ({ ctx, input }) => {
-        await requireLedger(input.ledgerId, ctx.user.id);
+        const access = await requireLedger(input.ledgerId, ctx.user.id);
         if (input.type === "expense" && input.splitType !== "none") {
           if (input.splits.length === 0 || input.splits.reduce((sum, split) => sum + split.shareAmount, 0) !== input.amount) {
             throw new TRPCError({ code: "BAD_REQUEST", message: "分攤金額必須剛好等於交易金額" });
@@ -235,6 +322,17 @@ export const appRouter = router({
         }
         const id = await createTransaction({ ...input, userId: ctx.user.id });
         await logActivity({ ledgerId: input.ledgerId, userId: ctx.user.id, action: "create", entityType: "transaction", entityId: id, summary: `新增${input.type === "income" ? "收入" : "支出"} ${input.amount}` });
+        // Push delivery must never make saving a transaction feel slow. The durable notification
+        // record is de-duplicated by transaction/user when the background delivery retries.
+        void notifyLedgerMembersAboutTransaction({
+          ledgerId: input.ledgerId,
+          ledgerName: access.ledger.name,
+          actorUserId: ctx.user.id,
+          transactionId: id,
+          type: input.type,
+          amount: input.amount,
+          note: input.note,
+        }).catch(error => console.warn("[Notifications] Transaction dispatch failed", error));
         return id;
       }),
     updateTransaction: protectedProcedure

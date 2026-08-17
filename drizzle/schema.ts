@@ -145,3 +145,41 @@ export const settlements = mysqlTable("settlements", {
   status: mysqlEnum("status", ["pending", "settled"]).default("settled").notNull(),
   settledAt: timestamp("settledAt").defaultNow().notNull(),
 });
+
+/** Per-user choices for transaction and monthly settlement notifications. */
+export const notificationPreferences = mysqlTable("notificationPreferences", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique(),
+  incomeEnabled: int("incomeEnabled").default(0).notNull(),
+  expenseEnabled: int("expenseEnabled").default(0).notNull(),
+  minimumAmount: int("minimumAmount").default(0).notNull(),
+  monthlySettlementEnabled: int("monthlySettlementEnabled").default(0).notNull(),
+  monthlyReminderDay: int("monthlyReminderDay").default(28).notNull(),
+  scheduleCronTaskUid: varchar("scheduleCronTaskUid", { length: 65 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+/** Multiple phones may belong to one user; tokens are disabled rather than deleted when unregistered. */
+export const pushDevices = mysqlTable("pushDevices", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  expoPushToken: varchar("expoPushToken", { length: 255 }).notNull().unique(),
+  platform: mysqlEnum("platform", ["android", "ios"]).default("android").notNull(),
+  isActive: int("isActive").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+/** Durable in-app notification feed; dedupeKey makes retries and cron callbacks idempotent. */
+export const appNotifications = mysqlTable("appNotifications", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  ledgerId: int("ledgerId"),
+  kind: mysqlEnum("kind", ["income", "expense", "settlement"]).notNull(),
+  title: varchar("title", { length: 128 }).notNull(),
+  body: varchar("body", { length: 255 }).notNull(),
+  dedupeKey: varchar("dedupeKey", { length: 128 }).notNull().unique(),
+  isRead: int("isRead").default(0).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});

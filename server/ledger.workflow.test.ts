@@ -37,6 +37,10 @@ const mocks = vi.hoisted(() => ({
   listRecurring: vi.fn(),
   listSettlements: vi.fn(),
   upsertBudget: vi.fn(),
+  getNotificationPreferences: vi.fn(),
+  updateNotificationPreferences: vi.fn(),
+  updateNotificationScheduleTaskUid: vi.fn(),
+  upsertPushDevice: vi.fn(),
 }));
 
 vi.mock("./db", () => mocks);
