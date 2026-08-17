@@ -93,6 +93,25 @@ jobs:
         working-directory: mobile
         run: pnpm run prebuild:android
 
+      - name: Create CI debug keystore for release validation
+        working-directory: mobile/android
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p app
+          if [ ! -f app/debug.keystore ]; then
+            keytool -genkeypair -v -noprompt \
+              -keystore app/debug.keystore \
+              -storepass android \
+              -keypass android \
+              -alias androiddebugkey \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          test -f app/debug.keystore
+
       - name: Build standalone release APK with embedded JavaScript bundle
         working-directory: mobile/android
         run: |
