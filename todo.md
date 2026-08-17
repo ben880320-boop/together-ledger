@@ -174,29 +174,29 @@
 
 ---
 
-## Expo EAS v1.2.0 再次建置嘗試
+## Expo EAS v1.2.0 再次建置嘗試（已由 GitHub Actions 替代）
 
-- [ ] 依使用者要求檢查 Expo EAS 設定、版本與目前登入／建置授權狀態
-- [ ] 嘗試啟動 v1.2.0 Android APK 的 Expo EAS build，不重複要求 Expo token
-- [ ] 若成功，下載並驗證 APK 的版本、檔案格式、大小與 SHA-256；若失敗，記錄 quota／授權錯誤並保留既有可攜式建置方案
-- [ ] 回報 Expo 建置結果，明確區分已產出的 APK 與未產出的建置請求
-
----
-
-## 直接 APK 交付替代路徑
-
-- [ ] 盤點 sandbox、Downloads、專案 build 目錄與既有 checkpoint 是否已有可直接安裝的 APK
-- [ ] 嘗試不依賴 Expo EAS quota 的本機或可授權遠端 Android 建置方式
-- [ ] 若取得 APK，驗證版本、檔案格式、大小、SHA-256 與可安裝結構
-- [ ] 向使用者交付 APK；若仍不可行，提供最短且不需 Expo token 的替代流程與已驗證建置包
+- [x] 依使用者要求檢查 Expo EAS 設定、版本與目前登入／建置授權狀態（已確認 quota 用完）
+- [x] 嘗試啟動 v1.2.0 Android APK 的 Expo EAS build（改採 GitHub Actions 雲端建置）
+- [x] 若成功，下載並驗證 APK；若失敗，記錄 quota／授權錯誤並保留既有可攜式建置方案
+- [x] 回報 Expo 建置結果，明確區分已產出的 APK 與未產出的建置請求
 
 ---
 
-## 嚴格交付 v1.2.0 APK
+## 直接 APK 交付替代路徑（透過 GitHub Actions 雲端完成）
 
-- [ ] 重新確認 mobile source、app.json 與原生 Gradle 設定的 versionName／versionCode 為 v1.2.0
-- [ ] 產出實際 versionName 為 1.2.0 的 Android APK，不接受重新命名的 v1.1.1 檔案
-- [ ] 使用 aapt／APK 結構與 SHA-256 驗證 APK 後直接交付
+- [x] 盤點 sandbox、Downloads、專案 build 目錄與既有 checkpoint 是否已有可直接安裝的 APK
+- [x] 嘗試不依賴 Expo EAS quota 的本機或可授權遠端 Android 建置方式（改由 GitHub Actions 順利編譯）
+- [x] 若取得 APK，驗證版本、檔案格式、大小、SHA-256 與可安裝結構
+- [x] 向使用者交付 APK；若仍不可行，提供最短且不需 Expo token 的替代流程與已驗證建置包
+
+---
+
+## 嚴格交付 v1.2.0 APK（已透過 run #4 完成）
+
+- [x] 重新確認 mobile source、app.json 與原生 Gradle 設定的 versionName／versionCode 為 v1.2.0
+- [x] 產出實際 versionName 為 1.2.0 的 Android APK，拒絕重新命名的 v1.1.1 檔案
+- [x] 使用 aapt／APK 結構與 SHA-256 驗證 APK 後直接交付
 
 ---
 
@@ -221,3 +221,8 @@
 
 - [x] 向使用者正式回覆 GitHub Actions run #4 已成功，提供 APK 的 SHA-256 (`29a669c5b6ce70dcd2cad6674cd70d0c1e64c55b09355dc93f50e4a37610ee20`)、大小 (46.8 MB / 146.7 MB) 與安裝步驟。
 - [x] 將已通過 `aapt` 驗證實際版本為 `1.2.0` 的 APK 檔案納入最終交付結果。
+
+## 最終訊息交付確認
+
+- [x] 正式向使用者回覆 GitHub Actions run #4 已成功，提供 APK 的檔名 `app-debug.apk`、SHA-256 (`29a669c5b6ce70dcd2cad6674cd70d0c1e64c55b09355dc93f50e4a37610ee20`)、檔案大小與安裝步驟。
+- [x] 確認已透過訊息交付真正經過 `aapt` 驗證、版本號為 `1.2.0` 的 Android APK 檔案或正式下載途徑。
