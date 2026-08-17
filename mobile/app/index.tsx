@@ -16,6 +16,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -269,13 +270,60 @@ function AppearanceProvider({ children }: { children: ReactNode }) {
   return (
     <AppearanceContext.Provider value={value}>
       <View style={{ flex: 1, backgroundColor: value.palette.background }}>
-        {children}
+        <ThemeAtmosphere theme={preferences.theme} palette={value.palette} />
+        <View style={{ flex: 1 }}>{children}</View>
       </View>
     </AppearanceContext.Provider>
   );
 }
 function useAppearance() {
   return useContext(AppearanceContext);
+}
+
+function ThemeAtmosphere({
+  theme,
+  palette,
+}: {
+  theme: AppearanceTheme;
+  palette: typeof colors;
+}) {
+  if (theme === "starry") {
+    const stars = [
+      ["7%", "8%", 3], ["23%", "16%", 2], ["47%", "7%", 4], ["73%", "14%", 2],
+      ["89%", "5%", 3], ["15%", "33%", 2], ["62%", "27%", 3], ["94%", "38%", 2],
+      ["36%", "52%", 2], ["80%", "59%", 3], ["6%", "70%", 2], ["56%", "84%", 3],
+    ] as const;
+    return (
+      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+        <View style={{ position: "absolute", top: -120, right: -80, width: 280, height: 280, borderRadius: 140, backgroundColor: palette.roseSoft, opacity: 0.62 }} />
+        {stars.map(([left, top, size], index) => (
+          <View key={index} style={{ position: "absolute", left, top, width: size, height: size, borderRadius: size, backgroundColor: "#FFFFFF", opacity: index % 3 === 0 ? 0.92 : 0.56 }} />
+        ))}
+        <MaterialCommunityIcons name="star-four-points" size={28} color="#FFFFFF" style={{ position: "absolute", top: "20%", right: "13%", opacity: 0.7 }} />
+        <MaterialCommunityIcons name="star-four-points-outline" size={18} color={palette.rose} style={{ position: "absolute", bottom: "19%", left: "10%", opacity: 0.55 }} />
+      </View>
+    );
+  }
+  if (theme === "forest") {
+    return (
+      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+        <View style={{ position: "absolute", left: -50, right: -50, bottom: 74, height: 150, borderTopLeftRadius: 180, borderTopRightRadius: 180, backgroundColor: "#C7E0CB", opacity: 0.75 }} />
+        <View style={{ position: "absolute", left: -40, right: -40, bottom: -70, height: 184, borderRadius: 180, backgroundColor: "#A7D2CF", opacity: 0.56 }} />
+        <MaterialCommunityIcons name="pine-tree" size={102} color="#5F9572" style={{ position: "absolute", bottom: 85, left: -7, opacity: 0.36 }} />
+        <MaterialCommunityIcons name="pine-tree" size={74} color="#467A59" style={{ position: "absolute", bottom: 82, right: 9, opacity: 0.34 }} />
+        <MaterialCommunityIcons name="pine-tree" size={55} color="#6DA277" style={{ position: "absolute", bottom: 99, right: 76, opacity: 0.28 }} />
+      </View>
+    );
+  }
+  if (theme === "ocean") {
+    return (
+      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+        <View style={{ position: "absolute", left: -80, right: -80, bottom: -130, height: 280, borderRadius: 220, backgroundColor: "#B9DCE9", opacity: 0.5 }} />
+        <View style={{ position: "absolute", left: -100, right: -100, bottom: -180, height: 280, borderRadius: 240, backgroundColor: "#8DC7DB", opacity: 0.32 }} />
+      </View>
+    );
+  }
+  return null;
 }
 
 function AppText({ style, ...props }: TextProps) {
@@ -435,6 +483,29 @@ const dateKey = (date: Date | string) => {
   const d = new Date(date);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
+const categorySystemIcon = (
+  item: Pick<Category, "name" | "icon">
+): keyof typeof MaterialCommunityIcons.glyphMap => {
+  const name = `${item.name} ${item.icon}`.toLowerCase();
+  if (/餐|飲|咖啡|食/.test(name)) return "food-outline";
+  if (/交|車|油|停/.test(name)) return "car-outline";
+  if (/住|房|水|電|生活|日用/.test(name)) return "home-heart";
+  if (/購|衣|3c|娛樂|遊戲/.test(name)) return "shopping-outline";
+  if (/旅|出遊/.test(name)) return "airplane";
+  if (/禮|約|情侶|紀念/.test(name)) return "heart-outline";
+  if (/薪|收入|獎金/.test(name)) return "cash-plus";
+  return "tag-outline";
+};
+const paymentSystemIcon = (
+  item: Pick<PaymentMethod, "name" | "icon">
+): keyof typeof MaterialCommunityIcons.glyphMap => {
+  const name = `${item.name} ${item.icon}`.toLowerCase();
+  if (/現金/.test(name)) return "cash";
+  if (/信用|卡/.test(name)) return "credit-card-outline";
+  if (/電子|line|街口|pay/.test(name)) return "cellphone-nfc";
+  if (/銀行|轉帳/.test(name)) return "bank-transfer";
+  return "wallet-outline";
+};
 const currentMonth = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -453,6 +524,10 @@ const actionLabel = (action: DrawerAction) =>
     planning: "規劃",
     settings: "設定",
   })[action];
+const isLedgerAccessError = (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /FORBIDDEN|not a member|你不是此帳本的成員|找不到帳本/i.test(message);
+};
 const inviteCodeFromUrl = (url: string | null) => {
   if (!url) return "";
   const parsed = Linking.parse(url);
@@ -553,11 +628,21 @@ function AppContent() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
+  const ledgerRequestRef = useRef(0);
 
-  const reloadLedger = useCallback(async (ledgerId: number) => {
-    await api.ledger.syncRecurring.mutate({ ledgerId }).catch(() => undefined);
+  const syncLedgerList = useCallback(async (excludedLedgerId?: number) => {
+    const rows = (await api.ledger.list.query()) as Array<{ ledger: Ledger }>;
+    const nextLedgers = rows
+      .map(row => row.ledger)
+      .filter(ledger => ledger.id !== excludedLedgerId);
+    setLedgers(nextLedgers);
+    return nextLedgers;
+  }, []);
+
+  const reloadLedger = useCallback(async (ledgerId: number, requestId = ledgerRequestRef.current) => {
     const month = currentMonth();
     const [
+      ,
       nextMembers,
       nextCategories,
       nextPayments,
@@ -572,10 +657,11 @@ function AppContent() {
       nextRecurring,
       nextActivityLogs,
     ] = await Promise.all([
+      api.ledger.syncRecurring.mutate({ ledgerId }).catch(() => undefined),
       api.ledger.members.query({ ledgerId }),
       api.ledger.categories.query({ ledgerId }),
       api.ledger.paymentMethods.query({ ledgerId }),
-      api.ledger.transactions.query({ ledgerId, limit: 200 }),
+      api.ledger.transactions.query({ ledgerId, limit: 80 }),
       api.ledger.calendar.query({ ledgerId, month }),
       api.ledger.analytics.query({ ledgerId, month }),
       api.ledger.analytics.query({ ledgerId, month: previousMonth() }),
@@ -584,8 +670,11 @@ function AppContent() {
       api.ledger.budgets.query({ ledgerId, month }),
       api.ledger.travelPlans.query({ ledgerId }),
       api.ledger.recurring.query({ ledgerId }),
-      api.ledger.activityLogs.query({ ledgerId, limit: 100 }),
+      api.ledger.activityLogs.query({ ledgerId, limit: 40 }),
     ]);
+    // The user can leave, delete, or switch a ledger while requests are in flight.
+    // Ignore those older responses so they cannot repopulate a workspace just cleared.
+    if (requestId !== ledgerRequestRef.current) return false;
     setMembers(nextMembers as LedgerMember[]);
     setCategories(nextCategories as Category[]);
     setPaymentMethods(nextPayments as PaymentMethod[]);
@@ -599,6 +688,7 @@ function AppContent() {
     setTravelPlans(nextTravelPlans as TravelPlan[]);
     setRecurring(nextRecurring as Recurring[]);
     setActivityLogs(nextActivityLogs as ActivityLog[]);
+    return true;
   }, []);
 
   const loadWorkspace = useCallback(async () => {
@@ -613,9 +703,8 @@ function AppContent() {
         return;
       }
       setUser(nextUser as User);
-      const rows = (await api.ledger.list.query()) as Array<{ ledger: Ledger }>;
-      const nextLedgers = rows.map(row => row.ledger);
-      setLedgers(nextLedgers);
+      ledgerRequestRef.current += 1;
+      const nextLedgers = await syncLedgerList();
       // Never restore the last open ledger after a cold start. The app always opens at the ledger home.
       setLedgerHome(true);
       setHomePage("ledgers");
@@ -650,7 +739,7 @@ function AppContent() {
       setBusy(false);
       setReady(true);
     }
-  }, [reloadLedger]);
+  }, [syncLedgerList]);
 
   useEffect(() => {
     getSessionToken().then(token => {
@@ -682,12 +771,23 @@ function AppContent() {
   }, [ready, user, pendingInviteCode, ledgerModal]);
 
   const selectLedger = async (ledger: Ledger) => {
+    const requestId = ++ledgerRequestRef.current;
     setLedgerHome(false);
     setActiveLedger(ledger);
     setBusy(true);
     try {
-      await reloadLedger(ledger.id);
+      const applied = await reloadLedger(ledger.id, requestId);
+      if (!applied) return;
+      setError("");
     } catch (selectionError) {
+      if (isLedgerAccessError(selectionError)) {
+        await syncLedgerList(ledger.id);
+        clearLedgerWorkspace();
+        setLedgerHome(true);
+        setHomePage("ledgers");
+        setError("此帳本的存取權限已變更，已從清單移除。");
+        return;
+      }
       setError(
         selectionError instanceof Error
           ? selectionError.message
@@ -699,6 +799,7 @@ function AppContent() {
   };
 
   const clearLedgerWorkspace = () => {
+    ledgerRequestRef.current += 1;
     setActiveLedger(null);
     setMembers([]);
     setCategories([]);
@@ -831,8 +932,12 @@ function AppContent() {
       destructive: true,
       onConfirm: async () => {
         try {
-          await api.ledger.leave.mutate({ ledgerId: activeLedger.id, action: "delete" });
-          setLedgers(current => current.filter(item => item.id !== activeLedger.id));
+          const ledgerId = activeLedger.id;
+          clearLedgerWorkspace();
+          setLedgerHome(true);
+          setHomePage("ledgers");
+          await api.ledger.leave.mutate({ ledgerId, action: "delete" });
+          await syncLedgerList(ledgerId);
           leaveLedger();
         } catch (deleteError) {
           setError(deleteError instanceof Error ? deleteError.message : "移除帳本失敗。");
@@ -842,10 +947,14 @@ function AppContent() {
   };
   const performLeaveLedger = async (action: "leave" | "transfer", transferToUserId?: number) => {
     if (!activeLedger) return;
+    const ledgerId = activeLedger.id;
     setBusy(true);
     try {
-      await api.ledger.leave.mutate({ ledgerId: activeLedger.id, action, transferToUserId });
-      setLedgers(current => current.filter(item => item.id !== activeLedger.id));
+      clearLedgerWorkspace();
+      setLedgerHome(true);
+      setHomePage("ledgers");
+      await api.ledger.leave.mutate({ ledgerId, action, transferToUserId });
+      await syncLedgerList(ledgerId);
       leaveLedger();
     } catch (leaveError) {
       setError(leaveError instanceof Error ? leaveError.message : "退出帳本失敗。");
@@ -885,10 +994,21 @@ function AppContent() {
 
   const refresh = async () => {
     if (activeLedger) {
+      const requestId = ++ledgerRequestRef.current;
       setBusy(true);
       try {
-        await reloadLedger(activeLedger.id);
+        const applied = await reloadLedger(activeLedger.id, requestId);
+        if (applied) await syncLedgerList();
       } catch (refreshError) {
+        if (isLedgerAccessError(refreshError)) {
+          const removedLedgerId = activeLedger.id;
+          clearLedgerWorkspace();
+          setLedgerHome(true);
+          setHomePage("ledgers");
+          await syncLedgerList(removedLedgerId);
+          setError("此帳本的存取權限已變更，已從清單移除。");
+          return;
+        }
         setError(
           refreshError instanceof Error
             ? refreshError.message
@@ -2454,16 +2574,16 @@ function PersonalSettingsPage({
 }) {
   const { preferences, palette, updatePreferences } = useAppearance();
   const [nickname, setNickname] = useState(user.name || "");
-  const themes: Array<{ key: AppearanceTheme; label: string; color: string }> = [
-    { key: "rose", label: "玫瑰", color: "#B56C78" },
-    { key: "graphite", label: "石墨", color: "#58677A" },
-    { key: "latte", label: "拿鐵", color: "#B87955" },
-    { key: "mint", label: "薄荷", color: "#4D9381" },
-    { key: "ocean", label: "海洋", color: "#397D9B" },
-    { key: "sunset", label: "夕暮", color: "#D17B61" },
-    { key: "starry", label: "星空", color: "#6D63B8" },
-    { key: "forest", label: "森林", color: "#5A956F" },
-    { key: "lavender", label: "薰衣草", color: "#9C6BB3" },
+  const themes: Array<{ key: AppearanceTheme; label: string; color: string; icon: keyof typeof MaterialCommunityIcons.glyphMap }> = [
+    { key: "rose", label: "玫瑰", color: "#B56C78", icon: "flower-outline" },
+    { key: "graphite", label: "石墨", color: "#58677A", icon: "hexagon-outline" },
+    { key: "latte", label: "拿鐵", color: "#B87955", icon: "coffee-outline" },
+    { key: "mint", label: "薄荷", color: "#4D9381", icon: "leaf" },
+    { key: "ocean", label: "海洋", color: "#397D9B", icon: "waves" },
+    { key: "sunset", label: "夕暮", color: "#D17B61", icon: "weather-sunset" },
+    { key: "starry", label: "星空", color: "#6D63B8", icon: "star-four-points" },
+    { key: "forest", label: "森林", color: "#5A956F", icon: "pine-tree" },
+    { key: "lavender", label: "薰衣草", color: "#9C6BB3", icon: "flower-tulip-outline" },
   ];
   const fonts: Array<{ key: AppearanceFont; label: string; preview: string }> = [
     { key: "system", label: "系統", preview: "Aa" },
@@ -2527,17 +2647,21 @@ function PersonalSettingsPage({
         暱稱會顯示在帳本成員與操作日誌中。
       </Text>
       <Text style={styles.personalizationLabel}>App 主題</Text>
-      <View style={styles.optionRow}>
+      <View style={styles.themeGrid}>
         {themes.map(theme => (
           <Pressable
             key={theme.key}
             onPress={() => updatePreferences({ theme: theme.key })}
             style={[
-              styles.appearanceOption,
+              styles.themeOption,
               preferences.theme === theme.key && styles.appearanceOptionActive,
             ]}
           >
-            <View style={[styles.themeDot, { backgroundColor: theme.color }]} />
+            <View style={[styles.themePreview, { backgroundColor: theme.color }]}>
+              <MaterialCommunityIcons name={theme.icon} size={19} color="#FFFFFF" />
+              {theme.key === "starry" && <Text style={styles.themePreviewSparkle}>✦</Text>}
+              {theme.key === "forest" && <View style={styles.themePreviewLake} />}
+            </View>
             <Text style={styles.appearanceOptionText}>{theme.label}</Text>
           </Pressable>
         ))}
@@ -2586,6 +2710,15 @@ function PersonalSettingsPage({
               preferences.cardStyle === option.key && styles.appearanceOptionActive,
             ]}
           >
+            <View style={[
+              styles.cardStylePreview,
+              option.key === "soft" && styles.cardStylePreviewSoft,
+              option.key === "outlined" && styles.cardStylePreviewOutlined,
+              option.key === "flat" && styles.cardStylePreviewFlat,
+            ]}>
+              <View style={styles.cardStylePreviewLine} />
+              <View style={[styles.cardStylePreviewLine, styles.cardStylePreviewLineShort]} />
+            </View>
             <MaterialCommunityIcons name={option.icon} size={18} color={palette.rose} />
             <View style={styles.appearanceStyleCopy}>
               <Text style={styles.appearanceOptionText}>{option.label}</Text>
@@ -2607,6 +2740,11 @@ function PersonalSettingsPage({
               preferences.navStyle === option.key && styles.appearanceOptionActive,
             ]}
           >
+            <View style={[styles.navStylePreview, option.key === "line" && styles.navStylePreviewLine, option.key === "minimal" && styles.navStylePreviewMinimal]}>
+              <View style={styles.navStylePreviewDot} />
+              <View style={styles.navStylePreviewDot} />
+              <View style={styles.navStylePreviewDot} />
+            </View>
             <MaterialCommunityIcons name={option.icon} size={17} color={palette.rose} />
             <Text style={styles.appearanceOptionText}>{option.label}</Text>
           </Pressable>
@@ -2703,12 +2841,12 @@ function SettingsSection({
   };
   const addPresets = async () => {
     const presets = [
-      { name: "飲食", icon: "🍜", type: "expense" as const },
-      { name: "交通", icon: "🚗", type: "expense" as const },
-      { name: "生活", icon: "⌂", type: "expense" as const },
-      { name: "購物", icon: "◌", type: "expense" as const },
-      { name: "情侶", icon: "♡", type: "expense" as const },
-      { name: "薪資", icon: "↗", type: "income" as const },
+      { name: "飲食", icon: "food", type: "expense" as const },
+      { name: "交通", icon: "car", type: "expense" as const },
+      { name: "生活", icon: "home", type: "expense" as const },
+      { name: "購物", icon: "shopping", type: "expense" as const },
+      { name: "情侶", icon: "heart", type: "expense" as const },
+      { name: "薪資", icon: "income", type: "income" as const },
     ];
     for (const preset of presets.filter(
       item =>
@@ -2728,10 +2866,10 @@ function SettingsSection({
   };
   const addPaymentPresets = async () => {
     const presets = [
-      { name: "現金", icon: "現" },
-      { name: "信用卡", icon: "卡" },
-      { name: "電子支付", icon: "支" },
-      { name: "銀行轉帳", icon: "銀" },
+      { name: "現金", icon: "cash" },
+      { name: "信用卡", icon: "card" },
+      { name: "電子支付", icon: "pay" },
+      { name: "銀行轉帳", icon: "bank" },
     ];
     for (const preset of presets.filter(
       item => !paymentMethods.some(method => method.name === item.name)
@@ -2746,6 +2884,8 @@ function SettingsSection({
   const [paymentQuery, setPaymentQuery] = useState("");
   const [showInactiveCategories, setShowInactiveCategories] = useState(false);
   const [showInactivePayments, setShowInactivePayments] = useState(false);
+  const [showAllCategories, setShowAllCategories] = useState(false);
+  const [showAllPayments, setShowAllPayments] = useState(false);
   const [categorySort, setCategorySort] = useState<"name" | "status">("name");
   const [paymentSort, setPaymentSort] = useState<"name" | "status">("name");
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
@@ -2776,6 +2916,12 @@ function SettingsSection({
         ? Number(right.isActive || 0) - Number(left.isActive || 0) || left.name.localeCompare(right.name, "zh-Hant")
         : left.name.localeCompare(right.name, "zh-Hant")
     );
+  const displayedCategories = categoryQuery.trim() || showAllCategories
+    ? visibleCategories
+    : visibleCategories.slice(0, 6);
+  const displayedPayments = paymentQuery.trim() || showAllPayments
+    ? visiblePayments
+    : visiblePayments.slice(0, 6);
   const startEditCategory = (item: Category) => {
     setEditingCategory(item);
     setDraftCategoryName(item.name);
@@ -2985,7 +3131,7 @@ function SettingsSection({
         </View>
         <TextInput value={categoryQuery} onChangeText={setCategoryQuery} placeholder="搜尋分類名稱或圖示" placeholderTextColor={palette.muted} style={styles.input} />
         <View style={styles.settingsFilterRow}>
-          <Text style={styles.rowSubtitle}>{visibleCategories.length} 個顯示中 · 可編輯、停用或恢復</Text>
+          <Text style={styles.rowSubtitle}>{visibleCategories.length} 個項目</Text>
           <View style={styles.settingsFilterActions}>
             <Pressable onPress={() => setCategorySort(value => value === "name" ? "status" : "name")} style={styles.settingsFilterButton} accessibilityLabel="切換分類排序">
               <MaterialCommunityIcons name="sort-variant" size={15} color={palette.rose} />
@@ -3008,9 +3154,11 @@ function SettingsSection({
           <EmptyInline text="找不到符合的分類，或目前沒有啟用項目。" />
         ) : (
           <View style={styles.settingsList}>
-            {visibleCategories.map(item => (
+            {displayedCategories.map(item => (
               <View key={item.id} style={styles.settingsListRow}>
-                <View style={styles.settingsListIcon}><Text style={styles.settingsListIconText}>{item.icon}</Text></View>
+                <View style={styles.settingsListIcon}>
+                  <MaterialCommunityIcons name={categorySystemIcon(item)} size={18} color={palette.rose} />
+                </View>
                 <View style={styles.memberPaymentName}>
                   <Text style={styles.rowTitle}>{item.name}</Text>
                   <Text style={styles.rowSubtitle}>{item.type === "expense" ? "支出分類" : "收入分類"}{item.isActive === 0 ? " · 已停用" : ""}</Text>
@@ -3025,6 +3173,12 @@ function SettingsSection({
                 </>}
               </View>
             ))}
+            {visibleCategories.length > 6 && !categoryQuery.trim() && (
+              <Pressable onPress={() => setShowAllCategories(value => !value)} style={styles.compactListToggle}>
+                <MaterialCommunityIcons name={showAllCategories ? "chevron-up" : "chevron-down"} size={17} color={palette.rose} />
+                <Text style={styles.compactListToggleText}>{showAllCategories ? "收合分類" : `查看其餘 ${visibleCategories.length - 6} 個分類`}</Text>
+              </Pressable>
+            )}
           </View>
         )}
       </View>
@@ -3040,7 +3194,7 @@ function SettingsSection({
         </View>
         <TextInput value={paymentQuery} onChangeText={setPaymentQuery} placeholder="搜尋支付方式或圖示" placeholderTextColor={palette.muted} style={styles.input} />
         <View style={styles.settingsFilterRow}>
-          <Text style={styles.rowSubtitle}>{visiblePayments.length} 個顯示中 · 可編輯、停用或恢復</Text>
+          <Text style={styles.rowSubtitle}>{visiblePayments.length} 個項目</Text>
           <View style={styles.settingsFilterActions}>
             <Pressable onPress={() => setPaymentSort(value => value === "name" ? "status" : "name")} style={styles.settingsFilterButton} accessibilityLabel="切換支付方式排序">
               <MaterialCommunityIcons name="sort-variant" size={15} color={palette.rose} />
@@ -3063,9 +3217,11 @@ function SettingsSection({
           <EmptyInline text="找不到符合的支付方式，或目前沒有啟用項目。" />
         ) : (
           <View style={styles.settingsList}>
-            {visiblePayments.map(item => (
+            {displayedPayments.map(item => (
               <View key={item.id} style={styles.settingsListRow}>
-                <View style={styles.settingsListIcon}><Text style={styles.settingsListIconText}>{item.icon}</Text></View>
+                <View style={styles.settingsListIcon}>
+                  <MaterialCommunityIcons name={paymentSystemIcon(item)} size={18} color={palette.rose} />
+                </View>
                 <View style={styles.memberPaymentName}>
                   <Text style={styles.rowTitle}>{item.name}</Text>
                   <Text style={styles.rowSubtitle}>{item.isActive === 0 ? "已停用" : "可用於新增收支"}</Text>
@@ -3080,6 +3236,12 @@ function SettingsSection({
                 </>}
               </View>
             ))}
+            {visiblePayments.length > 6 && !paymentQuery.trim() && (
+              <Pressable onPress={() => setShowAllPayments(value => !value)} style={styles.compactListToggle}>
+                <MaterialCommunityIcons name={showAllPayments ? "chevron-up" : "chevron-down"} size={17} color={palette.rose} />
+                <Text style={styles.compactListToggleText}>{showAllPayments ? "收合支付方式" : `查看其餘 ${visiblePayments.length - 6} 個支付方式`}</Text>
+              </Pressable>
+            )}
           </View>
         )}
       </View>
@@ -3274,7 +3436,12 @@ function QuickNav({
     { key: "settings", label: "設定", icon: "tune-variant" },
   ];
   return (
-    <View style={[styles.quickNav, preferences.navStyle === "minimal" && styles.quickNavMinimal]}>
+    <View style={[
+      styles.quickNav,
+      preferences.navStyle === "pill" && styles.quickNavPill,
+      preferences.navStyle === "line" && styles.quickNavLine,
+      preferences.navStyle === "minimal" && styles.quickNavMinimal,
+    ]}>
       {items.map(item => (
         <Pressable
           key={item.key}
@@ -3293,9 +3460,11 @@ function QuickNav({
             size={20}
             color={active === item.key ? palette.rose : palette.muted}
           />
-          <Text style={[styles.quickNavLabel, active === item.key && styles.quickNavLabelActive]}>
-            {item.label}
-          </Text>
+          {preferences.navStyle !== "minimal" && (
+            <Text style={[styles.quickNavLabel, active === item.key && styles.quickNavLabelActive]}>
+              {item.label}
+            </Text>
+          )}
         </Pressable>
       ))}
     </View>
@@ -4597,8 +4766,8 @@ function SettingsModal({
 }
 
 const createStyles = (palette: typeof colors, preferences: AppearancePreferences = appearanceDefaults) => {
-  const cardRadius = preferences.cardStyle === "outlined" ? 14 : preferences.cardStyle === "flat" ? 10 : 20;
-  const cardBorderWidth = preferences.cardStyle === "flat" ? 0 : 1;
+  const cardRadius = preferences.cardStyle === "outlined" ? 12 : preferences.cardStyle === "flat" ? 4 : 22;
+  const cardBorderWidth = preferences.cardStyle === "outlined" ? 2 : preferences.cardStyle === "flat" ? 0 : 1;
   return StyleSheet.create({
   flex: { flex: 1 },
   screen: { flex: 1, backgroundColor: palette.background },
@@ -4782,10 +4951,32 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     borderTopColor: palette.border,
     backgroundColor: palette.surface,
   },
-  quickNavMinimal: {
-    paddingTop: 4,
-    paddingBottom: 4,
+  quickNavPill: {
+    marginHorizontal: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 24,
+    shadowColor: palette.ink,
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 3,
+  },
+  quickNavLine: {
+    paddingTop: 0,
+    paddingBottom: 0,
     borderTopWidth: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: palette.border,
+    backgroundColor: "transparent",
+  },
+  quickNavMinimal: {
+    minHeight: 48,
+    paddingTop: 2,
+    paddingBottom: 2,
+    borderTopWidth: 0,
+    backgroundColor: "transparent",
   },
   quickNavItem: {
     minWidth: 58,
@@ -4896,6 +5087,21 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
   appearanceOptionText: { color: palette.ink, fontSize: 12, fontWeight: "700" },
   fontPreview: { color: palette.ink, fontSize: 17, fontWeight: "700" },
   themeDot: { width: 12, height: 12, borderRadius: 6 },
+  themeGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  themeOption: { width: "30.7%", minHeight: 76, alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 8, borderWidth: 1, borderColor: palette.border, borderRadius: 15, backgroundColor: palette.surface },
+  themePreview: { width: 38, height: 30, alignItems: "center", justifyContent: "center", overflow: "hidden", borderRadius: 10 },
+  themePreviewSparkle: { position: "absolute", top: 0, right: 4, color: "#FFFFFF", fontSize: 12 },
+  themePreviewLake: { position: "absolute", right: -4, bottom: 2, width: 26, height: 7, borderRadius: 9, backgroundColor: "#9DCFE3" },
+  cardStylePreview: { width: 37, height: 27, gap: 4, justifyContent: "center", paddingHorizontal: 6, borderWidth: 1, borderColor: palette.border, borderRadius: 9, backgroundColor: palette.surface },
+  cardStylePreviewSoft: { borderRadius: 14, shadowColor: palette.ink, shadowOpacity: 0.16, shadowRadius: 5, shadowOffset: { width: 0, height: 3 }, elevation: 2 },
+  cardStylePreviewOutlined: { borderWidth: 2, borderColor: palette.rose, borderRadius: 4 },
+  cardStylePreviewFlat: { borderWidth: 0, borderBottomWidth: 2, borderBottomColor: palette.rose, borderRadius: 0, backgroundColor: palette.roseSoft },
+  cardStylePreviewLine: { height: 3, borderRadius: 3, backgroundColor: palette.rose },
+  cardStylePreviewLineShort: { width: "62%", backgroundColor: palette.muted },
+  navStylePreview: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3, width: 39, height: 24, borderRadius: 10, backgroundColor: palette.roseSoft },
+  navStylePreviewLine: { borderRadius: 0, borderTopWidth: 2, borderTopColor: palette.rose, backgroundColor: "transparent" },
+  navStylePreviewMinimal: { width: 28, backgroundColor: "transparent" },
+  navStylePreviewDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: palette.rose },
   emptyContent: {
     flexGrow: 1,
     alignItems: "center",
@@ -4929,10 +5135,10 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     marginBottom: 14,
     padding: 18,
     borderWidth: cardBorderWidth,
-    borderColor: palette.border,
+    borderColor: preferences.cardStyle === "outlined" ? palette.rose : palette.border,
     borderRadius: cardRadius,
-    backgroundColor: palette.surface,
-    ...(preferences.cardStyle === "soft" ? { shadowColor: palette.ink, shadowOpacity: 0.04, shadowRadius: 10, shadowOffset: { width: 0, height: 4 }, elevation: 1 } : {}),
+    backgroundColor: preferences.cardStyle === "flat" ? "transparent" : palette.surface,
+    ...(preferences.cardStyle === "soft" ? { shadowColor: palette.ink, shadowOpacity: 0.12, shadowRadius: 16, shadowOffset: { width: 0, height: 7 }, elevation: 4 } : {}),
   },
   heroCard: {
     marginBottom: 14,
@@ -5358,6 +5564,8 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
   settingsListRow: { minHeight: 54, flexDirection: "row", alignItems: "center", gap: 9, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: palette.border },
   settingsListIcon: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 11, backgroundColor: palette.roseSoft },
   settingsListIconText: { color: palette.rose, fontSize: 17 },
+  compactListToggle: { minHeight: 40, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, marginTop: 3, borderWidth: 1, borderColor: palette.roseSoft, borderRadius: 12, backgroundColor: palette.surface },
+  compactListToggleText: { color: palette.rose, fontSize: 12, fontWeight: "700" },
   settingsRemovePill: { paddingHorizontal: 10, paddingVertical: 8, borderRadius: 11, backgroundColor: "#FFF4F0", borderWidth: 1, borderColor: "#EAC9C5" },
   settingsRemovePillText: { color: palette.rose, fontSize: 11, fontWeight: "700" },
   activityLogScroll: { maxHeight: 250 },

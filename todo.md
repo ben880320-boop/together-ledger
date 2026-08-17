@@ -4091,3 +4091,14 @@
 - [x] 已將下載後的 APK 與驗證紀錄準備交付
 
 > Run #8 artifact uses a CI-generated debug keystore for testing distribution. It is suitable for direct installation/testing, but is not a Play Store production signing key.
+
+## v1.2.1 體驗、同步與自動發布優化
+- [x] 將分類管理與支付方式管理改為精簡、可收合或分頁的顯示方式，避免清單過長
+- [x] 檢視並優化帳本、設定與管理頁面的資料載入、列表更新與互動流暢度
+- [x] 擴充星空、森林等主題的情境背景與視覺細節，且維持文字可讀性與效能
+- [x] 明確區分卡片樣式與底部導覽列樣式的視覺結果，讓不同偏好可被直接辨識
+- [x] 修正退出或刪除帳本後，主頁重新載入仍顯示無權限帳本的快取／同步問題
+- [x] 為帳本分類與支付方式自動指派可辨識圖示，取代無意義的圓形佔位符
+- [x] 移除或改寫帳本內多餘的說明文字，保留必要空狀態與操作提示
+- [x] 補齊流暢度、快取失效、管理清單與主題視覺的回歸測試
+- [ ] 更新 GitHub Actions：建置與驗證成功後自動建立或更新 GitHub Release，並上傳 APK 與 SHA-256 檔案

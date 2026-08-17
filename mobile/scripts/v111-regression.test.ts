@@ -68,6 +68,15 @@ describe("Together Ledger v1.2.0 Android wiring", () => {
     expect(app).toContain("主題、字體與版型會立即套用並保存在這台裝置");
     expect(app).toContain("搜尋帳本名稱");
     expect(app).toContain("ledgerQuery");
+    expect(app).toContain("showAllCategories");
+    expect(app).toContain("showAllPayments");
+    expect(app).toContain("查看其餘");
+    expect(app).toContain("categorySystemIcon");
+    expect(app).toContain("paymentSystemIcon");
+    expect(app).toContain("ThemeAtmosphere");
+    expect(app).toContain("quickNavPill");
+    expect(app).toContain("quickNavLine");
+    expect(app).toContain("quickNavMinimal");
   });
 
   it("ships the intended app version and deep-link configuration", () => {
@@ -105,6 +114,10 @@ describe("Together Ledger v1.2.0 Android wiring", () => {
     expect(workflow).toContain("app-release.apk");
     expect(workflow).toContain("embedded JavaScript bundle");
     expect(workflow).toContain("GITHUB_STEP_SUMMARY");
+    expect(workflow).toContain("contents: write");
+    expect(workflow).toContain("gh release create");
+    expect(workflow).toContain("gh release upload");
+    expect(workflow).toContain("app-release.apk.sha256");
     expect(packageJson.scripts?.["prebuild:android"]).toContain(
       "expo prebuild --platform android --no-install"
     );
