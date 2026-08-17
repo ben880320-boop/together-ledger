@@ -43,7 +43,7 @@ jobs:
 
           temp_dir="$(mktemp -d)"
           trap 'rm -rf "$temp_dir"' EXIT
-          tar -xzf "$archive" -C "$temp_dir" --strip-components=1
+          tar -xzf "$archive" -C "$temp_dir"
           test -f "$temp_dir/mobile/pnpm-lock.yaml"
           rm -rf mobile
           cp -a "$temp_dir/mobile" mobile
