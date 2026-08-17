@@ -7,6 +7,7 @@ on:
       - main
     paths:
       - "mobile/**"
+      - "*.tar.gz"
       - ".github/workflows/android-apk.yml"
 
 permissions:
@@ -29,6 +30,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Restore mobile source from release archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$(find . -maxdepth 1 -type f -name '*release-source*.tar.gz' -print -quit)"
+          if [ -z "$archive" ]; then
+            echo "No release source archive found; using mobile source from checkout."
+            test -f mobile/pnpm-lock.yaml
+            exit 0
+          fi
+
+          temp_dir="$(mktemp -d)"
+          trap 'rm -rf "$temp_dir"' EXIT
+          tar -xzf "$archive" -C "$temp_dir" --strip-components=1
+          test -f "$temp_dir/mobile/pnpm-lock.yaml"
+          rm -rf mobile
+          cp -a "$temp_dir/mobile" mobile
+          echo "Restored mobile source from $archive"
+
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
@@ -38,8 +58,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-          cache-dependency-path: mobile/pnpm-lock.yaml
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -65,8 +83,11 @@ jobs:
         shell: bash
         run: |
           VERSION="$(grep -m1 '"version"' mobile/app.json | sed -E 's/.*"version": "([^"]+)".*/\1/')"
-          test -n "$VERSION"
+          VERSION_CODE="$(grep -m1 '"versionCode"' mobile/app.json | sed -E 's/.*"versionCode": ([0-9]+).*/\1/')"
+          test "$VERSION" = "1.2.0"
+          test "$VERSION_CODE" = "2"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
 
       - name: Generate native Android project
         working-directory: mobile
@@ -82,11 +103,14 @@ jobs:
         working-directory: mobile/android
         shell: bash
         run: |
+          set -euo pipefail
           APK="app/build/outputs/apk/release/app-release.apk"
           test -f "$APK"
           unzip -l "$APK" | grep -E 'assets/index\.android\.bundle|assets/.*\.bundle' >/dev/null
-          "${ANDROID_HOME}/build-tools/36.0.0/aapt" dump badging "$APK" | grep -F "versionName='1.2.0'" >/dev/null
-          echo "Release APK contains the embedded JavaScript bundle and versionName=1.2.0."
+          AAPT="${ANDROID_HOME}/build-tools/36.0.0/aapt"
+          "$AAPT" dump badging "$APK" | grep -F "versionName='1.2.0'" >/dev/null
+          "$AAPT" dump badging "$APK" | grep -F "versionCode='2'" >/dev/null
+          echo "Release APK contains the embedded JavaScript bundle and versionName=1.2.0/versionCode=2."
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -104,7 +128,9 @@ jobs:
             echo "## Together Ledger Android APK"
             echo ""
             echo "- Version: ${{ steps.app-version.outputs.version }}"
+            echo "- Version code: ${{ steps.app-version.outputs.version_code }}"
             echo "- Build type: standalone release APK (debug-signed for testing)"
+            echo "- Embedded bundle: verified"
             echo "- Artifact: together-ledger-${{ steps.app-version.outputs.version }}-release-apk"
             echo "- SHA-256: \`$(sha256sum "$APK" | cut -d' ' -f1)\`"
             echo "- Size: $(stat -c '%s bytes' "$APK")"
