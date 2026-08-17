@@ -1,4 +1,4 @@
-name: Android APK
+name: Build Together Ledger Android APK
 
 on:
   workflow_dispatch:
@@ -129,7 +129,6 @@ jobs:
           AAPT="${ANDROID_HOME}/build-tools/36.0.0/aapt"
           "$AAPT" dump badging "$APK" | grep -F "versionName='${{ steps.app-version.outputs.version }}'" >/dev/null
           "$AAPT" dump badging "$APK" | grep -F "versionCode='${{ steps.app-version.outputs.version_code }}'" >/dev/null
-          echo "Release APK contains the embedded JavaScript bundle and versionName=${{ steps.app-version.outputs.version }}/versionCode=${{ steps.app-version.outputs.version_code }}."
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -156,9 +155,7 @@ jobs:
         run: |
           set -euo pipefail
           retry_gh() {
-            local attempt=1
-            local max_attempts=5
-            local delay=5
+            local attempt=1 max_attempts=5 delay=5
             until gh "$@"; do
               if [ "$attempt" -ge "$max_attempts" ]; then
                 echo "GitHub Release command failed after ${max_attempts} attempts: gh $*" >&2
@@ -170,22 +167,14 @@ jobs:
               delay=$((delay * 2))
             done
           }
-
           if retry_gh release view "$TAG_NAME" >/dev/null 2>&1; then
             echo "GitHub Release $TAG_NAME already exists."
+          elif retry_gh release create "$TAG_NAME" --title "Together Ledger $TAG_NAME" --notes "Standalone Android APK with embedded JavaScript bundle. SHA-256 is provided in app-release.apk.sha256."; then
+            echo "Created GitHub Release $TAG_NAME."
           else
-            if retry_gh release create "$TAG_NAME" \
-              --title "Together Ledger $TAG_NAME" \
-              --notes "Standalone Android APK with embedded JavaScript bundle. SHA-256 is provided in app-release.apk.sha256."; then
-              echo "Created GitHub Release $TAG_NAME."
-            else
-              retry_gh release view "$TAG_NAME" >/dev/null
-              echo "GitHub Release $TAG_NAME became available after a concurrent create attempt."
-            fi
+            retry_gh release view "$TAG_NAME" >/dev/null
           fi
-
           retry_gh release upload "$TAG_NAME" "$APK_PATH" "$CHECKSUM_PATH" --clobber
-          echo "Uploaded APK and SHA-256 checksum to GitHub Release $TAG_NAME."
 
       - name: Write build summary
         shell: bash
