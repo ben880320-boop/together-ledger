@@ -1,6 +1,6 @@
 {
   "name": "together-ledger-android",
-  "version": "1.0.0",
+  "version": "1.1.1",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
@@ -13,6 +13,7 @@
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
     "@react-native-async-storage/async-storage": "^2.2.0",
+    "@react-native-community/datetimepicker": "8.4.4",
     "@trpc/client": "^11.18.0",
     "base-64": "^1.0.0",
     "expo": "~54.0.0",

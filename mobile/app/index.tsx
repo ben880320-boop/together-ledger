@@ -5,6 +5,7 @@ import * as WebBrowser from "expo-web-browser";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { encode as encodeBase64 } from "base-64";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import QRCode from "react-native-qrcode-svg";
@@ -20,7 +21,6 @@ import {
 } from "react";
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -78,6 +78,7 @@ const appearanceDefaults: AppearancePreferences = {
   autoReceiptNote: true,
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
+const oauthStateKey = "together-ledger-oauth-state";
 const appearancePalettes: Record<AppearanceTheme, typeof colors> = {
   rose: colors,
   graphite: {
@@ -249,6 +250,21 @@ type DrawerAction =
   | "analysis"
   | "planning"
   | "settings";
+type ConfirmOption = {
+  label: string;
+  onPress: () => void | Promise<void>;
+  destructive?: boolean;
+  icon?: string;
+};
+type ConfirmRequest = {
+  title: string;
+  message: string;
+  confirmText?: string;
+  cancelText?: string;
+  destructive?: boolean;
+  onConfirm?: () => void | Promise<void>;
+  options?: ConfirmOption[];
+};
 type User = { id: number; name: string | null; email: string | null };
 type Ledger = { id: number; name: string; type: string; inviteCode: string };
 type LedgerMember = {
@@ -381,17 +397,22 @@ async function loginWithManus(mode: "signIn" | "signUp" = "signIn") {
   url.searchParams.set("redirectUri", webRedirectUri);
   url.searchParams.set("state", state);
   url.searchParams.set("type", mode);
+  await AsyncStorage.setItem(oauthStateKey, state);
   const result = await WebBrowser.openAuthSessionAsync(
     url.toString(),
     appRedirectUri
   );
-  if (result.type !== "success") throw new Error("登入已取消。");
+  if (result.type !== "success") {
+    await AsyncStorage.removeItem(oauthStateKey);
+    throw new Error("登入已取消。");
+  }
   const callback = new URL(result.url);
   if (callback.searchParams.get("state") !== state)
     throw new Error("登入回呼驗證失敗，請重新嘗試。");
   const token = callback.searchParams.get("token");
   if (!token) throw new Error("登入完成，但沒有收到 session token。");
   await saveSessionToken(token);
+  await AsyncStorage.removeItem(oauthStateKey);
   return api.auth.me.query();
 }
 
@@ -452,6 +473,7 @@ function AppContent() {
   const [homePage, setHomePage] = useState<"ledgers" | "profile">("ledgers");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
 
   const reloadLedger = useCallback(async (ledgerId: number) => {
     await api.ledger.syncRecurring.mutate({ ledgerId }).catch(() => undefined);
@@ -634,7 +656,6 @@ function AppContent() {
       setLedgers(current => current.map(item => item.id === nextLedger.id ? nextLedger : item));
       setLedgerManageModal(null);
       setError("");
-      Alert.alert("已更新帳本名稱", `帳本已改為「${trimmed}」。`);
     } catch (renameError) {
       setError(renameError instanceof Error ? renameError.message : "帳本名稱更新失敗。");
     } finally {
@@ -648,7 +669,6 @@ function AppContent() {
       await api.ledger.transferOwnership.mutate({ ledgerId: activeLedger.id, targetUserId });
       await refresh();
       setLedgerManageModal(null);
-      Alert.alert("已完成轉讓", "帳本所有權已轉讓，新的持有者會保留管理權限。你仍會留在帳本中。");
     } catch (transferError) {
       setError(transferError instanceof Error ? transferError.message : "帳本所有權轉讓失敗。");
     } finally {
@@ -692,17 +712,20 @@ function AppContent() {
   };
   const removeTravelPlan = (planId: number) => {
     if (!activeLedger) return;
-    Alert.alert("刪除出遊規劃", "刪除後不會影響帳本交易，但規劃資料無法復原。", [
-      { text: "取消", style: "cancel" },
-      { text: "確定刪除", style: "destructive", onPress: async () => {
+    setConfirmRequest({
+      title: "刪除出遊規劃",
+      message: "刪除後不會影響帳本交易，但規劃資料無法復原。",
+      confirmText: "確定刪除",
+      destructive: true,
+      onConfirm: async () => {
         try {
           await api.ledger.deleteTravelPlan.mutate({ ledgerId: activeLedger.id, planId });
           await refresh();
         } catch (planError) {
           setError(planError instanceof Error ? planError.message : "出遊規劃刪除失敗。");
         }
-      } },
-    ]);
+      },
+    });
   };
   const updateNickname = async (name: string) => {
     const trimmed = name.trim();
@@ -714,7 +737,6 @@ function AppContent() {
     try {
       const updated = await api.profile.updateName.mutate({ name: trimmed });
       setUser(current => (current ? { ...current, name: updated.name } : current));
-      Alert.alert("已更新暱稱", `你的暱稱已改為「${trimmed}」。`);
     } catch (nameError) {
       setError(nameError instanceof Error ? nameError.message : "暱稱更新失敗。");
     } finally {
@@ -723,22 +745,21 @@ function AppContent() {
   };
   const confirmDeleteLedger = () => {
     if (!activeLedger) return;
-    Alert.alert("再次確認刪除帳本", `刪除「${activeLedger.name}」後，帳本資料將無法復原。確定要刪除嗎？`, [
-      { text: "取消", style: "cancel" },
-      {
-        text: "確定刪除",
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await api.ledger.leave.mutate({ ledgerId: activeLedger.id, action: "delete" });
-            setLedgers(current => current.filter(item => item.id !== activeLedger.id));
-            leaveLedger();
-          } catch (deleteError) {
-            setError(deleteError instanceof Error ? deleteError.message : "移除帳本失敗。");
-          }
-        },
+    setConfirmRequest({
+      title: "再次確認刪除帳本",
+      message: `刪除「${activeLedger.name}」後，帳本資料將無法復原。`,
+      confirmText: "確定刪除",
+      destructive: true,
+      onConfirm: async () => {
+        try {
+          await api.ledger.leave.mutate({ ledgerId: activeLedger.id, action: "delete" });
+          setLedgers(current => current.filter(item => item.id !== activeLedger.id));
+          leaveLedger();
+        } catch (deleteError) {
+          setError(deleteError instanceof Error ? deleteError.message : "移除帳本失敗。");
+        }
       },
-    ]);
+    });
   };
   const performLeaveLedger = async (action: "leave" | "transfer", transferToUserId?: number) => {
     if (!activeLedger) return;
@@ -758,36 +779,29 @@ function AppContent() {
     const me = members.find(item => item.user.id === user?.id);
     const others = members.filter(item => item.user.id !== user?.id);
     if (me?.member.role === "admin") {
-      Alert.alert("移除帳本", "你是此帳本的持有者。請先選擇轉讓給成員，或確認刪除整本帳本。", [
-        { text: "取消", style: "cancel" },
-        {
-          text: "轉讓持有者",
-          onPress: () => {
-            if (others.length === 0) {
-              Alert.alert("無可轉讓成員", "目前沒有其他成員，請改用刪除帳本。", [{ text: "知道了" }]);
-              return;
-            }
-            Alert.alert(
-              "選擇新持有者",
-              "轉讓後你會退出此帳本。",
-              [
-                ...others.map(item => ({
-                  text: item.user.name || item.user.email || `成員 ${item.user.id}`,
-                  onPress: () => void performLeaveLedger("transfer", item.user.id),
-                })),
-                { text: "取消", style: "cancel" as const },
-              ]
-            );
-          },
-        },
-        { text: "刪除帳本", style: "destructive", onPress: confirmDeleteLedger },
-      ]);
+      setConfirmRequest({
+        title: "管理帳本離開方式",
+        message: others.length > 0
+          ? "你是此帳本的持有者。請選擇新的持有者，或刪除整本帳本。"
+          : "你是唯一成員，無法轉讓所有權；若要離開，只能刪除整本帳本。",
+        options: [
+          ...others.map(item => ({
+            label: `轉讓給 ${item.user.name || item.user.email || `成員 ${item.user.id}`}`,
+            icon: "account-switch-outline",
+            onPress: () => void performLeaveLedger("transfer", item.user.id),
+          })),
+          { label: "刪除帳本", icon: "delete-outline", destructive: true, onPress: confirmDeleteLedger },
+        ],
+      });
       return;
     }
-    Alert.alert("退出帳本", `退出「${activeLedger.name}」後，需要重新取得邀請碼才能加入。確定退出嗎？`, [
-      { text: "留在帳本", style: "cancel" },
-      { text: "確定退出", style: "destructive", onPress: () => void performLeaveLedger("leave") },
-    ]);
+    setConfirmRequest({
+      title: "退出帳本",
+      message: `退出「${activeLedger.name}」後，需要重新取得邀請碼才能加入。`,
+      confirmText: "確定退出",
+      destructive: true,
+      onConfirm: () => performLeaveLedger("leave"),
+    });
   };
 
   const refresh = async () => {
@@ -876,53 +890,54 @@ function AppContent() {
     setBusy(false);
   };
   const logout = () => {
-    Alert.alert("確認登出", "登出後需要重新登入才能查看共同帳本。確定要登出嗎？", [
-      { text: "取消", style: "cancel" },
-      { text: "登出", style: "destructive", onPress: () => void performLogout() },
-    ]);
+    setConfirmRequest({
+      title: "確認登出",
+      message: "登出後需要重新登入才能查看共同帳本。",
+      confirmText: "登出",
+      destructive: true,
+      onConfirm: performLogout,
+    });
   };
   const openNewTransaction = () => {
     setEditingTransaction(null);
     setTransactionModal(true);
   };
   const openEditTransaction = (transaction: Transaction) => {
-    Alert.alert("編輯收支", "將開啟編輯表單；尚未儲存前不會修改帳本資料。", [
-      { text: "取消", style: "cancel" },
-      {
-        text: "開啟編輯",
-        onPress: () => {
-          setEditingTransaction(transaction);
-          setTransactionModal(true);
-        },
+    setConfirmRequest({
+      title: "編輯收支",
+      message: "將開啟編輯表單；尚未儲存前不會修改帳本資料。",
+      confirmText: "開啟編輯",
+      onConfirm: () => {
+        setEditingTransaction(transaction);
+        setTransactionModal(true);
       },
-    ]);
+    });
   };
   const removeTransaction = (transaction: Transaction) => {
-    Alert.alert("確認移除收支", "這筆收支會從目前帳本移除。要繼續嗎？", [
-      { text: "取消", style: "cancel" },
-      {
-        text: "下一步",
-        onPress: () =>
-          Alert.alert("再次確認移除", "移除後只能從操作日誌查看事件，無法自動復原。確定移除嗎？", [
-            { text: "取消", style: "cancel" },
-            {
-              text: "確定移除",
-              style: "destructive",
-              onPress: async () => {
-                try {
-                  await api.ledger.deleteTransaction.mutate({
-                    ledgerId: activeLedger!.id,
-                    transactionId: transaction.id,
-                  });
-                  await refresh();
-                } catch (removeError) {
-                  setError(removeError instanceof Error ? removeError.message : "移除收支失敗。");
-                }
-              },
-            },
-          ]),
+    setConfirmRequest({
+      title: "確認移除收支",
+      message: "這筆收支會從目前帳本移除。下一步會再確認一次。",
+      confirmText: "下一步",
+      onConfirm: () => {
+        setConfirmRequest({
+          title: "再次確認移除",
+          message: "移除後只能從操作日誌查看事件，無法自動復原。",
+          confirmText: "確定移除",
+          destructive: true,
+          onConfirm: async () => {
+            try {
+              await api.ledger.deleteTransaction.mutate({
+                ledgerId: activeLedger!.id,
+                transactionId: transaction.id,
+              });
+              await refresh();
+            } catch (removeError) {
+              setError(removeError instanceof Error ? removeError.message : "移除收支失敗。");
+            }
+          },
+        });
       },
-    ]);
+    });
   };
   const archiveCategoryItem = async (categoryId: number) => {
     try {
@@ -1337,13 +1352,14 @@ function AppContent() {
                 : "設定儲存失敗。"
             );
           }
-        }}
+                }}
       />
+      <ConfirmModal request={confirmRequest} onClose={() => setConfirmRequest(null)} />
     </SafeAreaView>
   );
 }
-
 function LoginScreen({
+
   error,
   busy,
   onLogin,
@@ -2522,6 +2538,7 @@ function SettingsSection({
 }) {
   const { palette } = useAppearance();
   const [showQr, setShowQr] = useState(false);
+  const [copied, setCopied] = useState(false);
   const me = members.find(item => item.user.id === user.id);
   const isAdmin = me?.member.role === "admin";
   const inviteLink = `togetherledger://join?code=${ledger.inviteCode}`;
@@ -2532,7 +2549,8 @@ function SettingsSection({
   };
   const copyInviteCode = async () => {
     await Clipboard.setStringAsync(ledger.inviteCode);
-    Alert.alert("已複製", `邀請碼 ${ledger.inviteCode} 已複製到剪貼簿。`);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
   };
   const addPresets = async () => {
     const presets = [
@@ -2642,8 +2660,8 @@ function SettingsSection({
         >
           <Text style={styles.inviteCodeLarge}>{ledger.inviteCode}</Text>
           <View style={styles.inviteCopyHint}>
-            <MaterialCommunityIcons name="content-copy" size={16} color={palette.rose} />
-            <Text style={styles.inviteCopyHintText}>點擊複製</Text>
+            <MaterialCommunityIcons name={copied ? "check-circle-outline" : "content-copy"} size={16} color={palette.rose} />
+            <Text style={styles.inviteCopyHintText}>{copied ? "已複製邀請碼" : "點擊複製"}</Text>
           </View>
         </Pressable>
         <Text style={styles.rowSubtitle}>
@@ -3190,6 +3208,26 @@ function TravelPlanModal({
   onSubmit: () => void;
 }) {
   const { palette } = useAppearance();
+  const [datePicker, setDatePicker] = useState<"start" | "end" | null>(null);
+  const isDateValue = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
+  const pickerValue = datePicker === "end"
+    ? (isDateValue(endDate) ? new Date(`${endDate}T12:00:00`) : new Date())
+    : (isDateValue(startDate) ? new Date(`${startDate}T12:00:00`) : new Date());
+  const pickerMinimumDate = datePicker === "end" && isDateValue(startDate)
+    ? new Date(`${startDate}T12:00:00`)
+    : undefined;
+  const handleDateChange = (event: DateTimePickerEvent, value?: Date) => {
+    const currentField = datePicker;
+    setDatePicker(null);
+    if (event.type === "dismissed" || !value || !currentField) return;
+    const selected = dateKey(value);
+    if (currentField === "start") {
+      setStartDate(selected);
+      if (isDateValue(endDate) && endDate < selected) setEndDate(selected);
+    } else {
+      setEndDate(selected);
+    }
+  };
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.OS === "ios" ? "padding" : undefined}>
@@ -3200,8 +3238,30 @@ function TravelPlanModal({
           <Text style={styles.modalDescription}>設定旅行、聚會或短期目標預算，不會納入每月預算。</Text>
           <TextInput value={name} onChangeText={setName} placeholder="例如：台南三日遊" placeholderTextColor={palette.muted} style={styles.input} />
           <TextInput value={budget} onChangeText={setBudget} placeholder="預算金額" placeholderTextColor={palette.muted} keyboardType="number-pad" style={styles.input} />
-          <TextInput value={startDate} onChangeText={setStartDate} placeholder="開始日期 YYYY-MM-DD" placeholderTextColor={palette.muted} keyboardType="numbers-and-punctuation" style={styles.input} maxLength={10} />
-          <TextInput value={endDate} onChangeText={setEndDate} placeholder="結束日期 YYYY-MM-DD" placeholderTextColor={palette.muted} keyboardType="numbers-and-punctuation" style={styles.input} maxLength={10} />
+          <Pressable onPress={() => setDatePicker("start")} style={[styles.datePickerTrigger, { marginBottom: 12 }]} accessibilityRole="button" accessibilityLabel="選擇開始日期">
+            <View style={styles.datePickerValueRow}>
+              <MaterialCommunityIcons name="calendar-month-outline" size={19} color={palette.rose} />
+              <Text style={[styles.datePickerText, !startDate && { color: palette.muted }]}>{startDate || "選擇開始日期"}</Text>
+            </View>
+            <MaterialCommunityIcons name="chevron-down" size={19} color={palette.muted} />
+          </Pressable>
+          <Pressable onPress={() => setDatePicker("end")} style={[styles.datePickerTrigger, { marginBottom: 12 }]} accessibilityRole="button" accessibilityLabel="選擇結束日期">
+            <View style={styles.datePickerValueRow}>
+              <MaterialCommunityIcons name="calendar-check-outline" size={19} color={palette.rose} />
+              <Text style={[styles.datePickerText, !endDate && { color: palette.muted }]}>{endDate || "選擇結束日期"}</Text>
+            </View>
+            <MaterialCommunityIcons name="chevron-down" size={19} color={palette.muted} />
+          </Pressable>
+          {datePicker && (
+            <DateTimePicker
+              value={pickerValue}
+              mode="date"
+              display={Platform.OS === "android" ? "calendar" : "spinner"}
+              minimumDate={pickerMinimumDate}
+              onChange={handleDateChange}
+              accentColor={palette.rose}
+            />
+          )}
           <TextInput value={notes} onChangeText={setNotes} placeholder="備註（選填）" placeholderTextColor={palette.muted} style={[styles.input, styles.multilineInput]} multiline maxLength={1000} />
           {!!error && <Text style={styles.errorText}>{error}</Text>}
           <Pressable disabled={busy} onPress={onSubmit} style={[styles.primaryButton, busy && styles.disabled]}>
@@ -3213,6 +3273,85 @@ function TravelPlanModal({
           </Pressable>
         </ScrollView>
       </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+function ConfirmModal({
+  request,
+  onClose,
+}: {
+  request: ConfirmRequest | null;
+  onClose: () => void;
+}) {
+  const { palette } = useAppearance();
+  if (!request) return null;
+  const run = (callback: () => void | Promise<void>) => {
+    onClose();
+    void callback();
+  };
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.confirmOverlay}>
+        <Pressable style={styles.confirmDismiss} onPress={onClose} />
+        <View style={[styles.confirmCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+          <View style={[styles.confirmIcon, { backgroundColor: request.destructive ? palette.roseSoft : palette.roseSoft }]}>
+            <MaterialCommunityIcons
+              name={request.destructive ? "alert-outline" : "help-circle-outline"}
+              size={24}
+              color={palette.rose}
+            />
+          </View>
+          <Text style={styles.confirmTitle}>{request.title}</Text>
+          <Text style={styles.confirmMessage}>{request.message}</Text>
+          {request.options?.length ? (
+            <View style={styles.confirmOptionList}>
+              {request.options.map((option, index) => (
+                <Pressable
+                  key={`${option.label}-${index}`}
+                  onPress={() => run(option.onPress)}
+                  style={({ pressed }) => [
+                    styles.confirmOption,
+                    { borderColor: option.destructive ? palette.rose : palette.border },
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <MaterialCommunityIcons
+                    name={(option.icon || (option.destructive ? "delete-outline" : "account-switch-outline")) as never}
+                    size={19}
+                    color={option.destructive ? palette.rose : palette.ink}
+                  />
+                  <Text style={[styles.confirmOptionText, { color: option.destructive ? palette.rose : palette.ink }]}>
+                    {option.label}
+                  </Text>
+                  <MaterialCommunityIcons name="chevron-right" size={19} color={palette.muted} />
+                </Pressable>
+              ))}
+            </View>
+          ) : (
+            <View style={styles.confirmActions}>
+              <Pressable onPress={onClose} style={[styles.confirmCancel, { borderColor: palette.border }]}>
+                <Text style={[styles.confirmCancelText, { color: palette.muted }]}>{request.cancelText || "取消"}</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => run(request.onConfirm || (() => undefined))}
+                style={({ pressed }) => [
+                  styles.confirmPrimary,
+                  { backgroundColor: request.destructive ? palette.rose : palette.burgundy },
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.confirmPrimaryText}>{request.confirmText || "確定"}</Text>
+              </Pressable>
+            </View>
+          )}
+          {!!request.options?.length && (
+            <Pressable onPress={onClose} style={styles.confirmCancelLink}>
+              <Text style={[styles.confirmCancelText, { color: palette.muted }]}>{request.cancelText || "取消"}</Text>
+            </Pressable>
+          )}
+        </View>
+      </View>
     </Modal>
   );
 }
@@ -4900,7 +5039,8 @@ const createStyles = (palette: typeof colors) => StyleSheet.create({
   receiptActions: { flexDirection: "row", gap: 8, marginBottom: 14 },
   receiptButton: { flex: 1, minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, borderWidth: 1, borderColor: "#E3C3C4", borderRadius: 12, backgroundColor: "#FFF9F6" },
   receiptButtonText: { color: palette.rose, fontSize: 11, fontWeight: "700" },
-  datePickerTrigger: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, borderWidth: 1, borderColor: "#E7D8D1", borderRadius: 13, backgroundColor: "#FFFCFA" },
+  datePickerTrigger: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, borderWidth: 1, borderColor: palette.border, borderRadius: 13, backgroundColor: palette.surface },
+  datePickerValueRow: { flexDirection: "row", alignItems: "center", gap: 9 },
   datePickerText: { color: palette.ink, fontSize: 14, fontWeight: "700" },
   calendarOverlay: { flex: 1, alignItems: "center", justifyContent: "center", padding: 20, backgroundColor: "rgba(58,47,43,0.32)" },
   dateCalendarCard: { width: "100%", maxWidth: 360, padding: 18, borderRadius: 22, backgroundColor: palette.surface },
@@ -4921,6 +5061,21 @@ const createStyles = (palette: typeof colors) => StyleSheet.create({
     borderRadius: 12,
     backgroundColor: palette.roseSoft,
   },
+  confirmOverlay: { flex: 1, alignItems: "center", justifyContent: "center", padding: 22, backgroundColor: "rgba(58,47,43,0.34)" },
+  confirmDismiss: { ...StyleSheet.absoluteFillObject },
+  confirmCard: { width: "100%", maxWidth: 380, borderWidth: 1, borderRadius: 26, padding: 22, shadowColor: "#3A2F2B", shadowOpacity: 0.18, shadowRadius: 24, shadowOffset: { width: 0, height: 10 }, elevation: 8 },
+  confirmIcon: { width: 48, height: 48, alignItems: "center", justifyContent: "center", borderRadius: 16, marginBottom: 15 },
+  confirmTitle: { color: palette.ink, fontSize: 18, fontWeight: "800" },
+  confirmMessage: { marginTop: 8, color: palette.muted, fontSize: 13, lineHeight: 20 },
+  confirmActions: { flexDirection: "row", gap: 10, marginTop: 22 },
+  confirmCancel: { flex: 1, minHeight: 46, alignItems: "center", justifyContent: "center", borderWidth: 1, borderRadius: 14 },
+  confirmCancelLink: { alignItems: "center", justifyContent: "center", minHeight: 42, marginTop: 6 },
+  confirmCancelText: { fontSize: 13, fontWeight: "700" },
+  confirmPrimary: { flex: 1, minHeight: 46, alignItems: "center", justifyContent: "center", borderRadius: 14 },
+  confirmPrimaryText: { color: "#FFFFFF", fontSize: 13, fontWeight: "800" },
+  confirmOptionList: { gap: 9, marginTop: 20 },
+  confirmOption: { minHeight: 50, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 13, borderWidth: 1, borderRadius: 14 },
+  confirmOptionText: { flex: 1, fontSize: 13, fontWeight: "700" },
   modalBackdrop: {
     flex: 1,
     justifyContent: "flex-end",
