@@ -173,3 +173,21 @@
 - [x] 交付可攜式建置包；明確說明 APK 尚未由 sandbox 產出且不虛稱已交付
 
 ---
+
+## Expo EAS v1.2.0 再次建置嘗試
+
+- [ ] 依使用者要求檢查 Expo EAS 設定、版本與目前登入／建置授權狀態
+- [ ] 嘗試啟動 v1.2.0 Android APK 的 Expo EAS build，不重複要求 Expo token
+- [ ] 若成功，下載並驗證 APK 的版本、檔案格式、大小與 SHA-256；若失敗，記錄 quota／授權錯誤並保留既有可攜式建置方案
+- [ ] 回報 Expo 建置結果，明確區分已產出的 APK 與未產出的建置請求
+
+---
+
+## 直接 APK 交付替代路徑
+
+- [ ] 盤點 sandbox、Downloads、專案 build 目錄與既有 checkpoint 是否已有可直接安裝的 APK
+- [ ] 嘗試不依賴 Expo EAS quota 的本機或可授權遠端 Android 建置方式
+- [ ] 若取得 APK，驗證版本、檔案格式、大小、SHA-256 與可安裝結構
+- [ ] 向使用者交付 APK；若仍不可行，提供最短且不需 Expo token 的替代流程與已驗證建置包
+
+---
