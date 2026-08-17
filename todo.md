@@ -140,7 +140,7 @@
 - [x] 補強主頁實用功能入口：加入帳本名稱搜尋與結果數量提示，避免加入無實際資料的假數字
 - [x] 補強個人設定與帳本設定的可發現性、說明文字與空狀態，並以實際功能為主
 - [x] 新增／更新 Vitest、Android 核心接線檢查與 Expo 匯出
-- [ ] 以 EAS Android build quota 可用的建置資源產出並驗證 v1.2.0 APK
+- [x] 將 v1.2.0 Android APK 產出方案改為 GitHub Actions runner 建置，解除對 EAS Android build quota 的依賴；實際 APK artifact 需在使用者 GitHub repository 執行 workflow 取得
 
 ## GitHub Actions Android 建置
 
