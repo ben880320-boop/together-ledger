@@ -11,13 +11,21 @@ on:
       - ".github/workflows/android-apk.yml"
 
 permissions:
-  contents: read
+  contents: write
+
+env:
+  NODE_VERSION: "22.x"
+  PNPM_VERSION: "11.21.0"
+  EXPO_PUBLIC_APP_ID: "HDBmsjkFmtXoV2nyYfgboo"
+  EXPO_PUBLIC_OAUTH_PORTAL_URL: "https://manus.im"
+  EXPO_PUBLIC_API_BASE_URL: "https://togetherapp-hdbmsjkf.manus.space"
 
 jobs:
   build-android-apk:
     name: Build Android APK
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,25 +36,28 @@ jobs:
           set -euo pipefail
           archive="$(find . -maxdepth 1 -type f -name '*release-source*.tar.gz' -print -quit)"
           if [ -z "$archive" ]; then
+            echo "No release source archive found; using mobile source from checkout."
             test -f mobile/pnpm-lock.yaml
             exit 0
           fi
+
           temp_dir="$(mktemp -d)"
           trap 'rm -rf "$temp_dir"' EXIT
           tar -xzf "$archive" -C "$temp_dir" --strip-components=1
           test -f "$temp_dir/mobile/pnpm-lock.yaml"
           rm -rf mobile
           cp -a "$temp_dir/mobile" mobile
+          echo "Restored mobile source from $archive"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 11.21.0
+          version: ${{ env.PNPM_VERSION }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22.x
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -67,6 +78,17 @@ jobs:
         working-directory: mobile
         run: pnpm install --frozen-lockfile
 
+      - name: Read app version
+        id: app-version
+        shell: bash
+        run: |
+          VERSION="$(grep -m1 '"version"' mobile/app.json | sed -E 's/.*"version": "([^"]+)".*/\1/')"
+          VERSION_CODE="$(grep -m1 '"versionCode"' mobile/app.json | sed -E 's/.*"versionCode": ([0-9]+).*/\1/')"
+          test "$VERSION" = "1.2.0"
+          test "$VERSION_CODE" = "2"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+
       - name: Generate native Android project
         working-directory: mobile
         run: pnpm run prebuild:android
@@ -78,7 +100,15 @@ jobs:
           set -euo pipefail
           mkdir -p app
           if [ ! -f app/debug.keystore ]; then
-            keytool -genkeypair -v -noprompt -keystore app/debug.keystore -storepass android -keypass android -alias androiddebugkey -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+            keytool -genkeypair -v -noprompt \
+              -keystore app/debug.keystore \
+              -storepass android \
+              -keypass android \
+              -alias androiddebugkey \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
           fi
           test -f app/debug.keystore
 
@@ -96,14 +126,58 @@ jobs:
           APK="app/build/outputs/apk/release/app-release.apk"
           test -f "$APK"
           unzip -l "$APK" | grep -E 'assets/index\.android\.bundle|assets/.*\.bundle' >/dev/null
-          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | grep -F "versionName='1.2.0'" >/dev/null
-          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | grep -F "versionCode='2'" >/dev/null
-          sha256sum "$APK"
+          AAPT="${ANDROID_HOME}/build-tools/36.0.0/aapt"
+          "$AAPT" dump badging "$APK" | grep -F "versionName='1.2.0'" >/dev/null
+          "$AAPT" dump badging "$APK" | grep -F "versionCode='2'" >/dev/null
+          echo "Release APK contains the embedded JavaScript bundle and versionName=1.2.0/versionCode=2."
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: together-ledger-1.2.0-release-apk
+          name: together-ledger-${{ steps.app-version.outputs.version }}-release-apk
           path: mobile/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 14
+
+      - name: Create APK checksum file
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="mobile/android/app/build/outputs/apk/release/app-release.apk"
+          sha256sum "$APK" > mobile/android/app/build/outputs/apk/release/app-release.apk.sha256
+
+      - name: Publish APK to GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: v${{ steps.app-version.outputs.version }}
+          APK_PATH: mobile/android/app/build/outputs/apk/release/app-release.apk
+          CHECKSUM_PATH: mobile/android/app/build/outputs/apk/release/app-release.apk.sha256
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            gh release upload "$TAG_NAME" "$APK_PATH" "$CHECKSUM_PATH" --clobber
+            echo "Updated existing GitHub Release $TAG_NAME."
+          else
+            gh release create "$TAG_NAME" "$APK_PATH" "$CHECKSUM_PATH" \
+              --title "Together Ledger $TAG_NAME" \
+              --notes "Standalone Android APK with embedded JavaScript bundle. SHA-256 is provided in app-release.apk.sha256."
+            echo "Created GitHub Release $TAG_NAME."
+          fi
+
+      - name: Write build summary
+        shell: bash
+        run: |
+          APK="mobile/android/app/build/outputs/apk/release/app-release.apk"
+          {
+            echo "## Together Ledger Android APK"
+            echo ""
+            echo "- Version: ${{ steps.app-version.outputs.version }}"
+            echo "- Version code: ${{ steps.app-version.outputs.version_code }}"
+            echo "- Build type: standalone release APK (debug-signed for testing)"
+            echo "- Embedded bundle: verified"
+            echo "- Artifact: together-ledger-${{ steps.app-version.outputs.version }}-release-apk"
+            echo "- GitHub Release: v${{ steps.app-version.outputs.version }}"
+            echo "- SHA-256: \`$(sha256sum "$APK" | cut -d' ' -f1)\`"
+            echo "- Size: $(stat -c '%s bytes' "$APK")"
+          } >> "$GITHUB_STEP_SUMMARY"
