@@ -155,15 +155,37 @@ jobs:
           CHECKSUM_PATH: mobile/android/app/build/outputs/apk/release/app-release.apk.sha256
         run: |
           set -euo pipefail
-          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            gh release upload "$TAG_NAME" "$APK_PATH" "$CHECKSUM_PATH" --clobber
-            echo "Updated existing GitHub Release $TAG_NAME."
+          retry_gh() {
+            local attempt=1
+            local max_attempts=5
+            local delay=5
+            until gh "$@"; do
+              if [ "$attempt" -ge "$max_attempts" ]; then
+                echo "GitHub Release command failed after ${max_attempts} attempts: gh $*" >&2
+                return 1
+              fi
+              echo "GitHub API temporarily unavailable; retrying in ${delay}s (attempt ${attempt}/${max_attempts})." >&2
+              sleep "$delay"
+              attempt=$((attempt + 1))
+              delay=$((delay * 2))
+            done
+          }
+
+          if retry_gh release view "$TAG_NAME" >/dev/null 2>&1; then
+            echo "GitHub Release $TAG_NAME already exists."
           else
-            gh release create "$TAG_NAME" "$APK_PATH" "$CHECKSUM_PATH" \
+            if retry_gh release create "$TAG_NAME" \
               --title "Together Ledger $TAG_NAME" \
-              --notes "Standalone Android APK with embedded JavaScript bundle. SHA-256 is provided in app-release.apk.sha256."
-            echo "Created GitHub Release $TAG_NAME."
+              --notes "Standalone Android APK with embedded JavaScript bundle. SHA-256 is provided in app-release.apk.sha256."; then
+              echo "Created GitHub Release $TAG_NAME."
+            else
+              retry_gh release view "$TAG_NAME" >/dev/null
+              echo "GitHub Release $TAG_NAME became available after a concurrent create attempt."
+            fi
           fi
+
+          retry_gh release upload "$TAG_NAME" "$APK_PATH" "$CHECKSUM_PATH" --clobber
+          echo "Uploaded APK and SHA-256 checksum to GitHub Release $TAG_NAME."
 
       - name: Write build summary
         shell: bash
