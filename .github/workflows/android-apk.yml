@@ -14,7 +14,7 @@ permissions:
 
 env:
   NODE_VERSION: "22.x"
-  PNPM_VERSION: "10.4.1"
+  PNPM_VERSION: "11.21.0"
   EXPO_PUBLIC_APP_ID: "HDBmsjkFmtXoV2nyYfgboo"
   EXPO_PUBLIC_OAUTH_PORTAL_URL: "https://manus.im"
   EXPO_PUBLIC_API_BASE_URL: "https://togetherapp-hdbmsjkf.manus.space"
@@ -46,7 +46,6 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -73,30 +72,30 @@ jobs:
         working-directory: mobile
         run: pnpm run prebuild:android
 
-      - name: Build debug APK with Gradle
+      - name: Build standalone release APK with embedded JavaScript bundle
         working-directory: mobile/android
         run: |
           chmod +x ./gradlew
-          ./gradlew --no-daemon --stacktrace assembleDebug
+          ./gradlew --no-daemon --stacktrace assembleRelease
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: together-ledger-${{ steps.app-version.outputs.version }}-debug-apk
-          path: mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          name: together-ledger-${{ steps.app-version.outputs.version }}-release-apk
+          path: mobile/android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 14
 
       - name: Write build summary
         shell: bash
         run: |
-          APK="mobile/android/app/build/outputs/apk/debug/app-debug.apk"
+          APK="mobile/android/app/build/outputs/apk/release/app-release.apk"
           {
             echo "## Together Ledger Android APK"
             echo ""
             echo "- Version: ${{ steps.app-version.outputs.version }}"
-            echo "- Build type: debug-signed APK"
-            echo "- Artifact: together-ledger-${{ steps.app-version.outputs.version }}-debug-apk"
+            echo "- Build type: standalone release APK (debug-signed for testing)"
+            echo "- Artifact: together-ledger-${{ steps.app-version.outputs.version }}-release-apk"
             echo "- SHA-256: \`$(sha256sum "$APK" | cut -d' ' -f1)\`"
             echo "- Size: $(stat -c '%s bytes' "$APK")"
           } >> "$GITHUB_STEP_SUMMARY"
