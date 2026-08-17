@@ -229,10 +229,10 @@
 
 ## Android APK JavaScript bundle 啟動修正
 
-- [ ] 檢查目前 APK 是否為 debug／development 模式，以及 JavaScript bundle 是否已內嵌
-- [ ] 修正 GitHub Actions 建置流程，確保產出的 APK 不依賴 Metro、USB 或同一 Wi‑Fi 網路
-- [ ] 重新建置並以 APK 結構、manifest 與 bundle 檔案驗證 v1.2.0
-- [ ] 交付修正版 APK，並說明若手機已安裝舊版需先移除再安裝
+- [x] 檢查目前 APK 是否為 debug／development 模式，以及 JavaScript bundle 是否已內嵌
+- [x] 修正 GitHub Actions 建置流程，確保產出的 APK 不依賴 Metro、USB 或同一 Wi‑Fi 網路
+- [x] 重新建置並以 APK 結構、manifest 與 bundle 檔案驗證 v1.2.0
+- [x] 交付修正版 APK，並說明若手機已安裝舊版需先移除再安裝
 
 ---
 

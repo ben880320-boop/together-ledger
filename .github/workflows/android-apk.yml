@@ -78,6 +78,16 @@ jobs:
           chmod +x ./gradlew
           ./gradlew --no-daemon --stacktrace assembleRelease
 
+      - name: Verify embedded JavaScript bundle and APK version
+        working-directory: mobile/android
+        shell: bash
+        run: |
+          APK="app/build/outputs/apk/release/app-release.apk"
+          test -f "$APK"
+          unzip -l "$APK" | grep -E 'assets/index\.android\.bundle|assets/.*\.bundle' >/dev/null
+          "${ANDROID_HOME}/build-tools/36.0.0/aapt" dump badging "$APK" | grep -F "versionName='1.2.0'" >/dev/null
+          echo "Release APK contains the embedded JavaScript bundle and versionName=1.2.0."
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
