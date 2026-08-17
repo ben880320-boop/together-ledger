@@ -4106,4 +4106,9 @@
 ## v1.2.1 安裝升級相容性
 
 - [x] 將 Android versionName 更新為 1.2.1、versionCode 更新為 3，確保已安裝 v1.2.0 的裝置可直接覆蓋更新
-- [ ] 重新建置並確認自動 Release 使用 `v1.2.1` tag、APK 與 SHA-256 檔案
+- [x] 重新建置並確認自動 Release 使用 `v1.2.1` tag、APK 與 SHA-256 檔案
+
+## v1.2.1 Release API 暫時性失敗修復
+
+- [x] 為 GitHub Release 建立／上傳流程加入有限次數的 HTTP 5xx 重試與漸進等待
+- [x] 重新執行 v1.2.1 workflow，確認 APK artifact、`v1.2.1` Release 與 SHA-256 資產均成功上傳
