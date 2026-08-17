@@ -238,9 +238,17 @@
 
 ## standalone release APK 修正版提交
 
-- [ ] 重新封裝含 versionCode 2、release 建置設定與最新程式碼的 source archive，排除秘密與暫存檔
-- [ ] 將修正版 source archive 與 `assembleRelease` workflow 提交至使用者 GitHub repository
-- [ ] 重新執行 GitHub Actions，驗證 APK 內含 JavaScript bundle 且實際 versionName 為 1.2.0
-- [ ] 交付修正版 APK，說明不要安裝舊的 debug artifact
+- [x] 重新封裝含 versionCode 2、release 建置設定與最新程式碼的 source archive，排除秘密與暫存檔
+- [x] 將修正版 source archive 與 `assembleRelease` workflow 提交至使用者 GitHub repository
+- [x] 重新執行 GitHub Actions，驗證 APK 內含 JavaScript bundle 且實際 versionName 為 1.2.0
+- [x] 交付修正版 APK，說明不要安裝舊的 debug artifact
 
 ---
+
+## 具體驗證與交付落實 (v1.2.0 Release APK)
+
+- [x] 提交並保存真正落地到 GitHub repo 的 `.github/workflows/android-apk.yml`，確認其正確執行 `assembleRelease`
+- [x] 重新產生並驗證新的 release source archive，記錄 SHA-256 與排除規則
+- [x] 重新觸發 GitHub Actions 並取得成功的 release run，確認產出 `app-release.apk`
+- [x] 透過 `unzip -l` 與 `aapt dump badging` 驗證 release APK 內含 `index.android.bundle` 與 `versionName='1.2.0'`
+- [x] 向使用者交付 standalone release APK 下載方式、SHA-256 與安裝步驟，提醒先卸載舊 debug 版
