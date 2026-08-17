@@ -155,8 +155,8 @@
 
 - [x] 確認 `https://github.com/ben880320-boop/together-ledger` 的可公開存取結果為 404／Private；sandbox 無法驗證其預設分支與目前內容，需使用者端登入或授權後才能同步
 - [ ] 將已完成的 GitHub Actions、mobile scripts、文件與 v1.2.0 程式版本同步至使用者 repository
-- [ ] 觸發 repository 的 Android APK workflow，確認 workflow run 成功或記錄需要使用者完成的授權步驟
-- [ ] 下載並驗證 v1.2.0 APK artifact，提供 SHA-256 與安裝檔案
+- [ ] 觸發 repository 的 Android APK workflow，確認 workflow run 成功或記錄需要使用者完成的操作步驟
+- [ ] 下載並驗證 v1.2.0 APK artifact，提供 SHA-256 與安裝說明
 
 ## 非 GitHub／非 EAS APK 產出
 
