@@ -6,7 +6,7 @@ const mobileRoot = resolve(process.cwd(), "mobile");
 const readMobile = (relativePath: string) =>
   readFileSync(resolve(mobileRoot, relativePath), "utf8");
 
-describe("Together Ledger v1.2.3 Android wiring", () => {
+describe("Together Ledger v1.2.5 Android wiring", () => {
   it("registers a concrete OAuth callback route with state verification", () => {
     const callbackPath = resolve(mobileRoot, "app/oauth/callback.tsx");
     expect(existsSync(callbackPath)).toBe(true);
@@ -38,7 +38,7 @@ describe("Together Ledger v1.2.3 Android wiring", () => {
     expect(app).toContain("endOfDay ? 59 : 0");
   });
 
-  it("uses the themed confirmation surface while reserving native Alert for update availability", () => {
+  it("uses the themed confirmation surface for destructive actions and GitHub update availability", () => {
     const app = readMobile("app/index.tsx");
     expect(app).toContain("function ConfirmModal(");
     expect(app).toContain("<ConfirmModal request={confirmRequest}");
@@ -46,7 +46,8 @@ describe("Together Ledger v1.2.3 Android wiring", () => {
       (app.match(/<ConfirmModal request=\{confirmRequest\}/g) || []).length
     ).toBeGreaterThanOrEqual(3);
     expect(app).toContain("confirmOverlay");
-    expect(app).toContain('Alert.alert("發現新版 Together Ledger"');
+    expect(app).toContain('title: "發現新版 Together Ledger"');
+    expect(app).toContain('confirmText: "前往下載"');
     expect(app).toContain("再次確認移除");
     expect((app.match(/name=\"logout\"/g) || []).length).toBe(1);
   });
@@ -66,7 +67,8 @@ describe("Together Ledger v1.2.3 Android wiring", () => {
     expect(app).toContain("setPaymentMethodActive");
     expect(app).toContain("categorySort");
     expect(app).toContain("paymentSort");
-    expect(app).toContain("sort-variant");
+    expect(app).toContain('categorySort === "status"');
+    expect(app).toContain('paymentSort === "status"');
     expect(app).toContain("settingsFilterActions");
     expect(app).toContain("主題、字體與版型會立即套用並保存在這台裝置");
     expect(app).toContain("搜尋帳本名稱");
@@ -80,6 +82,10 @@ describe("Together Ledger v1.2.3 Android wiring", () => {
     expect(app).toContain("normalizeNotificationPreferences");
     expect(app).toContain("notificationRequestRef");
     expect(app).toContain("settingsNotice");
+    expect(app).toContain("提醒設定已儲存");
+    expect(app).toContain("目前版本 v{APP_VERSION}");
+    expect(app).toContain("SettingsSection");
+    expect(app).toContain("KeyboardAvoidingView");
     expect(app).toContain("Array.from({ length: 28 }");
     expect(app).toContain("每月提醒日期（1–28 日）");
     expect(app).toContain("ThemeAtmosphere");
@@ -99,7 +105,33 @@ describe("Together Ledger v1.2.3 Android wiring", () => {
     expect(app).toContain("mutationGuardRef");
     expect(app).toContain("setTimeout(() => setError");
     expect(app).toContain("FlatList");
-    expect(app).toContain("maxToRenderPerBatch={8}");
+    expect(app).toContain("maxToRenderPerBatch={4}");
+  });
+
+  it("keeps long ledger management and viewing tasks in themed, bounded dialogs", () => {
+    const app = readMobile("app/index.tsx");
+    const router = readFileSync(resolve(process.cwd(), "server/routers.ts"), "utf8");
+    expect(app).toContain("完整收支");
+    expect(app).toContain("本週");
+    expect(app).toContain("本月");
+    expect(app).toContain("上月");
+    expect(app).toContain("操作日誌");
+    expect(app).toContain("managerScroll");
+    expect(app).toContain("永久刪除");
+    expect(app).toContain("隱藏");
+    expect(app).toContain("api.ledger.deleteCategory.mutate");
+    expect(app).toContain("api.ledger.deletePaymentMethod.mutate");
+    expect(router).toContain("deleteCategory: protectedProcedure");
+    expect(router).toContain("deletePaymentMethod: protectedProcedure");
+  });
+
+  it("renders clear ocean, cherry and sunset scene elements without fixed light surfaces", () => {
+    const app = readMobile("app/index.tsx");
+    expect(app).toContain("key={`blossom-${left}`}");
+    expect(app).toContain("key={`wave-${left}`}");
+    expect(app).toContain("key={`reflection-${index}`}");
+    expect(app).toContain("KeyboardAvoidingView");
+    expect(app).toContain('android: "height"');
   });
 
   it("keeps a verified per-user monthly reminder schedule lifecycle", () => {
@@ -134,9 +166,9 @@ describe("Together Ledger v1.2.3 Android wiring", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
       expo?: { version?: string; scheme?: string; android?: { versionCode?: number } };
     };
-    expect(appJson.expo?.version).toBe("1.2.4");
-    expect(appJson.expo?.android?.versionCode).toBe(6);
-    expect(readMobile("package.json")).toContain('"version": "1.2.4"');
+    expect(appJson.expo?.version).toBe("1.2.5");
+    expect(appJson.expo?.android?.versionCode).toBe(7);
+    expect(readMobile("package.json")).toContain('"version": "1.2.5"');
     expect(appJson.expo?.scheme).toBe("togetherledger");
     expect(readMobile("app.json")).toContain("expo-notifications");
   });

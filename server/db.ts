@@ -572,9 +572,36 @@ export async function archiveCategory(input: { id: number; ledgerId: number }) {
   return input.id;
 }
 
+export async function deleteCategory(input: { id: number; ledgerId: number }) {
+  const db = requireDb();
+  const [transactionReference, recurringReference, budgetReference] = await Promise.all([
+    db.select({ id: transactions.id }).from(transactions).where(and(eq(transactions.ledgerId, input.ledgerId), eq(transactions.categoryId, input.id))).limit(1),
+    db.select({ id: recurringTransactions.id }).from(recurringTransactions).where(and(eq(recurringTransactions.ledgerId, input.ledgerId), eq(recurringTransactions.categoryId, input.id))).limit(1),
+    db.select({ id: budgets.id }).from(budgets).where(and(eq(budgets.ledgerId, input.ledgerId), eq(budgets.categoryId, input.id))).limit(1),
+  ]);
+  if (transactionReference[0] || recurringReference[0] || budgetReference[0]) {
+    throw new Error("這個分類已被交易、固定收支或預算使用，為保留歷史資料只能隱藏，無法永久刪除。");
+  }
+  await db.delete(categories).where(and(eq(categories.id, input.id), eq(categories.ledgerId, input.ledgerId)));
+  return input.id;
+}
+
 export async function archivePaymentMethod(input: { id: number; ledgerId: number }) {
   const db = requireDb();
   await db.update(paymentMethods).set({ isActive: 0 }).where(and(eq(paymentMethods.id, input.id), eq(paymentMethods.ledgerId, input.ledgerId)));
+  return input.id;
+}
+
+export async function deletePaymentMethod(input: { id: number; ledgerId: number }) {
+  const db = requireDb();
+  const [transactionReference, recurringReference] = await Promise.all([
+    db.select({ id: transactions.id }).from(transactions).where(and(eq(transactions.ledgerId, input.ledgerId), eq(transactions.paymentMethodId, input.id))).limit(1),
+    db.select({ id: recurringTransactions.id }).from(recurringTransactions).where(and(eq(recurringTransactions.ledgerId, input.ledgerId), eq(recurringTransactions.paymentMethodId, input.id))).limit(1),
+  ]);
+  if (transactionReference[0] || recurringReference[0]) {
+    throw new Error("這個支付方式已被交易或固定收支使用，為保留歷史資料只能隱藏，無法永久刪除。");
+  }
+  await db.delete(paymentMethods).where(and(eq(paymentMethods.id, input.id), eq(paymentMethods.ledgerId, input.ledgerId)));
   return input.id;
 }
 

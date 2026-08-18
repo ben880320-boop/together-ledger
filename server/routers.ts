@@ -8,6 +8,8 @@ import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
   archiveCategory,
   archivePaymentMethod,
+  deleteCategory,
+  deletePaymentMethod,
   createCategory,
   updateCategory,
   setCategoryActive,
@@ -246,6 +248,14 @@ export const appRouter = router({
         await logActivity({ ledgerId: input.ledgerId, userId: ctx.user.id, action: "delete", entityType: "category", entityId: id, summary: "停用分類" });
         return id;
       }),
+    deleteCategory: protectedProcedure
+      .input(z.object({ ledgerId: z.number().int().positive(), categoryId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        await requireLedger(input.ledgerId, ctx.user.id);
+        const id = await deleteCategory({ ledgerId: input.ledgerId, id: input.categoryId });
+        await logActivity({ ledgerId: input.ledgerId, userId: ctx.user.id, action: "delete", entityType: "category", entityId: id, summary: "永久刪除分類" });
+        return id;
+      }),
     updateCategory: protectedProcedure
       .input(z.object({ ledgerId: z.number().int().positive(), categoryId: z.number().int().positive(), name: z.string().trim().min(1).max(64), type: z.enum(["expense", "income"]), icon: z.string().max(32), color: z.string().max(32) }))
       .mutation(async ({ ctx, input }) => {
@@ -279,6 +289,14 @@ export const appRouter = router({
         await requireLedger(input.ledgerId, ctx.user.id);
         const id = await archivePaymentMethod({ ledgerId: input.ledgerId, id: input.paymentMethodId });
         await logActivity({ ledgerId: input.ledgerId, userId: ctx.user.id, action: "delete", entityType: "paymentMethod", entityId: id, summary: "停用支付方式" });
+        return id;
+      }),
+    deletePaymentMethod: protectedProcedure
+      .input(z.object({ ledgerId: z.number().int().positive(), paymentMethodId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        await requireLedger(input.ledgerId, ctx.user.id);
+        const id = await deletePaymentMethod({ ledgerId: input.ledgerId, id: input.paymentMethodId });
+        await logActivity({ ledgerId: input.ledgerId, userId: ctx.user.id, action: "delete", entityType: "paymentMethod", entityId: id, summary: "永久刪除支付方式" });
         return id;
       }),
     updatePaymentMethod: protectedProcedure
