@@ -9,11 +9,22 @@ export const API_BASE_URL = (
   "https://togetherapp-hdbmsjkf.manus.space"
 ).replace(/\/$/, "");
 
+const apiFetch: typeof fetch = async (input, init) => {
+  const response = await fetch(input, init);
+  const contentType = response.headers.get("content-type") || "";
+  const isJson = contentType.includes("application/json") || contentType.includes("application/problem+json");
+  if (!isJson) {
+    throw new Error("伺服器暫時回傳了非預期內容，請稍後再試。若持續發生，請檢查 App 是否已更新至最新版本。");
+  }
+  return response;
+};
+
 export const api = createTRPCProxyClient<AppRouter>({
   links: [
     httpBatchLink({
       url: `${API_BASE_URL}/api/trpc`,
       transformer: superjson,
+      fetch: apiFetch,
       headers: async () => {
         const token = await SecureStore.getItemAsync(SESSION_KEY);
         return token ? { authorization: `Bearer ${token}` } : {};

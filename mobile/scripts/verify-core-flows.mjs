@@ -51,14 +51,16 @@ const checks = [
   ["登入、空帳本、帳本與個人設定均掛載主題情境", (app.match(/<ThemeAtmosphere \/>/g) || []).length >= 5],
   ["pnpm 部署設定與 lockfile 使用一致的 workspace 設定", readFileSync(resolve(projectRoot, "../pnpm-workspace.yaml"), "utf8").includes("patchedDependencies:")],
   ["分類與支付方式表情符號正確帶入交易表單", app.includes('categoryEmoji(item)') && app.includes('paymentEmoji(item)')],
-  ["個人設定分區、版本資訊與鍵盤避讓", app.includes('SettingsSection') && app.includes('目前版本 v{APP_VERSION}') && app.includes('KeyboardAvoidingView') && app.includes('android: undefined') && appConfig.includes('"softwareKeyboardLayoutMode": "resize"')],
-  ["帳本管理使用固定高度彈窗並提供隱藏或安全刪除", app.includes('managerScroll') && app.includes('api.ledger.deleteCategory.mutate') && app.includes('api.ledger.deletePaymentMethod.mutate') && router.includes('deleteCategory: protectedProcedure') && router.includes('deletePaymentMethod: protectedProcedure')],
+  ["個人設定分區、版本資訊與鍵盤避讓", app.includes('SettingsSection') && app.includes('目前版本 v{APP_VERSION}') && app.includes('KeyboardAvoidingView') && app.includes('android: "height"') && !app.includes('android: undefined') && appConfig.includes('"softwareKeyboardLayoutMode": "resize"')],
+  ["帳本管理使用固定高度彈窗並提供隱藏或安全刪除", app.includes('managerScroll') && app.includes('managerActionScroll') && app.includes('name="delete-outline"') && app.includes('api.ledger.deleteCategory.mutate') && app.includes('api.ledger.deletePaymentMethod.mutate') && router.includes('deleteCategory: protectedProcedure') && router.includes('deletePaymentMethod: protectedProcedure')],
   ["最近收支可展開本週、本月與上月完整檢視", app.includes('完整收支') && app.includes('本週') && app.includes('本月') && app.includes('上月')],
   ["所有成功儲存回饋使用右下角五秒提示", app.includes('function SuccessToast(') && app.includes('showToast') && app.includes('5_000') && app.includes('globalToastLayer')],
   ["帳本載入採單一工作區快照以減少請求", app.includes('api.ledger.workspace.query') && router.includes('workspace: protectedProcedure') && router.includes('Promise.all([')],
   ["個人設定提供密碼確認的帳號刪除流程", app.includes('function AccountDeletionModal(') && app.includes('永久刪除帳號') && app.includes('api.auth.deleteAccount.mutate') && router.includes('deleteAccount: protectedProcedure') && db.includes('deleteUserAccount')],
   ["交易與輸入彈窗可捲動並具備鍵盤安全區", app.includes("modalScrollableContent") && app.includes('keyboardDismissMode="on-drag"') && app.includes("automaticallyAdjustKeyboardInsets") && app.includes("transactionModalScrollContent: { flexGrow: 1, paddingBottom: 12 }") && !app.includes('transactionModalScrollContent: { flexGrow: 1, justifyContent: "flex-end"') && !app.includes('transactionModalCard: { minHeight: "100%"')],
-  ["Android 交付版本為 1.2.8.4", appConfig.includes('"version": "1.2.8.4"') && appConfig.includes('"versionCode": 14')],
+  ["更新回應具備非 JSON 保護、Wi‑Fi 自動下載與安全摘要", app.includes('autoDownloadUpdatesOnWifi') && app.includes('Network.getNetworkStateAsync') && app.includes('formatUpdateMessage') && app.includes('安全性摘要') && readFileSync(resolve(projectRoot, "lib/api.ts"), "utf8").includes('伺服器暫時回傳了非預期內容')],
+  ["固定收支僅採用可用的分類與支付方式", app.includes('const availablePayments = paymentMethods.filter(item => item.isActive !== 0)') && app.includes('請先在帳本設定新增或恢復一個可用的支付方式')],
+  ["Android 交付版本為 1.2.8.5", appConfig.includes('"version": "1.2.8.5"') && appConfig.includes('"versionCode": 15')],
 ];
 
 const failed = checks.filter(([, passed]) => !passed).map(([label]) => label);

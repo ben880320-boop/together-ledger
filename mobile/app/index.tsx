@@ -3,6 +3,7 @@ import * as Clipboard from "expo-clipboard";
 import * as FileSystem from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
 import * as IntentLauncher from "expo-intent-launcher";
+import * as Network from "expo-network";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
@@ -87,6 +88,7 @@ type AppearancePreferences = {
   compactMode: boolean;
   reduceMotion: boolean;
   autoReceiptNote: boolean;
+  autoDownloadUpdatesOnWifi: boolean;
 };
 
 type NotificationPreferences = {
@@ -114,9 +116,10 @@ const appearanceDefaults: AppearancePreferences = {
   compactMode: false,
   reduceMotion: false,
   autoReceiptNote: true,
+  autoDownloadUpdatesOnWifi: true,
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.2.8.4";
+const APP_VERSION = "1.2.8.5";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 const GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/ben880320-boop/together-ledger/releases/latest";
@@ -127,6 +130,15 @@ type AppUpdateStatus = "idle" | "checking" | "downloading" | "installing";
 type GitHubReleaseAsset = { name?: string; browser_download_url?: string };
 type GitHubReleasePayload = { tag_name?: string; body?: string; assets?: GitHubReleaseAsset[] };
 type AppUpdateRelease = { version: string; notes: string; apkUrl: string };
+
+const formatUpdateMessage = (release: AppUpdateRelease) => {
+  const notes = release.notes.length > 420 ? `${release.notes.slice(0, 420)}…` : release.notes;
+  const hasSecurityNotes = /安全|security|漏洞|修補|修复|隱私|privacy|權限|permission|認證|authentication|加密/i.test(release.notes);
+  const securitySummary = hasSecurityNotes
+    ? "此版本的發行說明包含安全性、隱私或權限相關調整，建議儘快完成更新。"
+    : "發行說明未標示專屬安全性修正；更新檔仍只會自官方 GitHub Release 下載。";
+  return `目前版本：v${APP_VERSION}\n可更新至：v${release.version}\n\n更新內容\n${notes}\n\n安全性摘要\n${securitySummary}\n\n更新檔會直接在 App 內下載，完成後由 Android 系統要求你確認安裝。`;
+};
 
 const normalizeNotificationPreferences = (input?: Partial<NotificationPreferences> | Record<string, unknown>): NotificationPreferences => {
   const raw = (input || {}) as Record<string, unknown>;
@@ -874,10 +886,16 @@ function AppContent() {
         if (manual) showToast("目前已是最新版本。");
         return;
       }
-      const notes = release.notes.length > 240 ? `${release.notes.slice(0, 240)}…` : release.notes;
+      if (!manual && preferences.autoDownloadUpdatesOnWifi && Platform.OS === "android") {
+        const networkState = await Network.getNetworkStateAsync();
+        if (networkState.isConnected && networkState.type === Network.NetworkStateType.WIFI) {
+          await installAndroidUpdate(release);
+          return;
+        }
+      }
       setConfirmRequest({
         title: "發現新版 Together Ledger",
-        message: `目前為 v${APP_VERSION}，可更新至 v${release.version}。\n\n${notes}\n\n更新檔會直接在 App 內下載，完成後由 Android 系統要求你確認安裝。`,
+        message: formatUpdateMessage(release),
         cancelText: "稍後再說",
         confirmText: "下載並更新",
         onConfirm: () => installAndroidUpdate(release),
@@ -890,7 +908,7 @@ function AppContent() {
     } finally {
       setAppUpdateStatus("idle");
     }
-  }, [appUpdateStatus, installAndroidUpdate, showToast]);
+  }, [appUpdateStatus, installAndroidUpdate, preferences.autoDownloadUpdatesOnWifi, showToast]);
 
   const reloadLedger = useCallback(async (ledgerId: number) => {
     const requestId = ++ledgerRequestRef.current;
@@ -2059,8 +2077,8 @@ function LoginScreen({
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "bottom"]}>
       <ThemeAtmosphere />
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
-        <ScrollView contentContainerStyle={styles.loginContent} keyboardShouldPersistTaps="handled">
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.select({ ios: "padding", android: "height" })}>
+        <ScrollView contentContainerStyle={styles.loginContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets>
           <View style={styles.brandMark}>
             <MaterialCommunityIcons name="heart" size={28} color={colors.rose} />
           </View>
@@ -3224,8 +3242,8 @@ function PersonalSettingsPage({
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["bottom"]}>
       <ThemeAtmosphere />
-      <KeyboardAvoidingView style={styles.keyboardAvoiding} behavior={Platform.select({ ios: "padding", android: undefined })} keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}>
-      <ScrollView contentContainerStyle={styles.profileContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
+      <KeyboardAvoidingView style={styles.keyboardAvoiding} behavior={Platform.select({ ios: "padding", android: "height" })} keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}>
+      <ScrollView contentContainerStyle={styles.profileContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets>
         <SectionIntro
           eyebrow="YOUR SPACE"
           title="把共帳調成你的樣子"
@@ -3377,6 +3395,13 @@ style={styles.input}
         </View>
 <Switch value={preferences.autoReceiptNote} onValueChange={value => updatePreferences({ autoReceiptNote: value })} trackColor={{ false: palette.border, true: palette.roseSoft }} thumbColor={preferences.autoReceiptNote ? palette.rose : palette.muted} />
 </View>
+	  <View style={styles.preferenceRow}>
+	    <View style={styles.preferenceCopy}>
+	      <Text style={styles.rowTitle}>僅 Wi‑Fi 自動下載更新</Text>
+	      <Text style={styles.rowSubtitle}>啟動時發現新版本，僅在 Wi‑Fi 下自動下載；行動網路可手動選擇更新。</Text>
+	    </View>
+	    <Switch value={preferences.autoDownloadUpdatesOnWifi} onValueChange={value => updatePreferences({ autoDownloadUpdatesOnWifi: value })} trackColor={{ false: palette.border, true: palette.roseSoft }} thumbColor={preferences.autoDownloadUpdatesOnWifi ? palette.rose : palette.muted} />
+	  </View>
 	      </View>
 	      <View style={styles.settingsGroupCard}>
 	      <View style={styles.cardHeading}>
@@ -3917,21 +3942,21 @@ function SettingsSection({
               </View>
               <Pressable onPress={() => pendingItemAction ? setPendingItemAction(null) : setManagerModal(null)} style={styles.outlineIconButton} accessibilityLabel={pendingItemAction ? "返回管理清單" : "關閉管理視窗"}><MaterialCommunityIcons name={pendingItemAction ? "arrow-left" : "close"} size={18} color={palette.rose} /></Pressable>
             </View>
-            {pendingItemAction ? <View style={styles.managerActionPanel}>
+            {pendingItemAction ? <ScrollView style={styles.managerActionScroll} contentContainerStyle={styles.managerActionPanel} keyboardShouldPersistTaps="handled">
               <View style={styles.managerActionNotice}><MaterialCommunityIcons name="information-outline" size={18} color={palette.rose} /><Text style={styles.managerActionNoticeText}>已有交易、預算或固定收支引用的項目不能永久刪除；隱藏後可隨時由「已隱藏項目」恢復。</Text></View>
               <Pressable onPress={() => resolveItemAction("archive")} style={[styles.confirmPrimary, { backgroundColor: palette.rose }]}><MaterialCommunityIcons name="archive-arrow-down-outline" size={18} color="#FFFFFF" /><Text style={styles.confirmPrimaryText}>隱藏，保留歷史紀錄</Text></Pressable>
               <Pressable onPress={() => resolveItemAction("delete")} style={styles.confirmDanger}><MaterialCommunityIcons name="delete-outline" size={18} color={palette.rose} /><Text style={styles.confirmDangerText}>永久刪除（未被使用時）</Text></Pressable>
               <Pressable onPress={() => setPendingItemAction(null)} style={styles.confirmCancel}><Text style={styles.confirmCancelText}>返回清單</Text></Pressable>
-            </View> : <>
+            </ScrollView> : <>
             {managerModal === "category" && <>
               <TextInput value={categoryQuery} onChangeText={setCategoryQuery} placeholder="搜尋分類名稱或圖示" placeholderTextColor={palette.muted} style={styles.input} />
               <Pressable onPress={() => setShowInactiveCategories(value => !value)} style={styles.managerInactiveToggle}><MaterialCommunityIcons name={showInactiveCategories ? "eye-off-outline" : "eye-outline"} size={16} color={palette.rose} /><Text style={styles.managerInactiveToggleText}>{showInactiveCategories ? "隱藏已隱藏項目" : `查看已隱藏項目（${categories.filter(item => item.isActive === 0).length}）`}</Text></Pressable>
-              <ScrollView style={styles.managerScroll} keyboardShouldPersistTaps="handled">{visibleCategories.length ? visibleCategories.map(item => <View key={item.id} style={styles.settingsListRow}><View style={styles.settingsListIcon}><Text style={styles.settingsListIconText}>{categoryEmoji(item)}</Text></View><View style={styles.memberPaymentName}><Text style={styles.rowTitle}>{item.name}</Text><Text style={styles.rowSubtitle}>{item.type === "expense" ? "支出分類" : "收入分類"}{item.isActive === 0 ? " · 已停用" : ""}</Text></View>{isAdmin && <><Pressable onPress={() => startEditCategory(item)} style={styles.outlineIconButton} accessibilityLabel={`編輯分類 ${item.name}`}><MaterialCommunityIcons name="pencil-outline" size={17} color={palette.rose} /></Pressable><Pressable onPress={() => item.isActive === 0 ? restoreCategory(item) : setPendingItemAction({ kind: "category", id: item.id, name: item.name })} style={styles.outlineIconButton} accessibilityLabel={`處理分類 ${item.name}`}><MaterialCommunityIcons name={item.isActive === 0 ? "restore" : "dots-horizontal"} size={18} color={palette.rose} /></Pressable></>}</View>) : <EmptyInline text="找不到符合的分類。" />}</ScrollView>
+              <ScrollView style={styles.managerScroll} keyboardShouldPersistTaps="handled">{visibleCategories.length ? visibleCategories.map(item => <View key={item.id} style={styles.settingsListRow}><View style={styles.settingsListIcon}><Text style={styles.settingsListIconText}>{categoryEmoji(item)}</Text></View><View style={styles.memberPaymentName}><Text style={styles.rowTitle}>{item.name}</Text><Text style={styles.rowSubtitle}>{item.type === "expense" ? "支出分類" : "收入分類"}{item.isActive === 0 ? " · 已停用" : ""}</Text></View>{isAdmin && <><Pressable onPress={() => startEditCategory(item)} style={styles.outlineIconButton} accessibilityLabel={`編輯分類 ${item.name}`}><MaterialCommunityIcons name="pencil-outline" size={17} color={palette.rose} /></Pressable><Pressable onPress={() => item.isActive === 0 ? restoreCategory(item) : setPendingItemAction({ kind: "category", id: item.id, name: item.name })} style={styles.outlineIconButton} accessibilityLabel={item.isActive === 0 ? `恢復分類 ${item.name}` : `刪除或隱藏分類 ${item.name}`}><MaterialCommunityIcons name={item.isActive === 0 ? "restore" : "delete-outline"} size={18} color={palette.rose} /></Pressable></>}</View>) : <EmptyInline text="找不到符合的分類。" />}</ScrollView>
             </>}
             {managerModal === "payment" && <>
               <TextInput value={paymentQuery} onChangeText={setPaymentQuery} placeholder="搜尋支付方式或圖示" placeholderTextColor={palette.muted} style={styles.input} />
               <Pressable onPress={() => setShowInactivePayments(value => !value)} style={styles.managerInactiveToggle}><MaterialCommunityIcons name={showInactivePayments ? "eye-off-outline" : "eye-outline"} size={16} color={palette.rose} /><Text style={styles.managerInactiveToggleText}>{showInactivePayments ? "隱藏已隱藏項目" : `查看已隱藏項目（${paymentMethods.filter(item => item.isActive === 0).length}）`}</Text></Pressable>
-              <ScrollView style={styles.managerScroll} keyboardShouldPersistTaps="handled">{visiblePayments.length ? visiblePayments.map(item => <View key={item.id} style={styles.settingsListRow}><View style={styles.settingsListIcon}><Text style={styles.settingsListIconText}>{paymentEmoji(item)}</Text></View><View style={styles.memberPaymentName}><Text style={styles.rowTitle}>{item.name}</Text><Text style={styles.rowSubtitle}>{item.isActive === 0 ? "已停用" : "可用於新增收支"}</Text></View>{isAdmin && <><Pressable onPress={() => startEditPayment(item)} style={styles.outlineIconButton} accessibilityLabel={`編輯支付方式 ${item.name}`}><MaterialCommunityIcons name="pencil-outline" size={17} color={palette.rose} /></Pressable><Pressable onPress={() => item.isActive === 0 ? restorePayment(item) : setPendingItemAction({ kind: "payment", id: item.id, name: item.name })} style={styles.outlineIconButton} accessibilityLabel={`處理支付方式 ${item.name}`}><MaterialCommunityIcons name={item.isActive === 0 ? "restore" : "dots-horizontal"} size={18} color={palette.rose} /></Pressable></>}</View>) : <EmptyInline text="找不到符合的支付方式。" />}</ScrollView>
+              <ScrollView style={styles.managerScroll} keyboardShouldPersistTaps="handled">{visiblePayments.length ? visiblePayments.map(item => <View key={item.id} style={styles.settingsListRow}><View style={styles.settingsListIcon}><Text style={styles.settingsListIconText}>{paymentEmoji(item)}</Text></View><View style={styles.memberPaymentName}><Text style={styles.rowTitle}>{item.name}</Text><Text style={styles.rowSubtitle}>{item.isActive === 0 ? "已停用" : "可用於新增收支"}</Text></View>{isAdmin && <><Pressable onPress={() => startEditPayment(item)} style={styles.outlineIconButton} accessibilityLabel={`編輯支付方式 ${item.name}`}><MaterialCommunityIcons name="pencil-outline" size={17} color={palette.rose} /></Pressable><Pressable onPress={() => item.isActive === 0 ? restorePayment(item) : setPendingItemAction({ kind: "payment", id: item.id, name: item.name })} style={styles.outlineIconButton} accessibilityLabel={item.isActive === 0 ? `恢復支付方式 ${item.name}` : `刪除或隱藏支付方式 ${item.name}`}><MaterialCommunityIcons name={item.isActive === 0 ? "restore" : "delete-outline"} size={18} color={palette.rose} /></Pressable></>}</View>) : <EmptyInline text="找不到符合的支付方式。" />}</ScrollView>
             </>}
             {managerModal === "activity" && <>
               <View style={styles.activityLogSummary}>
@@ -4184,10 +4209,10 @@ function LedgerModal({
     >
       <KeyboardAvoidingView
         style={styles.modalBackdrop}
-        behavior={Platform.select({ ios: "padding", android: undefined })}
+        behavior={Platform.select({ ios: "padding", android: "height" })}
         keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
       >
-        <Pressable style={styles.modalDismiss} onPress={onClose} />
+      <Pressable style={styles.modalDismiss} onPress={onClose} />
         <ScrollView
           style={styles.modalScroll}
           contentContainerStyle={styles.modalScrollableContent}
@@ -4302,7 +4327,7 @@ function LedgerManageModal({
   const others = members.filter(item => item.user.id !== user.id);
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.select({ ios: "padding", android: undefined })}>
+      <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.select({ ios: "padding", android: "height" })}>
         <Pressable style={styles.modalDismiss} onPress={onClose} />
         <ScrollView
           style={styles.modalScroll}
@@ -4418,7 +4443,7 @@ function TravelPlanModal({
   };
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.select({ ios: "padding", android: undefined })}>
+      <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.select({ ios: "padding", android: "height" })}>
         <Pressable style={styles.modalDismiss} onPress={onClose} />
         <ScrollView
           style={styles.modalScroll}
@@ -4819,10 +4844,10 @@ function TransactionModal({
     >
       <KeyboardAvoidingView
         style={styles.modalBackdrop}
-        behavior={Platform.select({ ios: "padding", android: undefined })}
+        behavior={Platform.select({ ios: "padding", android: "height" })}
         keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
       >
-        <Pressable style={styles.modalDismiss} onPress={onClose} />
+      <Pressable style={styles.modalDismiss} onPress={onClose} />
         <ScrollView
           style={styles.modalScroll}
           contentContainerStyle={styles.transactionModalScrollContent}
@@ -5174,7 +5199,7 @@ function BudgetModal({
     >
       <KeyboardAvoidingView
         style={styles.modalBackdrop}
-        behavior={Platform.select({ ios: "padding", android: undefined })}
+        behavior={Platform.select({ ios: "padding", android: "height" })}
         keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
       >
         <Pressable style={styles.modalDismiss} onPress={onClose} />
@@ -5305,9 +5330,10 @@ function RecurringModal({
       setLocalError("");
     }
   }, [visible, editingRecurring]);
-  const filtered = categories.filter(item => item.type === type);
+  const filtered = categories.filter(item => item.type === type && item.isActive !== 0);
+  const availablePayments = paymentMethods.filter(item => item.isActive !== 0);
   const selectedCategory = categoryId || String(filtered[0]?.id || "");
-  const selectedPayment = paymentId || String(paymentMethods[0]?.id || "");
+  const selectedPayment = paymentId || String(availablePayments[0]?.id || "");
   return (
     <Modal
       visible={visible}
@@ -5317,7 +5343,7 @@ function RecurringModal({
     >
       <KeyboardAvoidingView
         style={styles.modalBackdrop}
-        behavior={Platform.select({ ios: "padding", android: undefined })}
+        behavior={Platform.select({ ios: "padding", android: "height" })}
         keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
       >
         <Pressable style={styles.modalDismiss} onPress={onClose} />
@@ -5382,16 +5408,18 @@ function RecurringModal({
                 value={Number(selectedCategory)}
                 onChange={value => setCategoryId(String(value))}
               />
+              {filtered.length === 0 && <Text style={styles.errorText}>請先在帳本設定新增或恢復一個可用的{type === "expense" ? "支出" : "收入"}分類。</Text>}
             </Field>
             <Field label="支付方式">
               <OptionScroller
-                items={paymentMethods.map(item => ({
+                items={availablePayments.map(item => ({
                   id: item.id,
                   label: `${item.icon} ${item.name}`,
                 }))}
                 value={Number(selectedPayment)}
                 onChange={value => setPaymentId(String(value))}
               />
+              {availablePayments.length === 0 && <Text style={styles.errorText}>請先在帳本設定新增或恢復一個可用的支付方式。</Text>}
             </Field>
             <Field label="頻率">
               <View style={styles.segmentRow}>
@@ -5438,12 +5466,14 @@ function RecurringModal({
                     !title.trim() ||
                     !Number.isInteger(parsedAmount) ||
                     parsedAmount <= 0 ||
+                    filtered.length === 0 ||
+                    availablePayments.length === 0 ||
                     !selectedCategory ||
                     !selectedPayment ||
                     parsedDay < 1 ||
                     parsedDay > 31
                   ) {
-                    setLocalError("請完整填寫名稱、金額、分類、支付方式與日期。");
+                    setLocalError("請完整填寫名稱、金額、可用的分類、支付方式與日期。");
                     return;
                   }
                   onSubmit({
@@ -5518,10 +5548,10 @@ function SettingsModal({
     >
       <KeyboardAvoidingView
         style={styles.modalBackdrop}
-        behavior={Platform.select({ ios: "padding", android: undefined })}
+        behavior={Platform.select({ ios: "padding", android: "height" })}
         keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
       >
-        <Pressable style={styles.modalDismiss} onPress={onClose} />
+      <Pressable style={styles.modalDismiss} onPress={onClose} />
         <ScrollView
           style={styles.modalScroll}
           contentContainerStyle={styles.modalScrollableContent}
@@ -6474,7 +6504,7 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
   settingsRemovePill: { paddingHorizontal: 10, paddingVertical: 8, borderRadius: 11, backgroundColor: palette.roseSoft, borderWidth: 1, borderColor: palette.border },
   settingsRemovePillText: { color: palette.rose, fontSize: 11, fontWeight: "700" },
   activityLogScroll: { maxHeight: 250 },
-  managerScroll: { maxHeight: 390, marginTop: 8 },
+  managerScroll: { maxHeight: 390, flexShrink: 1, marginTop: 8 },
   managerInactiveToggle: {
     alignSelf: "flex-start",
     flexDirection: "row",
@@ -6489,6 +6519,7 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     backgroundColor: palette.surface,
   },
   managerInactiveToggleText: { color: palette.rose, fontSize: 11, fontWeight: "700" },
+  managerActionScroll: { maxHeight: 390, flexShrink: 1 },
   managerActionPanel: { gap: 11, paddingTop: 8, paddingBottom: 4 },
   managerActionNotice: { flexDirection: "row", alignItems: "flex-start", gap: 9, padding: 13, borderRadius: 14, backgroundColor: palette.roseSoft },
   managerActionNoticeText: { flex: 1, color: palette.ink, fontSize: 12, lineHeight: 19 },
@@ -6593,9 +6624,12 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     paddingBottom: 18,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
+    borderBottomLeftRadius: 28,
+    borderBottomRightRadius: 28,
+    overflow: "hidden",
     backgroundColor: palette.surface,
   },
-  modalFixedCard: { maxHeight: "92%" },
+  modalFixedCard: { maxHeight: "92%", flexShrink: 1 },
   transactionModalCard: { paddingBottom: 78 },
   modalActionBar: {
     marginHorizontal: -22,
@@ -6605,7 +6639,7 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     paddingBottom: 6,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: palette.border,
-    backgroundColor: palette.background,
+    backgroundColor: palette.surface,
   },
   modalHandle: {
     alignSelf: "center",

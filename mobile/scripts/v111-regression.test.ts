@@ -170,8 +170,8 @@ describe("Together Ledger v1.2.8 Android wiring", () => {
     expect(app).toContain("key={`wave-${left}`}");
     expect(app).toContain("key={`reflection-${index}`}");
     expect(app).toContain("KeyboardAvoidingView");
-    expect(app).toContain('android: undefined');
-    expect(app).not.toContain('android: "height"');
+    expect(app).toContain('android: "height"');
+    expect(app).not.toContain('android: undefined');
     expect(app).toContain("confirmContent");
     expect(app).toContain('maxHeight: "88%"');
   });
@@ -239,16 +239,26 @@ describe("Together Ledger v1.2.8 Android wiring", () => {
   });
 
   it("ships the intended app version and deep-link configuration", () => {
+    const app = readMobile("app/index.tsx");
     const appJson = JSON.parse(readMobile("app.json")) as {
       expo?: { version?: string; scheme?: string; android?: { versionCode?: number } };
     };
-    expect(appJson.expo?.version).toBe("1.2.8.4");
-    expect(appJson.expo?.android?.versionCode).toBe(14);
-    expect(readMobile("package.json")).toContain('"version": "1.2.8.4"');
+    expect(appJson.expo?.version).toBe("1.2.8.5");
+    expect(appJson.expo?.android?.versionCode).toBe(15);
+    expect(readMobile("package.json")).toContain('"version": "1.2.8.5"');
     expect(appJson.expo?.scheme).toBe("togetherledger");
     expect(readMobile("app.json")).toContain("expo-notifications");
     expect(readMobile("app.json")).toContain('"googleServicesFile": "./google-services.json"');
     expect(readMobile("app.json")).toContain('"softwareKeyboardLayoutMode": "resize"');
+    expect(app).toContain("autoDownloadUpdatesOnWifi");
+    expect(app).toContain("Network.getNetworkStateAsync");
+    expect(app).toContain("formatUpdateMessage");
+    expect(app).toContain("安全性摘要");
+    expect(app).toContain("availablePayments");
+    expect(app).toContain("managerActionScroll");
+    expect(app).toContain('name="delete-outline"');
+    expect(readMobile("lib/api.ts")).toContain("伺服器暫時回傳了非預期內容");
+    expect(readMobile("package.json")).toContain('"expo-network"');
   });
 
   it("keeps a quota-independent GitHub Actions Android APK workflow", () => {
