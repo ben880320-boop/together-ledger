@@ -2,8 +2,6 @@
 
 **Together Ledger** 是專為情侶與兩人共同生活打造的 Android 共用記帳 App。它以共享帳本為核心，將收入、支出、支付方式、分攤、預算、出遊規劃與結算整理在同一個空間，協助兩人快速看懂目前的共同花費與應結算金額。
 
-> 登入後若尚未建立或加入帳本，App 會維持空白帳本狀態；不會建立示範帳本、預設交易或虛構收支資料。
-
 ## 下載與安裝
 
 請前往 [GitHub Releases](https://github.com/ben880320-boop/together-ledger/releases) 下載最新的 `together-ledger-<版本>-release.apk`。Android 安裝非商店來源 APK 時，可能要求允許使用中的瀏覽器或檔案管理器安裝未知來源應用程式。請只下載本 repository Release 頁面中的 APK，並比對同頁公布的 SHA-256 檢查碼。
