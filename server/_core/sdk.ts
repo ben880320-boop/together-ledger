@@ -289,7 +289,13 @@ class SDKServer {
     const signedInAt = new Date();
     let user = await db.getUserByOpenId(sessionUserId);
 
-    // If user not in DB, sync from OAuth server automatically
+    // Local email/password accounts are created in this database and must never
+    // be sent to Manus OAuth for an identity sync.
+    if (!user && sessionUserId.startsWith(LOCAL_OPEN_ID_PREFIX)) {
+      throw ForbiddenError("User not found");
+    }
+
+    // If an OAuth user is not in DB, sync from OAuth server automatically.
     if (!user) {
       try {
         const userInfo = await this.getUserInfoWithJwt(sessionToken ?? "");
@@ -321,6 +327,7 @@ class SDKServer {
 }
 
 const CRON_OPEN_ID_PREFIX = "cron_";
+const LOCAL_OPEN_ID_PREFIX = "local_";
 
 /** Result of `sdk.authenticateRequest`. Cron callbacks set `isCron=true` and `taskUid`; see `/home/ubuntu/skills/webdev-periodic-updates/SKILL.md`. */
 export type AuthenticatedUser = User & {

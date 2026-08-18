@@ -51,20 +51,29 @@ import {
   updateNotificationPreferences,
   updateNotificationScheduleTaskUid,
   upsertPushDevice,
+  createLocalUser,
+  deleteUserAccount,
+  verifyLocalPassword,
 } from "./db";
 import { TRPCError } from "@trpc/server";
 import { invokeLLM } from "./_core/llm";
 import { notifyLedgerMembersAboutTransaction } from "./notifications";
-import { createHeartbeatJob, updateHeartbeatJob } from "./_core/heartbeat";
+import { createHeartbeatJob, listHeartbeatJobs, updateHeartbeatJob } from "./_core/heartbeat";
+import { sdk } from "./_core/sdk";
 
 const ledgerType = z.enum(["couple", "roommate", "family", "travel", "custom"]);
 const transactionType = z.enum(["expense", "income", "transfer"]);
 const splitType = z.enum(["equal", "custom", "amount", "none"]);
+const localAccountInput = z.object({
+  email: z.string().trim().email("請輸入有效的電子信箱").max(320),
+  password: z.string().min(8, "密碼至少需要 8 個字元").max(128, "密碼不可超過 128 個字元"),
+});
 const monthlySettlementReminderCron = "0 0 12 * * *"; // 20:00 Asia/Taipei (UTC+8), checked daily for the chosen day.
 
 type MonthlyReminderScheduleDependencies = {
   getPreferences: typeof getNotificationPreferences;
   createJob: typeof createHeartbeatJob;
+  listJobs: typeof listHeartbeatJobs;
   updateJob: typeof updateHeartbeatJob;
   saveTaskUid: typeof updateNotificationScheduleTaskUid;
 };
@@ -72,6 +81,7 @@ type MonthlyReminderScheduleDependencies = {
 const monthlyReminderScheduleDependencies: MonthlyReminderScheduleDependencies = {
   getPreferences: getNotificationPreferences,
   createJob: createHeartbeatJob,
+  listJobs: listHeartbeatJobs,
   updateJob: updateHeartbeatJob,
   saveTaskUid: updateNotificationScheduleTaskUid,
 };
@@ -101,9 +111,22 @@ export async function syncMonthlySettlementReminderSchedule(input: {
     await dependencies.updateJob(current.scheduleCronTaskUid, { ...job, enable: true }, input.sessionToken);
     return current.scheduleCronTaskUid;
   }
-  const created = await dependencies.createJob({ ...job, name: `together-ledger-settlement-${input.userId}` }, input.sessionToken);
-  await dependencies.saveTaskUid(input.userId, created.taskUid);
-  return created.taskUid;
+  const name = `together-ledger-settlement-${input.userId}`;
+  try {
+    const created = await dependencies.createJob({ ...job, name }, input.sessionToken);
+    await dependencies.saveTaskUid(input.userId, created.taskUid);
+    return created.taskUid;
+  } catch (error) {
+    if (!(error instanceof TRPCError) || error.code !== "CONFLICT") throw error;
+    const existing = (await dependencies.listJobs(input.sessionToken, { page: 1, pageSize: 100 }))
+      .jobs.find(candidate => candidate.name === name);
+    if (!existing) {
+      throw new TRPCError({ code: "CONFLICT", message: "提醒排程正在同步，請稍後再試" });
+    }
+    await dependencies.updateJob(existing.taskUid, { ...job, enable: true }, input.sessionToken);
+    await dependencies.saveTaskUid(input.userId, existing.taskUid);
+    return existing.taskUid;
+  }
 }
 
 function monthRange(month: string) {
@@ -113,6 +136,13 @@ function monthRange(month: string) {
   const monthIndex = Number(match[2]) - 1;
   if (monthIndex < 0 || monthIndex > 11) throw new TRPCError({ code: "BAD_REQUEST", message: "月份格式不正確" });
   return { start: new Date(Date.UTC(year, monthIndex, 1)), end: new Date(Date.UTC(year, monthIndex + 1, 1)) };
+}
+
+function previousMonthKey(month: string) {
+  const match = /^(\d{4})-(\d{2})$/.exec(month);
+  if (!match) throw new TRPCError({ code: "BAD_REQUEST", message: "月份格式必須為 YYYY-MM" });
+  const current = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 2, 1));
+  return `${current.getUTCFullYear()}-${String(current.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
 async function requireLedger(ledgerId: number, userId: number) {
@@ -163,6 +193,53 @@ export const appRouter = router({
   }),
   auth: router({
     me: publicProcedure.query(opts => opts.ctx.user),
+    register: publicProcedure
+      .input(localAccountInput.extend({ name: z.string().trim().min(1, "請輸入暱稱").max(64) }))
+      .mutation(async ({ input }) => {
+        try {
+          const user = await createLocalUser(input);
+          const token = await sdk.createSessionToken(user.openId, { name: user.name ?? "" });
+          return { token, user: { id: user.id, name: user.name, email: user.email, loginMethod: user.loginMethod } };
+        } catch (error) {
+          if (error instanceof Error && error.message.includes("已註冊")) {
+            throw new TRPCError({ code: "CONFLICT", message: error.message });
+          }
+          throw error;
+        }
+      }),
+    login: publicProcedure
+      .input(localAccountInput)
+      .mutation(async ({ input }) => {
+        const user = await verifyLocalPassword(input.email, input.password);
+        if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "電子信箱或密碼錯誤" });
+        const token = await sdk.createSessionToken(user.openId, { name: user.name ?? "" });
+        return { token, user: { id: user.id, name: user.name, email: user.email, loginMethod: user.loginMethod } };
+      }),
+    deleteAccount: protectedProcedure
+      .input(z.object({ password: z.string().min(1, "請輸入密碼") }))
+      .mutation(async ({ ctx, input }) => {
+        if (!ctx.user.email || ctx.user.loginMethod !== "email") {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "只有電子信箱帳密帳號可以在 App 內自行刪除。" });
+        }
+        const verifiedUser = await verifyLocalPassword(ctx.user.email, input.password);
+        if (!verifiedUser || verifiedUser.id !== ctx.user.id) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "密碼不正確，無法刪除帳號。" });
+        }
+        const authorization = ctx.req.headers.authorization;
+        const bearerToken = typeof authorization === "string" && authorization.startsWith("Bearer ")
+          ? authorization.slice("Bearer ".length)
+          : "";
+        const sessionToken = parseCookieHeader(ctx.req.headers.cookie ?? "")[COOKIE_NAME] ?? bearerToken;
+        const preferences = await getNotificationPreferences(ctx.user.id);
+        if (preferences.scheduleCronTaskUid && sessionToken) {
+          await updateHeartbeatJob(preferences.scheduleCronTaskUid, { enable: false }, sessionToken)
+            .catch(error => console.warn("[Notifications] Failed to disable deleted account schedule", error));
+        }
+        await deleteUserAccount(ctx.user.id);
+        const cookieOptions = getSessionCookieOptions(ctx.req);
+        ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+        return { success: true as const };
+      }),
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
@@ -172,6 +249,57 @@ export const appRouter = router({
 
   ledger: router({
     list: protectedProcedure.query(({ ctx }) => listLedgersForUser(ctx.user.id)),
+    workspace: protectedProcedure
+      .input(z.object({ ledgerId: z.number().int().positive(), month: z.string().regex(/^\d{4}-\d{2}$/) }))
+      .query(async ({ ctx, input }) => {
+        await requireLedger(input.ledgerId, ctx.user.id);
+        const { start, end } = monthRange(input.month);
+        const previous = monthRange(previousMonthKey(input.month));
+        const [
+          members,
+          categories,
+          paymentMethods,
+          transactions,
+          calendarTransactions,
+          analytics,
+          previousAnalytics,
+          settlement,
+          settlementHistory,
+          budgets,
+          travelPlans,
+          recurring,
+          activityLogs,
+        ] = await Promise.all([
+          getLedgerMembers(input.ledgerId),
+          getCategories(input.ledgerId),
+          getPaymentMethods(input.ledgerId),
+          getTransactions(input.ledgerId, 200),
+          getCalendarTransactions(input.ledgerId, start, end),
+          getAnalytics(input.ledgerId, start, end),
+          getAnalytics(input.ledgerId, previous.start, previous.end),
+          getSettlementSummary(input.ledgerId),
+          listSettlements(input.ledgerId),
+          listBudgets(input.ledgerId, input.month),
+          listTravelPlans(input.ledgerId),
+          listRecurring(input.ledgerId),
+          getActivityLogs(input.ledgerId, 50),
+        ]);
+        return {
+          members,
+          categories,
+          paymentMethods,
+          transactions,
+          calendarTransactions,
+          analytics,
+          previousAnalytics,
+          settlement,
+          settlementHistory,
+          budgets,
+          travelPlans,
+          recurring,
+          activityLogs,
+        };
+      }),
     create: protectedProcedure
       .input(z.object({ name: z.string().trim().min(1).max(128), type: ledgerType.default("couple") }))
       .mutation(({ ctx, input }) => createLedger({ ...input, createdBy: ctx.user.id, inviteCode: generateInviteCode() })),

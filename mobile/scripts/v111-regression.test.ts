@@ -6,16 +6,32 @@ const mobileRoot = resolve(process.cwd(), "mobile");
 const readMobile = (relativePath: string) =>
   readFileSync(resolve(mobileRoot, relativePath), "utf8");
 
-describe("Together Ledger v1.2.7 Android wiring", () => {
-  it("registers a concrete OAuth callback route with state verification", () => {
-    const callbackPath = resolve(mobileRoot, "app/oauth/callback.tsx");
-    expect(existsSync(callbackPath)).toBe(true);
-    const callback = readMobile("app/oauth/callback.tsx");
-    expect(callback).toContain("useLocalSearchParams");
-    expect(callback).toContain("AsyncStorage.getItem(oauthStateKey)");
-    expect(callback).toContain("AsyncStorage.removeItem(oauthStateKey)");
-    expect(callback).toContain('router.replace("/")');
-    expect(callback).toContain("saveSessionToken(token)");
+describe("Together Ledger v1.2.8 Android wiring", () => {
+  it("uses email/password authentication without a Manus OAuth redirect", () => {
+    const app = readMobile("app/index.tsx");
+    const router = readFileSync(resolve(process.cwd(), "server/routers.ts"), "utf8");
+    const db = readFileSync(resolve(process.cwd(), "server/db.ts"), "utf8");
+    const sdk = readFileSync(resolve(process.cwd(), "server/_core/sdk.ts"), "utf8");
+    expect(app).toContain("電子信箱");
+    expect(app).toContain("api.auth.login.mutate");
+    expect(app).toContain("api.auth.register.mutate");
+    expect(app).toContain("saveSessionToken(result.token)");
+    expect(app).not.toContain("WebBrowser.openAuthSessionAsync");
+    expect(router).toContain("register: publicProcedure");
+    expect(router).toContain("login: publicProcedure");
+    expect(db).toContain("scrypt$");
+    expect(sdk).toContain("LOCAL_OPEN_ID_PREFIX");
+  });
+
+  it("requires a password before a local account can be deleted", () => {
+    const app = readMobile("app/index.tsx");
+    const router = readFileSync(resolve(process.cwd(), "server/routers.ts"), "utf8");
+    expect(app).toContain("function AccountDeletionModal(");
+    expect(app).toContain("永久刪除帳號");
+    expect(app).toContain("輸入目前密碼以確認");
+    expect(app).toContain("api.auth.deleteAccount.mutate");
+    expect(router).toContain("deleteAccount: protectedProcedure");
+    expect(router).toContain("密碼不正確，無法刪除帳號");
   });
 
   it("keeps native travel date pickers and YYYY-MM-DD normalization", () => {
@@ -83,7 +99,9 @@ describe("Together Ledger v1.2.7 Android wiring", () => {
     expect(app).toContain("Math.min(28");
     expect(app).toContain("normalizeNotificationPreferences");
     expect(app).toContain("notificationRequestRef");
-    expect(app).toContain("settingsNotice");
+    expect(app).toContain("function SuccessToast(");
+    expect(app).toContain("showToast");
+    expect(app).toContain("5_000");
     expect(app).toContain("提醒設定已儲存");
     expect(app).toContain("目前版本 v{APP_VERSION}");
     expect(app).toContain("SettingsSection");
@@ -171,6 +189,7 @@ describe("Together Ledger v1.2.7 Android wiring", () => {
 
   it("keeps instant transaction removal, useful activity filtering, and cached ledger refreshes", () => {
     const app = readMobile("app/index.tsx");
+    const router = readFileSync(resolve(process.cwd(), "server/routers.ts"), "utf8");
     expect(app).toContain("setTransactions(current => current.filter(item => item.id !== transaction.id))");
     expect(app).toContain("setCalendarTransactions(current => current.filter(item => item.id !== transaction.id))");
     expect(app).toContain("void refresh()");
@@ -180,15 +199,18 @@ describe("Together Ledger v1.2.7 Android wiring", () => {
     expect(app).toContain("activityKind");
     expect(app).toContain("recurringSyncRef");
     expect(app).toContain("lastRecurringSync");
+    expect(app).toContain("api.ledger.workspace.query");
+    expect(router).toContain("workspace: protectedProcedure");
+    expect(router).toContain("Promise.all([");
   });
 
   it("ships the intended app version and deep-link configuration", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
       expo?: { version?: string; scheme?: string; android?: { versionCode?: number } };
     };
-    expect(appJson.expo?.version).toBe("1.2.7");
-    expect(appJson.expo?.android?.versionCode).toBe(9);
-    expect(readMobile("package.json")).toContain('"version": "1.2.7"');
+    expect(appJson.expo?.version).toBe("1.2.8");
+    expect(appJson.expo?.android?.versionCode).toBe(10);
+    expect(readMobile("package.json")).toContain('"version": "1.2.8"');
     expect(appJson.expo?.scheme).toBe("togetherledger");
     expect(readMobile("app.json")).toContain("expo-notifications");
     expect(readMobile("app.json")).toContain('"googleServicesFile": "./google-services.json"');
@@ -214,7 +236,8 @@ describe("Together Ledger v1.2.7 Android wiring", () => {
     expect(workflow).toContain(
       "together-ledger-${{ steps.app-version.outputs.version }}-release-apk"
     );
-    expect(workflow).toContain("app-release.apk");
+    expect(workflow).toContain("together-ledger.apk");
+    expect(workflow).toContain("together-ledger.apk.sha256");
     expect(workflow).toContain("release upload");
     expect(workflow).toContain("GITHUB_STEP_SUMMARY");
     expect(packageJson.scripts?.["prebuild:android"]).toContain(

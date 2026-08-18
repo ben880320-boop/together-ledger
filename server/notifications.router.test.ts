@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   saveTaskUid: vi.fn(),
   upsertPushDevice: vi.fn(),
   createHeartbeatJob: vi.fn(),
+  listHeartbeatJobs: vi.fn(),
   updateHeartbeatJob: vi.fn(),
   getLedgerAccess: vi.fn(),
   createTransaction: vi.fn(),
@@ -30,6 +31,7 @@ vi.mock("./db", async importOriginal => {
 
 vi.mock("./_core/heartbeat", () => ({
   createHeartbeatJob: mocks.createHeartbeatJob,
+  listHeartbeatJobs: mocks.listHeartbeatJobs,
   updateHeartbeatJob: mocks.updateHeartbeatJob,
 }));
 

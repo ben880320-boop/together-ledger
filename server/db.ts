@@ -1,3 +1,5 @@
+import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
+import { nanoid } from "nanoid";
 import { and, asc, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
@@ -191,6 +193,61 @@ export async function getUserByOpenId(openId: string) {
   return result.length > 0 ? result[0] : undefined;
 }
 
+function normalizeEmail(email: string) {
+  return email.trim().toLowerCase();
+}
+
+function derivePasswordKey(password: string, salt: string) {
+  return new Promise<Buffer>((resolve, reject) => {
+    scrypt(password, salt, 64, (error, derivedKey) => {
+      if (error) reject(error);
+      else resolve(Buffer.from(derivedKey));
+    });
+  });
+}
+
+export async function getUserByEmail(email: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(users).where(eq(users.email, normalizeEmail(email))).limit(1);
+  return result[0];
+}
+
+export async function createLocalUser(input: { email: string; password: string; name: string }) {
+  const db = requireDb();
+  const email = normalizeEmail(input.email);
+  const existing = await getUserByEmail(email);
+  if (existing) throw new Error("此電子信箱已註冊，請直接登入。");
+  const salt = randomBytes(16).toString("hex");
+  const passwordHash = `scrypt$${salt}$${(await derivePasswordKey(input.password, salt)).toString("hex")}`;
+  const openId = `local_${nanoid(21)}`;
+  const result = await db.insert(users).values({
+    openId,
+    email,
+    passwordHash,
+    name: input.name.trim(),
+    loginMethod: "email",
+    lastSignedIn: new Date(),
+  });
+  const userId = Number(result[0].insertId);
+  const user = (await db.select().from(users).where(eq(users.id, userId)).limit(1))[0];
+  if (!user) throw new Error("帳號建立後無法讀取，請稍後再試。");
+  return user;
+}
+
+export async function verifyLocalPassword(email: string, password: string) {
+  const db = requireDb();
+  const user = await getUserByEmail(email);
+  if (!user?.passwordHash || user.loginMethod !== "email") return undefined;
+  const [algorithm, salt, expectedHash] = user.passwordHash.split("$");
+  if (algorithm !== "scrypt" || !salt || !expectedHash) return undefined;
+  const actual = await derivePasswordKey(password, salt);
+  const expected = Buffer.from(expectedHash, "hex");
+  if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) return undefined;
+  await db.update(users).set({ lastSignedIn: new Date() }).where(eq(users.id, user.id));
+  return { ...user, lastSignedIn: new Date() };
+}
+
 export async function listLedgersForUser(userId: number) {
   const db = await getDb();
   if (!db) return [];
@@ -338,6 +395,55 @@ export async function updateUserName(userId: number, name: string) {
   await db.update(users).set({ name }).where(eq(users.id, userId));
   const rows = await db.select().from(users).where(eq(users.id, userId)).limit(1);
   return rows[0];
+}
+
+export async function deleteUserAccount(userId: number) {
+  const db = requireDb();
+  const user = (await db.select().from(users).where(eq(users.id, userId)).limit(1))[0];
+  if (!user) throw new Error("找不到帳號。");
+
+  const preferences = (await db.select().from(notificationPreferences).where(eq(notificationPreferences.userId, userId)).limit(1))[0];
+  const ownedLedgers = await db.select({ id: ledgers.id }).from(ledgers).where(eq(ledgers.createdBy, userId));
+  for (const owned of ownedLedgers) {
+    const members = await db.select({ userId: ledgerMembers.userId, role: ledgerMembers.role })
+      .from(ledgerMembers)
+      .where(eq(ledgerMembers.ledgerId, owned.id))
+      .orderBy(asc(ledgerMembers.joinedAt));
+    const successor = members.find(member => member.userId !== userId);
+    if (successor) {
+      await db.update(ledgers).set({ createdBy: successor.userId }).where(eq(ledgers.id, owned.id));
+      await db.update(ledgerMembers).set({ role: "admin" }).where(and(eq(ledgerMembers.ledgerId, owned.id), eq(ledgerMembers.userId, successor.userId)));
+      continue;
+    }
+
+    const transactionRows = await db.select({ id: transactions.id }).from(transactions).where(eq(transactions.ledgerId, owned.id));
+    const transactionIds = transactionRows.map(row => row.id);
+    if (transactionIds.length > 0) await db.delete(transactionSplits).where(inArray(transactionSplits.transactionId, transactionIds));
+    await db.delete(activityLogs).where(eq(activityLogs.ledgerId, owned.id));
+    await db.delete(appNotifications).where(eq(appNotifications.ledgerId, owned.id));
+    await db.delete(budgets).where(eq(budgets.ledgerId, owned.id));
+    await db.delete(travelPlans).where(eq(travelPlans.ledgerId, owned.id));
+    await db.delete(recurringTransactions).where(eq(recurringTransactions.ledgerId, owned.id));
+    await db.delete(settlements).where(eq(settlements.ledgerId, owned.id));
+    await db.delete(transactions).where(eq(transactions.ledgerId, owned.id));
+    await db.delete(categories).where(eq(categories.ledgerId, owned.id));
+    await db.delete(paymentMethods).where(eq(paymentMethods.ledgerId, owned.id));
+    await db.delete(ledgerMembers).where(eq(ledgerMembers.ledgerId, owned.id));
+    await db.delete(ledgers).where(eq(ledgers.id, owned.id));
+  }
+
+  await db.delete(ledgerMembers).where(eq(ledgerMembers.userId, userId));
+  await db.delete(pushDevices).where(eq(pushDevices.userId, userId));
+  await db.delete(notificationPreferences).where(eq(notificationPreferences.userId, userId));
+  await db.delete(appNotifications).where(eq(appNotifications.userId, userId));
+  await db.update(users).set({
+    openId: `deleted_${nanoid(21)}`,
+    email: null,
+    passwordHash: null,
+    name: "已刪除帳號",
+    loginMethod: "deleted",
+  }).where(eq(users.id, userId));
+  return { scheduleCronTaskUid: preferences?.scheduleCronTaskUid ?? null };
 }
 
 export async function renameLedger(input: { ledgerId: number; userId: number; name: string }) {

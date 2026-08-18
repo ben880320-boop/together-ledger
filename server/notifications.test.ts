@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
+import { TRPCError } from "@trpc/server";
 import * as db from "./db";
 import { normalizeNotificationPreferences, reconcilePushDeviceRegistration } from "./db";
 import {
@@ -61,7 +62,8 @@ describe("notification delivery rules", () => {
     const createJob = vi.fn().mockResolvedValue({ taskUid: "cron_new" });
     const updateJob = vi.fn().mockResolvedValue({});
     const saveTaskUid = vi.fn().mockResolvedValue({});
-    const dependencies = { getPreferences: vi.fn().mockResolvedValue(basePreference), createJob, updateJob, saveTaskUid };
+    const listJobs = vi.fn().mockResolvedValue({ total: 0, actorUserId: "7", jobs: [] });
+    const dependencies = { getPreferences: vi.fn().mockResolvedValue(basePreference), createJob, listJobs, updateJob, saveTaskUid };
 
     await syncMonthlySettlementReminderSchedule({ userId: 7, sessionToken: "session", monthlySettlementEnabled: true, monthlyReminderDay: 18 }, dependencies);
     expect(createJob).toHaveBeenCalledWith(expect.objectContaining({ name: "together-ledger-settlement-7", cron: "0 0 12 * * *", path: "/api/scheduled/monthly-settlement-reminders" }), "session");
@@ -74,6 +76,29 @@ describe("notification delivery rules", () => {
     dependencies.getPreferences.mockResolvedValueOnce({ ...basePreference, scheduleCronTaskUid: "cron_existing" });
     await syncMonthlySettlementReminderSchedule({ userId: 7, sessionToken: "session", monthlySettlementEnabled: false, monthlyReminderDay: 20 }, dependencies);
     expect(updateJob).toHaveBeenCalledWith("cron_existing", { enable: false }, "session");
+  });
+
+  it("reuses an existing named job when a concurrent notification save receives a 409 conflict", async () => {
+    const createJob = vi.fn().mockRejectedValue(new TRPCError({ code: "CONFLICT", message: "already exists" }));
+    const updateJob = vi.fn().mockResolvedValue({});
+    const saveTaskUid = vi.fn().mockResolvedValue({});
+    const listJobs = vi.fn().mockResolvedValue({
+      total: 1,
+      actorUserId: "7",
+      jobs: [{
+        taskUid: "cron_reused", name: "together-ledger-settlement-7", userId: "7", description: "",
+        cronExpression: "0 0 12 * * *", callbackPath: "/api/scheduled/monthly-settlement-reminders",
+        callbackMethod: "POST", callbackPayload: "{}", isEnable: true,
+      }],
+    });
+    const dependencies = { getPreferences: vi.fn().mockResolvedValue(basePreference), createJob, listJobs, updateJob, saveTaskUid };
+
+    await expect(syncMonthlySettlementReminderSchedule({
+      userId: 7, sessionToken: "session", monthlySettlementEnabled: true, monthlyReminderDay: 18,
+    }, dependencies)).resolves.toBe("cron_reused");
+
+    expect(updateJob).toHaveBeenCalledWith("cron_reused", expect.objectContaining({ enable: true, payload: { reminderDay: 18 } }), "session");
+    expect(saveTaskUid).toHaveBeenCalledWith(7, "cron_reused");
   });
 
   it("delivers qualifying transaction notifications only to other enabled members", async () => {

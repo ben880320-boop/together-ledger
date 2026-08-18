@@ -128,12 +128,13 @@ jobs:
           AAPT="${ANDROID_HOME}/build-tools/36.0.0/aapt"
           "$AAPT" dump badging "$APK" | grep -F "versionName='${{ steps.app-version.outputs.version }}'" >/dev/null
           "$AAPT" dump badging "$APK" | grep -F "versionCode='${{ steps.app-version.outputs.version_code }}'" >/dev/null
+          cp "$APK" "app/build/outputs/apk/release/together-ledger.apk"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: together-ledger-${{ steps.app-version.outputs.version }}-release-apk
-          path: mobile/android/app/build/outputs/apk/release/app-release.apk
+          path: mobile/android/app/build/outputs/apk/release/together-ledger.apk
           if-no-files-found: error
           retention-days: 14
 
@@ -141,16 +142,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APK="mobile/android/app/build/outputs/apk/release/app-release.apk"
-          sha256sum "$APK" > mobile/android/app/build/outputs/apk/release/app-release.apk.sha256
+          APK="mobile/android/app/build/outputs/apk/release/together-ledger.apk"
+          sha256sum "$APK" > mobile/android/app/build/outputs/apk/release/together-ledger.apk.sha256
 
       - name: Publish APK to GitHub Release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: v${{ steps.app-version.outputs.version }}
-          APK_PATH: mobile/android/app/build/outputs/apk/release/app-release.apk
-          CHECKSUM_PATH: mobile/android/app/build/outputs/apk/release/app-release.apk.sha256
+          APK_PATH: mobile/android/app/build/outputs/apk/release/together-ledger.apk
+          CHECKSUM_PATH: mobile/android/app/build/outputs/apk/release/together-ledger.apk.sha256
         run: |
           set -euo pipefail
           retry_gh() {
@@ -168,7 +169,7 @@ jobs:
           }
           if retry_gh release view "$TAG_NAME" >/dev/null 2>&1; then
             echo "GitHub Release $TAG_NAME already exists."
-          elif retry_gh release create "$TAG_NAME" --title "Together Ledger $TAG_NAME" --notes "Standalone Android APK with embedded JavaScript bundle. SHA-256 is provided in app-release.apk.sha256."; then
+          elif retry_gh release create "$TAG_NAME" --title "Together Ledger $TAG_NAME" --notes "Standalone Android APK with embedded JavaScript bundle. SHA-256 is provided in together-ledger.apk.sha256."; then
             echo "Created GitHub Release $TAG_NAME."
           else
             retry_gh release view "$TAG_NAME" >/dev/null
@@ -178,7 +179,7 @@ jobs:
       - name: Write build summary
         shell: bash
         run: |
-          APK="mobile/android/app/build/outputs/apk/release/app-release.apk"
+          APK="mobile/android/app/build/outputs/apk/release/together-ledger.apk"
           {
             echo "## Together Ledger Android APK"
             echo ""
@@ -187,6 +188,7 @@ jobs:
             echo "- Build type: standalone release APK (debug-signed for testing)"
             echo "- Embedded bundle: verified"
             echo "- Artifact: together-ledger-${{ steps.app-version.outputs.version }}-release-apk"
+            echo "- Download filename: together-ledger.apk"
             echo "- GitHub Release: v${{ steps.app-version.outputs.version }}"
             echo "- SHA-256: \`$(sha256sum "$APK" | cut -d' ' -f1)\`"
             echo "- Size: $(stat -c '%s bytes' "$APK")"

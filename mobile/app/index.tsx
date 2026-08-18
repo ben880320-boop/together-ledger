@@ -1,12 +1,8 @@
-import { makeRedirectUri } from "expo-auth-session";
 import * as Linking from "expo-linking";
-import * as Crypto from "expo-crypto";
-import * as WebBrowser from "expo-web-browser";
 import * as Clipboard from "expo-clipboard";
 import * as ImagePicker from "expo-image-picker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
-import { encode as encodeBase64 } from "base-64";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import QRCode from "react-native-qrcode-svg";
 import Svg, { Circle } from "react-native-svg";
@@ -118,8 +114,7 @@ const appearanceDefaults: AppearancePreferences = {
   autoReceiptNote: true,
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const oauthStateKey = "together-ledger-oauth-state";
-const APP_VERSION = "1.2.7";
+const APP_VERSION = "1.2.8";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 
@@ -671,10 +666,6 @@ const paymentEmoji = (item?: Pick<PaymentMethod, "name" | "icon">) => {
   return icon || "💳";
 };
 
-const APP_ID = process.env.EXPO_PUBLIC_APP_ID || "HDBmsjkFmtXoV2nyYfgboo";
-const OAUTH_PORTAL_URL = (
-  process.env.EXPO_PUBLIC_OAUTH_PORTAL_URL || "https://manus.im"
-).replace(/\/$/, "");
 const money = (value: number) =>
   `NT$ ${Math.round(value || 0).toLocaleString("zh-TW")}`;
 const dateKeyPattern = /^(\d{4})-(\d{2})-(\d{2})$/;
@@ -730,38 +721,6 @@ const inviteCodeFromUrl = (url: string | null) => {
   const code = Array.isArray(rawCode) ? rawCode[0] : rawCode;
   return typeof code === "string" ? code.trim().toUpperCase() : "";
 };
-
-async function loginWithManus(mode: "signIn" | "signUp" = "signIn") {
-  const appRedirectUri = makeRedirectUri({
-    scheme: "togetherledger",
-    path: "oauth/callback",
-  });
-  const webRedirectUri = "https://togetherapp-hdbmsjkf.manus.space/api/oauth/callback";
-  const nonce = Crypto.randomUUID();
-  const state = encodeBase64(JSON.stringify({ redirectUri: appRedirectUri, nonce }));
-  const url = new URL(`${OAUTH_PORTAL_URL}/app-auth`);
-  url.searchParams.set("appId", APP_ID);
-  url.searchParams.set("redirectUri", webRedirectUri);
-  url.searchParams.set("state", state);
-  url.searchParams.set("type", mode);
-  await AsyncStorage.setItem(oauthStateKey, state);
-  const result = await WebBrowser.openAuthSessionAsync(
-    url.toString(),
-    appRedirectUri
-  );
-  if (result.type !== "success") {
-    await AsyncStorage.removeItem(oauthStateKey);
-    throw new Error("登入已取消。");
-  }
-  const callback = new URL(result.url);
-  if (callback.searchParams.get("state") !== state)
-    throw new Error("登入回呼驗證失敗，請重新嘗試。");
-  const token = callback.searchParams.get("token");
-  if (!token) throw new Error("登入完成，但沒有收到 session token。");
-  await saveSessionToken(token);
-  await AsyncStorage.removeItem(oauthStateKey);
-  return api.auth.me.query();
-}
 
 export default function IndexScreen() {
   return (
@@ -821,14 +780,23 @@ function AppContent() {
   const [homePage, setHomePage] = useState<"ledgers" | "profile">("ledgers");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [settingsNotice, setSettingsNotice] = useState("");
+  const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
+  const [accountDeletionVisible, setAccountDeletionVisible] = useState(false);
   const ledgerRequestRef = useRef(0);
   const ledgerSelectionRef = useRef(0);
   const mutationGuardRef = useRef(new Set<string>());
   const notificationRequestRef = useRef(0);
   const updateNoticeRef = useRef(false);
   const recurringSyncRef = useRef(new Map<number, number>());
+  const toastSequenceRef = useRef(0);
+
+  const showToast = useCallback((message: string) => {
+    setToast({ id: ++toastSequenceRef.current, message });
+  }, []);
+  const dismissToast = useCallback((id: number) => {
+    setToast(current => current?.id === id ? null : current);
+  }, []);
 
   const reloadLedger = useCallback(async (ledgerId: number) => {
     const requestId = ++ledgerRequestRef.current;
@@ -838,49 +806,21 @@ function AppContent() {
       recurringSyncRef.current.set(ledgerId, Date.now());
     }
     const month = currentMonth();
-    const [
-      nextMembers,
-      nextCategories,
-      nextPayments,
-      nextTransactions,
-      nextCalendar,
-      nextAnalytics,
-      nextPreviousAnalytics,
-      nextSettlement,
-      nextHistory,
-      nextBudgets,
-      nextTravelPlans,
-      nextRecurring,
-      nextActivityLogs,
-    ] = await Promise.all([
-      api.ledger.members.query({ ledgerId }),
-      api.ledger.categories.query({ ledgerId }),
-      api.ledger.paymentMethods.query({ ledgerId }),
-      api.ledger.transactions.query({ ledgerId, limit: 200 }),
-      api.ledger.calendar.query({ ledgerId, month }),
-      api.ledger.analytics.query({ ledgerId, month }),
-      api.ledger.analytics.query({ ledgerId, month: previousMonth() }),
-      api.ledger.settlement.summary.query({ ledgerId }),
-      api.ledger.settlement.history.query({ ledgerId }),
-      api.ledger.budgets.query({ ledgerId, month }),
-      api.ledger.travelPlans.query({ ledgerId }),
-      api.ledger.recurring.query({ ledgerId }),
-      api.ledger.activityLogs.query({ ledgerId, limit: 50 }),
-    ]);
+    const workspace = await api.ledger.workspace.query({ ledgerId, month });
     if (requestId !== ledgerRequestRef.current) return false;
-    setMembers(nextMembers as LedgerMember[]);
-    setCategories(nextCategories as Category[]);
-    setPaymentMethods(nextPayments as PaymentMethod[]);
-    setTransactions(nextTransactions as Transaction[]);
-    setCalendarTransactions(nextCalendar as Transaction[]);
-    setAnalytics(nextAnalytics as Analytics);
-    setPreviousAnalytics(nextPreviousAnalytics as Analytics);
-    setSettlement(nextSettlement as Settlement);
-    setSettlementHistory(nextHistory as SettlementHistory[]);
-    setBudgets(nextBudgets as Budget[]);
-    setTravelPlans(nextTravelPlans as TravelPlan[]);
-    setRecurring(nextRecurring as Recurring[]);
-    setActivityLogs(nextActivityLogs as ActivityLog[]);
+    setMembers(workspace.members as LedgerMember[]);
+    setCategories(workspace.categories as Category[]);
+    setPaymentMethods(workspace.paymentMethods as PaymentMethod[]);
+    setTransactions(workspace.transactions as Transaction[]);
+    setCalendarTransactions(workspace.calendarTransactions as Transaction[]);
+    setAnalytics(workspace.analytics as Analytics);
+    setPreviousAnalytics(workspace.previousAnalytics as Analytics);
+    setSettlement(workspace.settlement as Settlement);
+    setSettlementHistory(workspace.settlementHistory as SettlementHistory[]);
+    setBudgets(workspace.budgets as Budget[]);
+    setTravelPlans(workspace.travelPlans as TravelPlan[]);
+    setRecurring(workspace.recurring as Recurring[]);
+    setActivityLogs(workspace.activityLogs as ActivityLog[]);
     return true;
   }, []);
 
@@ -1052,6 +992,7 @@ function AppContent() {
       setLedgers(current => current.map(item => item.id === nextLedger.id ? nextLedger : item));
       setLedgerManageModal(null);
       setError("");
+      showToast("帳本名稱已更新。");
     } catch (renameError) {
       setError(renameError instanceof Error ? renameError.message : "帳本名稱更新失敗。");
     } finally {
@@ -1065,6 +1006,7 @@ function AppContent() {
       await api.ledger.transferOwnership.mutate({ ledgerId: activeLedger.id, targetUserId });
       await refresh();
       setLedgerManageModal(null);
+      showToast("帳本所有權已轉讓。");
     } catch (transferError) {
       setError(transferError instanceof Error ? transferError.message : "帳本所有權轉讓失敗。");
     } finally {
@@ -1100,6 +1042,7 @@ function AppContent() {
       setTravelPlanModal(false);
       setError("");
       await refresh();
+      showToast("出遊規劃已建立。");
     } catch (planError) {
       setError(planError instanceof Error ? planError.message : "出遊規劃建立失敗。");
     } finally {
@@ -1117,6 +1060,7 @@ function AppContent() {
         try {
           await api.ledger.deleteTravelPlan.mutate({ ledgerId: activeLedger.id, planId });
           await refresh();
+          showToast("出遊規劃已刪除。");
         } catch (planError) {
           setError(planError instanceof Error ? planError.message : "出遊規劃刪除失敗。");
         }
@@ -1130,12 +1074,11 @@ function AppContent() {
       return;
     }
     setBusy(true);
-    setSettingsNotice("");
     setError("");
     try {
       const updated = await api.profile.updateName.mutate({ name: trimmed });
       setUser(current => (current ? { ...current, name: updated.name } : current));
-      setSettingsNotice("暱稱已儲存。");
+      showToast("暱稱已儲存。");
     } catch (nameError) {
       setError(nameError instanceof Error ? nameError.message : "暱稱更新失敗。");
     } finally {
@@ -1153,7 +1096,6 @@ function AppContent() {
     const previous = notificationPreferences;
     const normalized = normalizeNotificationPreferences({ ...next, minimumAmount: normalizedAmount, monthlyReminderDay: normalizedReminderDay });
     setNotificationPreferences(normalized);
-    setSettingsNotice("");
     setBusy(true);
     try {
       if (requiresPush) {
@@ -1181,7 +1123,7 @@ function AppContent() {
       }) as NotificationPreferences;
       if (requestId === notificationRequestRef.current) {
         setNotificationPreferences(normalizeNotificationPreferences(saved));
-        setSettingsNotice(
+        showToast(
           pushPermissionUnavailable
             ? "提醒設定已儲存。請在手機系統設定允許通知後，即可收到推播。"
             : pushRegistrationUnavailable
@@ -1193,7 +1135,6 @@ function AppContent() {
       }
     } catch (notificationError) {
       if (requestId === notificationRequestRef.current) setNotificationPreferences(previous);
-      setSettingsNotice("");
       setError(notificationError instanceof Error ? notificationError.message : "通知設定儲存失敗。");
     } finally {
       setBusy(false);
@@ -1211,6 +1152,7 @@ function AppContent() {
           await api.ledger.leave.mutate({ ledgerId: activeLedger.id, action: "delete" });
           setLedgers(current => current.filter(item => item.id !== activeLedger.id));
           leaveLedger();
+          showToast("帳本已刪除。");
         } catch (deleteError) {
           setError(deleteError instanceof Error ? deleteError.message : "移除帳本失敗。");
         }
@@ -1224,6 +1166,7 @@ function AppContent() {
       await api.ledger.leave.mutate({ ledgerId: activeLedger.id, action, transferToUserId });
       setLedgers(current => current.filter(item => item.id !== activeLedger.id));
       leaveLedger();
+      showToast(action === "leave" ? "你已退出帳本。" : "帳本所有權已轉讓。");
     } catch (leaveError) {
       setError(leaveError instanceof Error ? leaveError.message : "退出帳本失敗。");
     } finally {
@@ -1276,11 +1219,14 @@ function AppContent() {
       }
     }
   };
-  const handleLogin = async (mode: "signIn" | "signUp" = "signIn") => {
+  const handleLogin = async (input: { mode: "signIn" | "signUp"; email: string; password: string; name?: string }) => {
     setError("");
     setBusy(true);
     try {
-      await loginWithManus(mode);
+      const result = input.mode === "signUp"
+        ? await api.auth.register.mutate({ email: input.email, password: input.password, name: input.name || "" })
+        : await api.auth.login.mutate({ email: input.email, password: input.password });
+      await saveSessionToken(result.token);
       await loadWorkspace();
     } catch (loginError) {
       setError(
@@ -1328,6 +1274,7 @@ function AppContent() {
       setInviteCode("");
       setLedgerType("couple");
       await loadWorkspace();
+      showToast(ledgerAction === "create" ? "帳本已建立。" : "已加入帳本。");
     } catch (actionError) {
       setError(
         actionError instanceof Error ? actionError.message : "帳本操作失敗。"
@@ -1360,6 +1307,25 @@ function AppContent() {
       destructive: true,
       onConfirm: performLogout,
     });
+  };
+  const deleteAccount = async (password: string) => {
+    setError("");
+    setBusy(true);
+    try {
+      await api.auth.deleteAccount.mutate({ password });
+      await clearSessionToken();
+      setAccountDeletionVisible(false);
+      setUser(null);
+      setLedgers([]);
+      clearLedgerWorkspace();
+      setLedgerHome(true);
+      setHomePage("ledgers");
+      showToast("帳號已刪除，已安全登出。你可以隨時使用新電子信箱重新註冊。");
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "刪除帳號失敗，請稍後再試。");
+    } finally {
+      setBusy(false);
+    }
   };
   const openNewTransaction = () => {
     setEditingTransaction(null);
@@ -1396,6 +1362,7 @@ function AppContent() {
               setTransactions(current => current.filter(item => item.id !== transaction.id));
               setCalendarTransactions(current => current.filter(item => item.id !== transaction.id));
               void refresh();
+              showToast("收支已刪除。");
             } catch (removeError) {
               setError(removeError instanceof Error ? removeError.message : "移除收支失敗。");
             }
@@ -1408,6 +1375,7 @@ function AppContent() {
     try {
       await api.ledger.archiveCategory.mutate({ ledgerId: activeLedger!.id, categoryId });
       await refresh();
+      showToast("分類已隱藏。");
     } catch (archiveError) {
       setError(archiveError instanceof Error ? archiveError.message : "移除分類失敗。");
     }
@@ -1416,6 +1384,7 @@ function AppContent() {
     try {
       await api.ledger.archivePaymentMethod.mutate({ ledgerId: activeLedger!.id, paymentMethodId });
       await refresh();
+      showToast("支付方式已隱藏。");
     } catch (archiveError) {
       setError(archiveError instanceof Error ? archiveError.message : "移除支付方式失敗。");
     }
@@ -1424,6 +1393,7 @@ function AppContent() {
     try {
       await api.ledger.deleteCategory.mutate({ ledgerId: activeLedger!.id, categoryId });
       await refresh();
+      showToast("分類已刪除。");
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "刪除分類失敗；若已有歷史交易，請改用隱藏功能。");
     }
@@ -1432,17 +1402,19 @@ function AppContent() {
     try {
       await api.ledger.deletePaymentMethod.mutate({ ledgerId: activeLedger!.id, paymentMethodId });
       await refresh();
+      showToast("支付方式已刪除。");
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "刪除支付方式失敗；若已有歷史交易，請改用隱藏功能。");
     }
   };
-  const afterMutation = async () => {
+  const afterMutation = async (successMessage = "資料已儲存。") => {
     setTransactionModal(false);
     setEditingTransaction(null);
     setBudgetModal(false);
     setRecurringModal(false);
     setSettingsModal(null);
     await refresh();
+    showToast(successMessage);
   };
 
   if (!ready)
@@ -1475,8 +1447,9 @@ function AppContent() {
           caption={homePage === "profile" ? "管理你的 App 偏好" : "建立你的共同財務空間"}
           action={homeHeaderAction}
         />
+        <AccountDeletionModal visible={accountDeletionVisible} busy={busy} error={error} onClose={() => setAccountDeletionVisible(false)} onSubmit={deleteAccount} />
         {homePage === "profile" ? (
-          <PersonalSettingsPage user={user} error={error} settingsNotice={settingsNotice} notificationPreferences={notificationPreferences} onSaveNotificationPreferences={saveNotificationPreferences} onUpdateNickname={updateNickname} onLogout={logout} onBack={() => setHomePage("ledgers")} />
+          <PersonalSettingsPage user={user} error={error} notificationPreferences={notificationPreferences} onSaveNotificationPreferences={saveNotificationPreferences} onUpdateNickname={updateNickname} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
         ) : (
           <EmptyLedger
             error={error}
@@ -1507,6 +1480,7 @@ function AppContent() {
           onSubmit={finishLedgerAction}
         />
         <ConfirmModal request={confirmRequest} onClose={() => setConfirmRequest(null)} />
+        <SuccessToast toast={toast} onDismiss={dismissToast} />
       </>
     );
 
@@ -1519,8 +1493,9 @@ function AppContent() {
           caption={homePage === "profile" ? "管理你的 App 偏好" : "選擇要進入的共同空間"}
           action={homeHeaderAction}
         />
+        <AccountDeletionModal visible={accountDeletionVisible} busy={busy} error={error} onClose={() => setAccountDeletionVisible(false)} onSubmit={deleteAccount} />
         {homePage === "profile" ? (
-          <PersonalSettingsPage user={user} error={error} settingsNotice={settingsNotice} notificationPreferences={notificationPreferences} onSaveNotificationPreferences={saveNotificationPreferences} onUpdateNickname={updateNickname} onLogout={logout} onBack={() => setHomePage("ledgers")} />
+          <PersonalSettingsPage user={user} error={error} notificationPreferences={notificationPreferences} onSaveNotificationPreferences={saveNotificationPreferences} onUpdateNickname={updateNickname} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
         ) : (
           <LedgerHome
             ledgers={ledgers}
@@ -1552,6 +1527,7 @@ function AppContent() {
           onSubmit={finishLedgerAction}
         />
         <ConfirmModal request={confirmRequest} onClose={() => setConfirmRequest(null)} />
+        <SuccessToast toast={toast} onDismiss={dismissToast} />
       </SafeAreaView>
     );
 
@@ -1724,7 +1700,7 @@ function AppContent() {
                 ...input,
               });
             }
-            await afterMutation();
+            await afterMutation(editingTransaction ? "收支已更新。" : "收支已新增。");
           } catch (mutationError) {
             setError(
               mutationError instanceof Error
@@ -1748,7 +1724,7 @@ function AppContent() {
           mutationGuardRef.current.add(mutationKey);
           try {
             await api.ledger.upsertBudget.mutate(input);
-            await afterMutation();
+            await afterMutation("預算已儲存。");
           } catch (mutationError) {
             setError(
               mutationError instanceof Error
@@ -1775,7 +1751,7 @@ function AppContent() {
               ledgerId: activeLedger!.id,
               ...input,
             });
-            await afterMutation();
+            await afterMutation("固定收支已建立。");
           } catch (mutationError) {
             setError(
               mutationError instanceof Error
@@ -1848,7 +1824,7 @@ function AppContent() {
                 name: input.name,
                 icon: input.icon,
               });
-            await afterMutation();
+            await afterMutation(settingsModal === "category" ? "分類已新增。" : "支付方式已新增。");
           } catch (mutationError) {
             setError(
               mutationError instanceof Error
@@ -1861,79 +1837,153 @@ function AppContent() {
                 }}
       />
       <ConfirmModal request={confirmRequest} onClose={() => setConfirmRequest(null)} />
+      <SuccessToast toast={toast} onDismiss={dismissToast} />
     </SafeAreaView>
   );
 }
-function LoginScreen({
 
+function SuccessToast({
+  toast,
+  onDismiss,
+}: {
+  toast: { id: number; message: string } | null;
+  onDismiss: (id: number) => void;
+}) {
+  const { palette, preferences } = useAppearance();
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(12)).current;
+
+  useEffect(() => {
+    if (!toast) return;
+    opacity.setValue(0);
+    translateY.setValue(12);
+    Animated.parallel([
+      Animated.timing(opacity, { toValue: 1, duration: preferences.reduceMotion ? 0 : 180, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(translateY, { toValue: 0, duration: preferences.reduceMotion ? 0 : 180, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+    ]).start();
+    const timeoutId = setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(opacity, { toValue: 0, duration: preferences.reduceMotion ? 0 : 160, useNativeDriver: true }),
+        Animated.timing(translateY, { toValue: 8, duration: preferences.reduceMotion ? 0 : 160, useNativeDriver: true }),
+      ]).start(({ finished }) => {
+        if (finished) onDismiss(toast.id);
+      });
+    }, 5_000);
+    return () => clearTimeout(timeoutId);
+  }, [onDismiss, opacity, preferences.reduceMotion, toast, translateY]);
+
+  if (!toast) return null;
+  return (
+    <View pointerEvents="none" style={styles.globalToastLayer}>
+      <Animated.View style={[styles.globalToast, { borderColor: palette.sage, backgroundColor: palette.surface, opacity, transform: [{ translateY }] }]}>
+        <MaterialCommunityIcons name="check-circle-outline" size={18} color={palette.sage} />
+        <Text style={[styles.globalToastText, { color: palette.ink }]}>{toast.message}</Text>
+      </Animated.View>
+    </View>
+  );
+}
+
+function LoginScreen({
   error,
   busy,
   onLogin,
 }: {
   error: string;
   busy: boolean;
-  onLogin: (mode: "signIn" | "signUp") => void;
+  onLogin: (input: { mode: "signIn" | "signUp"; email: string; password: string; name?: string }) => void;
 }) {
   const { palette } = useAppearance();
+  const [mode, setMode] = useState<"signIn" | "signUp">("signIn");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [name, setName] = useState("");
+  const isSignUp = mode === "signUp";
+  const submit = () => {
+    if (!email.trim() || !password || (isSignUp && !name.trim())) return;
+    onLogin({ mode, email: email.trim(), password, name: name.trim() || undefined });
+  };
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "bottom"]}>
       <ThemeAtmosphere />
-      <ScrollView contentContainerStyle={styles.loginContent}>
-        <View style={styles.brandMark}>
-          <MaterialCommunityIcons name="heart" size={28} color={colors.rose} />
-        </View>
-        <Text style={styles.brandTitle}>共帳</Text>
-        <Text style={styles.brandSubtitle}>TOGETHER LEDGER</Text>
-        <Text style={styles.loginHeading}>
-          和重要的人，{"\n"}一起把生活記清楚。
-        </Text>
-        <Text style={styles.loginDescription}>
-          專為情侶、室友與家庭設計的共同帳本。
-        </Text>
-        <View style={styles.formCard}>
-          <Text style={styles.formTitle}>登入／註冊共帳</Text>
-          <Text style={styles.formBody}>
-            請點擊下方按鈕登入或註冊您的共帳帳號。登入後可建立新帳本或透過邀請加入共同記帳空間。
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <ScrollView contentContainerStyle={styles.loginContent} keyboardShouldPersistTaps="handled">
+          <View style={styles.brandMark}>
+            <MaterialCommunityIcons name="heart" size={28} color={colors.rose} />
+          </View>
+          <Text style={styles.brandTitle}>共帳</Text>
+          <Text style={styles.brandSubtitle}>TOGETHER LEDGER</Text>
+          <Text style={styles.loginHeading}>
+            和重要的人，{"\n"}一起把生活記清楚。
           </Text>
-          {!!error && <Text style={styles.errorText}>{error}</Text>}
-          <Pressable
-            disabled={busy}
-            onPress={() => onLogin("signIn")}
-            style={({ pressed }) => [
-              styles.primaryButton,
-              pressed && styles.pressed,
-              busy && styles.disabled,
-            ]}
-          >
-            <Text style={styles.primaryButtonText}>
-              {busy ? "處理中…" : "登入"}
+          <Text style={styles.loginDescription}>
+            專為情侶、室友與家庭設計的共同帳本。
+          </Text>
+          <View style={styles.formCard}>
+            <Text style={styles.formTitle}>登入／註冊共帳</Text>
+            <Text style={styles.formBody}>
+              使用電子信箱與密碼登入；登入後可建立新帳本或透過邀請加入共同記帳空間。
             </Text>
-            {busy ? (
-              <ActivityIndicator color="#FFFFFF" />
-            ) : (
-              <MaterialCommunityIcons
-                name="arrow-right"
-                size={19}
-                color="#FFFFFF"
+            {!!error && <Text style={styles.errorText}>{error}</Text>}
+            {isSignUp && (
+              <TextInput
+                value={name}
+                onChangeText={setName}
+                placeholder="暱稱"
+                placeholderTextColor={palette.muted}
+                style={[styles.input, { backgroundColor: palette.surface, borderColor: palette.border, color: palette.ink }]}
+                autoCapitalize="words"
+                autoComplete="name"
+                returnKeyType="next"
               />
             )}
-          </Pressable>
-          <Pressable
-            disabled={busy}
-            onPress={() => onLogin("signUp")}
-            style={({ pressed }) => [
-              styles.secondaryButton,
-              pressed && styles.pressed,
-              busy && styles.disabled,
-            ]}
-          >
-            <Text style={styles.secondaryButtonText}>第一次使用？建立帳號</Text>
-          </Pressable>
-        </View>
-        <Text style={styles.privacyText}>
-          新帳本完全空白，所有交易與預算均由雙方手動記錄。
-        </Text>
-      </ScrollView>
+            <TextInput
+              value={email}
+              onChangeText={setEmail}
+              placeholder="電子信箱"
+              placeholderTextColor={palette.muted}
+              style={[styles.input, { backgroundColor: palette.surface, borderColor: palette.border, color: palette.ink }]}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="email"
+              textContentType="emailAddress"
+              returnKeyType="next"
+            />
+            <TextInput
+              value={password}
+              onChangeText={setPassword}
+              placeholder="密碼（至少 8 個字元）"
+              placeholderTextColor={palette.muted}
+              style={[styles.input, { backgroundColor: palette.surface, borderColor: palette.border, color: palette.ink }]}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete={isSignUp ? "new-password" : "current-password"}
+              textContentType={isSignUp ? "newPassword" : "password"}
+              onSubmitEditing={submit}
+              returnKeyType="done"
+            />
+            <Pressable
+              disabled={busy}
+              onPress={submit}
+              style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed, busy && styles.disabled]}
+            >
+              <Text style={styles.primaryButtonText}>{busy ? "處理中…" : isSignUp ? "建立帳號" : "登入"}</Text>
+              {busy ? <ActivityIndicator color="#FFFFFF" /> : <MaterialCommunityIcons name="arrow-right" size={19} color="#FFFFFF" />}
+            </Pressable>
+            <Pressable
+              disabled={busy}
+              onPress={() => setMode(current => current === "signIn" ? "signUp" : "signIn")}
+              style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed, busy && styles.disabled]}
+            >
+              <Text style={styles.secondaryButtonText}>{isSignUp ? "已有帳號？直接登入" : "第一次使用？建立帳號"}</Text>
+            </Pressable>
+          </View>
+          <Text style={styles.privacyText}>
+            新帳本完全空白，所有交易與預算均由雙方手動記錄。
+          </Text>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -2922,20 +2972,20 @@ function PlanningSection({
 function PersonalSettingsPage({
   user,
   error,
-  settingsNotice,
   notificationPreferences,
   onSaveNotificationPreferences,
   onUpdateNickname,
   onLogout,
+  onDeleteAccount,
   onBack,
 }: {
   user: User;
   error: string;
-  settingsNotice: string;
   notificationPreferences: NotificationPreferences;
   onSaveNotificationPreferences: (preferences: NotificationPreferences) => void | Promise<void>;
   onUpdateNickname: (name: string) => void | Promise<void>;
   onLogout: () => void;
+  onDeleteAccount: () => void;
   onBack: () => void;
 }) {
   const { preferences, palette, updatePreferences } = useAppearance();
@@ -2998,7 +3048,6 @@ function PersonalSettingsPage({
           body="這些偏好只會影響你的裝置，不會改變共同帳本資料。"
         />
         {!!error && <Text style={styles.globalError}>{error}</Text>}
-        {!!settingsNotice && <View style={styles.settingsNotice}><MaterialCommunityIcons name="check-circle-outline" size={18} color={palette.sage} /><Text style={styles.settingsNoticeText}>{settingsNotice}</Text></View>}
         <View style={styles.profileSettingsShell}>
         <View style={styles.settingsGroupCard}>
           <View style={styles.cardHeading}>
@@ -3219,6 +3268,16 @@ style={styles.input}
         <MaterialCommunityIcons name="logout" size={17} color={palette.rose} />
         <Text style={styles.outlineButtonText}>登出帳號</Text>
       </Pressable>
+      <View style={[styles.accountDeletePanel, { borderColor: palette.rose }]}>
+        <View style={styles.preferenceCopy}>
+          <Text style={[styles.rowTitle, { color: palette.rose }]}>刪除帳號</Text>
+          <Text style={styles.rowSubtitle}>需要再次輸入密碼。帳本會依成員狀況轉讓或移除，無法復原。</Text>
+        </View>
+        <Pressable onPress={onDeleteAccount} style={({ pressed }) => [styles.accountDeleteButton, { backgroundColor: palette.rose }, pressed && styles.pressed]}>
+          <MaterialCommunityIcons name="delete-outline" size={17} color="#FFFFFF" />
+          <Text style={styles.accountDeleteButtonText}>刪除帳號</Text>
+        </Pressable>
+      </View>
       <Pressable onPress={onBack} style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
         <MaterialCommunityIcons name="arrow-left" size={17} color={palette.rose} />
         <Text style={styles.secondaryButtonText}>返回我的帳本</Text>
@@ -3675,7 +3734,7 @@ function SettingsSection({
             {pendingItemAction ? <View style={styles.managerActionPanel}>
               <View style={styles.managerActionNotice}><MaterialCommunityIcons name="information-outline" size={18} color={palette.rose} /><Text style={styles.managerActionNoticeText}>已有交易、預算或固定收支引用的項目不能永久刪除；隱藏後可隨時由「已隱藏項目」恢復。</Text></View>
               <Pressable onPress={() => resolveItemAction("archive")} style={[styles.confirmPrimary, { backgroundColor: palette.rose }]}><MaterialCommunityIcons name="archive-arrow-down-outline" size={18} color="#FFFFFF" /><Text style={styles.confirmPrimaryText}>隱藏，保留歷史紀錄</Text></Pressable>
-              <Pressable onPress={() => resolveItemAction("delete")} style={styles.confirmDanger}><MaterialCommunityIcons name="delete-outline" size={18} color={palette.danger} /><Text style={styles.confirmDangerText}>永久刪除（未被使用時）</Text></Pressable>
+              <Pressable onPress={() => resolveItemAction("delete")} style={styles.confirmDanger}><MaterialCommunityIcons name="delete-outline" size={18} color={palette.rose} /><Text style={styles.confirmDangerText}>永久刪除（未被使用時）</Text></Pressable>
               <Pressable onPress={() => setPendingItemAction(null)} style={styles.confirmCancel}><Text style={styles.confirmCancelText}>返回清單</Text></Pressable>
             </View> : <>
             {managerModal === "category" && <>
@@ -4271,6 +4330,71 @@ function ConfirmModal({
   );
 }
 
+function AccountDeletionModal({
+  visible,
+  busy,
+  error,
+  onClose,
+  onSubmit,
+}: {
+  visible: boolean;
+  busy: boolean;
+  error: string;
+  onClose: () => void;
+  onSubmit: (password: string) => void | Promise<void>;
+}) {
+  const { palette } = useAppearance();
+  const [password, setPassword] = useState("");
+  useEffect(() => {
+    if (!visible) setPassword("");
+  }, [visible]);
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <KeyboardAvoidingView style={styles.confirmOverlay} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <Pressable style={styles.confirmDismiss} onPress={busy ? undefined : onClose} />
+        <View style={[styles.confirmCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+          <ScrollView contentContainerStyle={styles.confirmContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            <View style={[styles.confirmIcon, { backgroundColor: palette.roseSoft }]}>
+              <MaterialCommunityIcons name="alert-outline" size={24} color={palette.rose} />
+            </View>
+            <Text style={styles.confirmTitle}>永久刪除帳號</Text>
+            <Text style={styles.confirmMessage}>這個動作無法復原。你會退出所有帳本；若你是有其他成員帳本的持有者，所有權會轉給最早加入的成員；若沒有其他成員，該帳本資料會一併刪除。</Text>
+            <Text style={[styles.personalizationLabel, { color: palette.rose }]}>輸入目前密碼以確認</Text>
+            <TextInput
+              value={password}
+              onChangeText={setPassword}
+              placeholder="目前密碼"
+              placeholderTextColor={palette.muted}
+              style={[styles.input, { backgroundColor: palette.surface, borderColor: palette.border, color: palette.ink }]}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="current-password"
+              textContentType="password"
+              editable={!busy}
+              onSubmitEditing={() => void onSubmit(password)}
+              returnKeyType="done"
+            />
+            {!!error && <Text style={styles.errorText}>{error}</Text>}
+            <View style={styles.confirmActions}>
+              <Pressable disabled={busy} onPress={onClose} style={[styles.confirmCancel, { borderColor: palette.border }, busy && styles.disabled]}>
+                <Text style={[styles.confirmCancelText, { color: palette.muted }]}>取消</Text>
+              </Pressable>
+              <Pressable
+                disabled={busy || !password}
+                onPress={() => void onSubmit(password)}
+                style={({ pressed }) => [styles.confirmPrimary, { backgroundColor: palette.rose }, (pressed || busy || !password) && styles.pressed, (busy || !password) && styles.disabled]}
+              >
+                {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.confirmPrimaryText}>永久刪除</Text>}
+              </Pressable>
+            </View>
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
 function TransactionModal({
   visible,
   editingTransaction,
@@ -4473,8 +4597,15 @@ function TransactionModal({
         keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
       >
         <Pressable style={styles.modalDismiss} onPress={onClose} />
-        <ScrollView style={styles.modalScroll}>
-          <View style={styles.modalCard}>
+        <ScrollView
+          style={styles.modalScroll}
+          contentContainerStyle={styles.transactionModalScrollContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          automaticallyAdjustKeyboardInsets
+          showsVerticalScrollIndicator
+        >
+          <View style={[styles.modalCard, styles.transactionModalCard]}>
           <View style={styles.modalHandle} />
           <Text style={styles.modalTitle}>{editingTransaction ? "編輯收支記錄" : "新增收支記錄"}</Text>
             <Text style={styles.modalDescription}>
@@ -4483,11 +4614,11 @@ function TransactionModal({
             <View style={styles.receiptActions}>
               <Pressable disabled={scanning} onPress={() => pickReceipt("camera")} style={styles.receiptButton}>
                 <MaterialCommunityIcons name="camera-outline" size={17} color={palette.rose} />
-                <Text style={styles.receiptButtonText}>{scanning ? "辨識中…" : "拍照掃描發票"}</Text>
+                <Text style={styles.receiptButtonText} numberOfLines={1}>{scanning ? "辨識中…" : "拍照掃描發票"}</Text>
               </Pressable>
               <Pressable disabled={scanning} onPress={() => pickReceipt("library")} style={styles.receiptButton}>
                 <MaterialCommunityIcons name="image-multiple-outline" size={17} color={palette.rose} />
-                <Text style={styles.receiptButtonText}>從相簿選圖</Text>
+                <Text style={styles.receiptButtonText} numberOfLines={1}>從相簿選圖</Text>
               </Pressable>
             </View>
             {paymentMethods.length === 0 && (
@@ -4615,7 +4746,7 @@ function TransactionModal({
                   {splitType !== "equal" && splitType !== "none" &&
                     members.map(member => (
                       <View key={member.user.id} style={styles.splitInputRow}>
-                        <Text style={styles.rowTitle}>
+                        <Text style={styles.splitMemberName} numberOfLines={1}>
                           {member.user.name || member.user.email || "成員"}
                         </Text>
                         <TextInput
@@ -4724,6 +4855,7 @@ function OptionScroller({
           ]}
         >
           <Text
+            numberOfLines={1}
             style={[
               styles.optionChipText,
               value === item.id && styles.optionChipTextActive,
@@ -5786,14 +5918,15 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     fontSize: 13,
     fontWeight: "700",
   },
-  rowTitle: { color: palette.ink, fontSize: 13, fontWeight: "600" },
+  rowTitle: { flexShrink: 1, color: palette.ink, fontSize: 13, fontWeight: "600" },
   rowSubtitle: {
     marginTop: 4,
+    flexShrink: 1,
     color: palette.muted,
     fontSize: 11,
     lineHeight: 17,
   },
-  rowAmount: { color: palette.ink, fontSize: 13, fontWeight: "700" },
+  rowAmount: { flexShrink: 1, color: palette.ink, fontSize: 13, fontWeight: "700" },
   incomeText: { color: palette.sage },
   insightCard: {
     flexDirection: "row",
@@ -5847,19 +5980,28 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     backgroundColor: palette.rose,
   },
   smallButtonText: { color: "#FFFFFF", fontSize: 11, fontWeight: "700" },
-  settingsNotice: {
+  globalToastLayer: {
+    position: "absolute",
+    right: 16,
+    bottom: 78,
+    zIndex: 100,
+    elevation: 100,
+    maxWidth: "88%",
+  },
+  globalToast: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    marginBottom: 12,
-    paddingHorizontal: 13,
-    paddingVertical: 10,
+    gap: 9,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
     borderWidth: 1,
-    borderColor: palette.sage,
-    borderRadius: 13,
-    backgroundColor: palette.surface,
+    borderRadius: 15,
+    shadowColor: "#000000",
+    shadowOffset: { width: 0, height: 7 },
+    shadowOpacity: 0.14,
+    shadowRadius: 14,
   },
-  settingsNoticeText: { flex: 1, color: palette.sage, fontSize: 13, fontWeight: "700" },
+  globalToastText: { flexShrink: 1, fontSize: 13, fontWeight: "700", lineHeight: 19 },
   keyboardAvoiding: { flex: 1 },
   settingsDivider: { height: 1, marginVertical: 18, backgroundColor: palette.border },
   appVersionText: { marginTop: 5, color: palette.rose, fontSize: 11, fontWeight: "800" },
@@ -5900,6 +6042,23 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     backgroundColor: palette.surface,
   },
   outlineButtonText: { color: palette.rose, fontSize: 12, fontWeight: "700" },
+  accountDeletePanel: {
+    marginTop: 16,
+    padding: 14,
+    gap: 12,
+    borderWidth: 1,
+    borderRadius: 16,
+    backgroundColor: palette.roseSoft,
+  },
+  accountDeleteButton: {
+    minHeight: 42,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    borderRadius: 12,
+  },
+  accountDeleteButtonText: { color: "#FFFFFF", fontSize: 13, fontWeight: "800" },
   dangerButton: {
     minHeight: 44,
     flexDirection: "row",
@@ -6110,8 +6269,8 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
   transactionActions: { flexDirection: "row", alignItems: "center", gap: 3, marginLeft: 6 },
   rowActionButton: { width: 28, height: 28, alignItems: "center", justifyContent: "center", borderRadius: 9, backgroundColor: palette.roseSoft },
   receiptActions: { flexDirection: "row", gap: 8, marginBottom: 14 },
-  receiptButton: { flex: 1, minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, borderWidth: 1, borderColor: palette.border, borderRadius: 12, backgroundColor: palette.surface },
-  receiptButtonText: { color: palette.rose, fontSize: 11, fontWeight: "700" },
+  receiptButton: { flex: 1, minWidth: 0, minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingHorizontal: 8, borderWidth: 1, borderColor: palette.border, borderRadius: 12, backgroundColor: palette.surface },
+  receiptButtonText: { flexShrink: 1, color: palette.rose, fontSize: 11, fontWeight: "700" },
   datePickerTrigger: { minHeight: 48, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, borderWidth: 1, borderColor: palette.border, borderRadius: 13, backgroundColor: palette.surface },
   datePickerValueRow: { flexDirection: "row", alignItems: "center", gap: 9 },
   datePickerText: { color: palette.ink, fontSize: 14, fontWeight: "700" },
@@ -6162,6 +6321,7 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
   },
   modalDismiss: { flex: 1 },
   modalScroll: { width: "100%", alignSelf: "center", maxHeight: "92%" },
+  transactionModalScrollContent: { flexGrow: 1, justifyContent: "flex-end", paddingBottom: 6 },
   modalCard: {
     width: "100%",
     alignSelf: "center",
@@ -6173,6 +6333,7 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     borderTopRightRadius: 28,
     backgroundColor: palette.surface,
   },
+  transactionModalCard: { minHeight: "100%", paddingBottom: 78 },
   modalHandle: {
     alignSelf: "center",
     width: 44,
@@ -6214,6 +6375,7 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
   },
   optionScroller: { gap: 8, paddingBottom: 4 },
   optionChip: {
+    maxWidth: 240,
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderWidth: 1,
@@ -6225,7 +6387,7 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     borderColor: palette.rose,
     backgroundColor: palette.roseSoft,
   },
-  optionChipText: { color: palette.muted, fontSize: 12 },
+  optionChipText: { flexShrink: 1, color: palette.muted, fontSize: 12 },
   optionChipTextActive: { color: palette.rose, fontWeight: "700" },
   emojiPicker: { marginBottom: 14 },
   emojiPickerRow: { gap: 8, paddingBottom: 4 },
@@ -6265,14 +6427,16 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     borderColor: palette.rose,
     backgroundColor: palette.roseSoft,
   },
-  miniSegmentText: { color: palette.muted, fontSize: 11 },
+  miniSegmentText: { flexShrink: 1, color: palette.muted, fontSize: 11, textAlign: "center" },
   miniSegmentTextActive: { color: palette.rose, fontWeight: "700" },
   splitInputRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    gap: 10,
     marginBottom: 8,
   },
+  splitMemberName: { flex: 1, flexShrink: 1, color: palette.ink, fontSize: 13, fontWeight: "600" },
   splitInput: {
     width: 130,
     minHeight: 42,
