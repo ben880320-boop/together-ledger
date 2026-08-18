@@ -8,6 +8,7 @@ build/
 *.dist
 # Android APK delivery artifacts (kept outside the project for download)
 together-ledger-builds/
+release-assets/
 
 # Environment variables
 .env

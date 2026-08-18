@@ -271,4 +271,4 @@
 - [x] 以電子信箱與密碼取代 Manus OAuth 登入／註冊，建立安全的帳密保存與登入流程
 - [x] 在個人設定提供安全的帳號刪除功能，包含不可逆警告、確認步驟與資料處理
 - [x] 修正 Web 部署的 pnpm ignored-builds 設定，恢復檢查點自動部署
-- [ ] 補齊測試、建置 v1.2.8 Android APK 並驗證 Release 產物
+- [x] 補齊測試、建置 v1.2.8 Android APK 並驗證 Release 產物（42 項 Vitest、行動端回歸、Android 核心流程與 TypeScript 檢查通過；GitHub Actions run #32097036297 成功，APK SHA-256 已獨立驗證）
