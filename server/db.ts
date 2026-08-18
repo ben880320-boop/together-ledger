@@ -2,6 +2,7 @@ import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { nanoid } from "nanoid";
 import { and, asc, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
+import { createPool, type Pool } from "mysql2";
 import {
   InsertUser,
   User,
@@ -24,11 +25,13 @@ import {
 import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
+let _pool: Pool | null = null;
 
-export async function getDb() {
+function initializeDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      _pool ??= createPool(process.env.DATABASE_URL);
+      _db = drizzle({ client: _pool });
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
       _db = null;
@@ -37,20 +40,16 @@ export async function getDb() {
   return _db;
 }
 
+export async function getDb() {
+  return initializeDb();
+}
+
 function requireDb() {
   // Public auth routes may be the first request after a cold start, before an
-  // authenticated context has had a chance to call getDb(). Drizzle's client
-  // construction is synchronous, so initialize the cache here as well.
-  if (!_db && process.env.DATABASE_URL) {
-    try {
-      _db = drizzle(process.env.DATABASE_URL);
-    } catch (error) {
-      console.warn("[Database] Failed to initialize required connection:", error);
-      _db = null;
-    }
-  }
-  if (!_db) throw new Error("Database is not available");
-  return _db;
+  // authenticated context has had a chance to call getDb().
+  const db = initializeDb();
+  if (!db) throw new Error("Database is not available");
+  return db;
 }
 
 export type NotificationPreferenceInput = {
