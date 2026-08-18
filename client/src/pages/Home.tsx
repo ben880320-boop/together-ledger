@@ -142,7 +142,27 @@ function DonutChart({ values }: { values: { value: number; color: string }[] }) 
   return <div className="relative h-40 w-40 rounded-full" style={{ background: `conic-gradient(${segments.join(", ")})` }}><div className="absolute inset-[18px] flex flex-col items-center justify-center rounded-full bg-[#FFFCF9]"><span className="text-[11px] text-[#9B8C86]">本月支出</span><strong className="mt-1 text-lg font-semibold text-[#3A2F2B]">31,850</strong></div></div>;
 }
 
+/**
+ * 正式網域一律使用新版產品入口。
+ *
+ * 先前此檔案會依登入狀態切到下方的舊版靜態模擬帳本；因此已登入的
+ * 使用者會誤以為網站回退到舊版本。該畫面不含真實帳本資料，不能作為
+ * 正式網站入口。若需比對舊版視覺，僅允許在本機開發環境以
+ * `?legacyWorkspacePreview=1` 開啟。
+ */
 export default function Home() {
+  const allowLegacyWorkspacePreview =
+    import.meta.env.DEV &&
+    new URLSearchParams(window.location.search).get("legacyWorkspacePreview") === "1";
+
+  if (!allowLegacyWorkspacePreview) {
+    return <LoginLanding onLogin={() => startLogin()} />;
+  }
+
+  return <LegacyWorkspacePreview />;
+}
+
+function LegacyWorkspacePreview() {
   const { user, loading } = useAuth();
   const [activeNav, setActiveNav] = useState<NavKey>("overview");
   const [transactions, setTransactions] = useState(initialTransactions);
