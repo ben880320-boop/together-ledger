@@ -725,7 +725,7 @@ export async function logActivity(input: {
   ledgerId: number;
   userId: number;
   action: "create" | "update" | "delete";
-  entityType: "transaction" | "category" | "paymentMethod";
+  entityType: "transaction" | "category" | "paymentMethod" | "budget" | "recurring";
   entityId: number;
   summary: string;
   metadata?: Record<string, unknown>;
@@ -853,6 +853,12 @@ export async function upsertBudget(input: { ledgerId: number; categoryId: number
   return Number(result[0].insertId);
 }
 
+export async function deleteBudget(input: { id: number; ledgerId: number }) {
+  const db = requireDb();
+  await db.delete(budgets).where(and(eq(budgets.id, input.id), eq(budgets.ledgerId, input.ledgerId)));
+  return input.id;
+}
+
 export async function listRecurring(ledgerId: number) {
   const db = await getDb();
   if (!db) return [];
@@ -873,6 +879,36 @@ export async function createRecurring(input: {
   const db = requireDb();
   const result = await db.insert(recurringTransactions).values(input);
   return Number(result[0].insertId);
+}
+
+export async function updateRecurring(input: {
+  id: number;
+  ledgerId: number;
+  title: string;
+  amount: number;
+  type: "expense" | "income";
+  categoryId: number;
+  paymentMethodId: number;
+  frequency: "weekly" | "monthly" | "yearly";
+  dayOfMonth: number;
+}) {
+  const db = requireDb();
+  await db.update(recurringTransactions).set({
+    title: input.title,
+    amount: input.amount,
+    type: input.type,
+    categoryId: input.categoryId,
+    paymentMethodId: input.paymentMethodId,
+    frequency: input.frequency,
+    dayOfMonth: input.dayOfMonth,
+  }).where(and(eq(recurringTransactions.id, input.id), eq(recurringTransactions.ledgerId, input.ledgerId)));
+  return input.id;
+}
+
+export async function deleteRecurring(input: { id: number; ledgerId: number }) {
+  const db = requireDb();
+  await db.delete(recurringTransactions).where(and(eq(recurringTransactions.id, input.id), eq(recurringTransactions.ledgerId, input.ledgerId)));
+  return input.id;
 }
 
 /**

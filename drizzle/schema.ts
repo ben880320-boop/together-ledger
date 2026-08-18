@@ -130,7 +130,7 @@ export const activityLogs = mysqlTable("activityLogs", {
   ledgerId: int("ledgerId").notNull(),
   userId: int("userId").notNull(),
   action: mysqlEnum("action", ["create", "update", "delete"]).notNull(),
-  entityType: mysqlEnum("entityType", ["transaction", "category", "paymentMethod"]).notNull(),
+  entityType: mysqlEnum("entityType", ["transaction", "category", "paymentMethod", "budget", "recurring"]).notNull(),
   entityId: int("entityId").notNull(),
   summary: varchar("summary", { length: 255 }).notNull(),
   metadata: text("metadata"),

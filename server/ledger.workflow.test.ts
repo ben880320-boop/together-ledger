@@ -31,12 +31,15 @@ const mocks = vi.hoisted(() => ({
   listTravelPlans: vi.fn(),
   createTravelPlan: vi.fn(),
   deleteTravelPlan: vi.fn(),
+  deleteBudget: vi.fn(),
   logActivity: vi.fn(),
   listBudgets: vi.fn(),
   listLedgersForUser: vi.fn(),
   listRecurring: vi.fn(),
   listSettlements: vi.fn(),
   upsertBudget: vi.fn(),
+  updateRecurring: vi.fn(),
+  deleteRecurring: vi.fn(),
   getNotificationPreferences: vi.fn(),
   updateNotificationPreferences: vi.fn(),
   updateNotificationScheduleTaskUid: vi.fn(),
@@ -92,6 +95,9 @@ describe("typed ledger workflow contract", () => {
     mocks.createRecurring.mockResolvedValue(13);
     mocks.createTransaction.mockResolvedValue(14);
     mocks.upsertBudget.mockResolvedValue(15);
+    mocks.deleteBudget.mockResolvedValue(15);
+    mocks.updateRecurring.mockResolvedValue(13);
+    mocks.deleteRecurring.mockResolvedValue(13);
     mocks.getSettlementSummary.mockResolvedValue({
       balances: [{ userId: 1, net: 500 }, { userId: 2, net: -500 }],
       settlement: { fromUserId: 2, toUserId: 1, amount: 500 },
@@ -233,6 +239,29 @@ describe("typed ledger workflow contract", () => {
     expect(mocks.createPaymentMethod).toHaveBeenCalledWith(expect.objectContaining({ name: "Cube 卡" }));
     expect(mocks.upsertBudget).toHaveBeenCalledWith(expect.objectContaining({ amount: 8000, month: "2026-08" }));
     expect(mocks.createRecurring).toHaveBeenCalledWith(expect.objectContaining({ frequency: "monthly", dayOfMonth: 5, userId: 1 }));
+  });
+
+  it("updates and deletes planning items through the authorized ledger route", async () => {
+    const caller = appRouter.createCaller(createTestContext());
+    await caller.ledger.deleteBudget({ ledgerId: 1, budgetId: 15 });
+    await caller.ledger.updateRecurring({
+      ledgerId: 1,
+      recurringId: 13,
+      title: "更新後房租",
+      amount: 18000,
+      type: "expense",
+      categoryId: 11,
+      paymentMethodId: 12,
+      frequency: "monthly",
+      dayOfMonth: 5,
+    });
+    await caller.ledger.deleteRecurring({ ledgerId: 1, recurringId: 13 });
+
+    expect(mocks.deleteBudget).toHaveBeenCalledWith({ ledgerId: 1, id: 15 });
+    expect(mocks.updateRecurring).toHaveBeenCalledWith(expect.objectContaining({ id: 13, ledgerId: 1, title: "更新後房租" }));
+    expect(mocks.deleteRecurring).toHaveBeenCalledWith({ ledgerId: 1, id: 13 });
+    expect(mocks.logActivity).toHaveBeenCalledWith(expect.objectContaining({ entityType: "budget", action: "delete" }));
+    expect(mocks.logActivity).toHaveBeenCalledWith(expect.objectContaining({ entityType: "recurring", action: "update" }));
   });
 
   it("updates, searches through, and toggles managed categories and payment methods", async () => {

@@ -58,7 +58,7 @@ const checks = [
   ["帳本載入採單一工作區快照以減少請求", app.includes('api.ledger.workspace.query') && router.includes('workspace: protectedProcedure') && router.includes('Promise.all([')],
   ["個人設定提供密碼確認的帳號刪除流程", app.includes('function AccountDeletionModal(') && app.includes('永久刪除帳號') && app.includes('api.auth.deleteAccount.mutate') && router.includes('deleteAccount: protectedProcedure') && db.includes('deleteUserAccount')],
   ["交易與輸入彈窗可捲動並具備鍵盤安全區", app.includes("modalScrollableContent") && app.includes('keyboardDismissMode="on-drag"') && app.includes("automaticallyAdjustKeyboardInsets") && app.includes("transactionModalScrollContent: { flexGrow: 1, paddingBottom: 12 }") && !app.includes('transactionModalScrollContent: { flexGrow: 1, justifyContent: "flex-end"') && !app.includes('transactionModalCard: { minHeight: "100%"')],
-  ["Android 交付版本為 1.2.8.2", appConfig.includes('"version": "1.2.8.2"') && appConfig.includes('"versionCode": 12')],
+  ["Android 交付版本為 1.2.8.3", appConfig.includes('"version": "1.2.8.3"') && appConfig.includes('"versionCode": 13')],
 ];
 
 const failed = checks.filter(([, passed]) => !passed).map(([label]) => label);

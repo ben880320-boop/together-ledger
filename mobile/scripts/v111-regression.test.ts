@@ -216,13 +216,30 @@ describe("Together Ledger v1.2.8 Android wiring", () => {
     expect(router).toContain("Promise.all([");
   });
 
+  it("keeps editable and removable category budgets and recurring entries", () => {
+    const app = readMobile("app/index.tsx");
+    const router = readFileSync(resolve(process.cwd(), "server/routers.ts"), "utf8");
+    expect(app).toContain("編輯分類預算");
+    expect(app).toContain("再次確認移除預算");
+    expect(app).toContain("api.ledger.deleteBudget.mutate");
+    expect(app).toContain("editingBudget");
+    expect(app).toContain("編輯固定收支");
+    expect(app).toContain("再次確認移除固定收支");
+    expect(app).toContain("api.ledger.updateRecurring.mutate");
+    expect(app).toContain("api.ledger.deleteRecurring.mutate");
+    expect(app).toContain("editingRecurring");
+    expect(router).toContain("deleteBudget: protectedProcedure");
+    expect(router).toContain("updateRecurring: protectedProcedure");
+    expect(router).toContain("deleteRecurring: protectedProcedure");
+  });
+
   it("ships the intended app version and deep-link configuration", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
       expo?: { version?: string; scheme?: string; android?: { versionCode?: number } };
     };
-    expect(appJson.expo?.version).toBe("1.2.8.2");
-    expect(appJson.expo?.android?.versionCode).toBe(12);
-    expect(readMobile("package.json")).toContain('"version": "1.2.8.2"');
+    expect(appJson.expo?.version).toBe("1.2.8.3");
+    expect(appJson.expo?.android?.versionCode).toBe(13);
+    expect(readMobile("package.json")).toContain('"version": "1.2.8.3"');
     expect(appJson.expo?.scheme).toBe("togetherledger");
     expect(readMobile("app.json")).toContain("expo-notifications");
     expect(readMobile("app.json")).toContain('"googleServicesFile": "./google-services.json"');

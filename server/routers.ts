@@ -9,13 +9,16 @@ import {
   archiveCategory,
   archivePaymentMethod,
   deleteCategory,
+  deleteBudget,
   deletePaymentMethod,
+  deleteRecurring,
   createCategory,
   updateCategory,
   setCategoryActive,
   createLedger,
   createPaymentMethod,
   updatePaymentMethod,
+  updateRecurring,
   setPaymentMethodActive,
   createRecurring,
   createSettlement,
@@ -604,7 +607,20 @@ export const appRouter = router({
       .query(({ ctx, input }) => requireLedger(input.ledgerId, ctx.user.id).then(() => listBudgets(input.ledgerId, input.month))),
     upsertBudget: protectedProcedure
       .input(z.object({ ledgerId: z.number().int().positive(), categoryId: z.number().int().nonnegative(), amount: z.number().int().positive().max(100_000_000), month: z.string().regex(/^\d{4}-\d{2}$/) }))
-      .mutation(({ ctx, input }) => requireLedger(input.ledgerId, ctx.user.id).then(() => upsertBudget(input))),
+      .mutation(async ({ ctx, input }) => {
+        await requireLedger(input.ledgerId, ctx.user.id);
+        const id = await upsertBudget(input);
+        await logActivity({ ledgerId: input.ledgerId, userId: ctx.user.id, action: "update", entityType: "budget", entityId: id, summary: `儲存 ${input.month} 預算` });
+        return id;
+      }),
+    deleteBudget: protectedProcedure
+      .input(z.object({ ledgerId: z.number().int().positive(), budgetId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        await requireLedger(input.ledgerId, ctx.user.id);
+        const id = await deleteBudget({ ledgerId: input.ledgerId, id: input.budgetId });
+        await logActivity({ ledgerId: input.ledgerId, userId: ctx.user.id, action: "delete", entityType: "budget", entityId: id, summary: "移除分類預算" });
+        return id;
+      }),
     recurring: protectedProcedure
       .input(z.object({ ledgerId: z.number().int().positive() }))
       .query(({ ctx, input }) => requireLedger(input.ledgerId, ctx.user.id).then(() => listRecurring(input.ledgerId))),
@@ -613,7 +629,28 @@ export const appRouter = router({
       .mutation(({ ctx, input }) => requireLedger(input.ledgerId, ctx.user.id).then(() => syncDueRecurring(input.ledgerId, ctx.user.id))),
     createRecurring: protectedProcedure
       .input(z.object({ ledgerId: z.number().int().positive(), title: z.string().trim().min(1).max(128), amount: z.number().int().positive(), type: z.enum(["expense", "income"]), categoryId: z.number().int().positive(), paymentMethodId: z.number().int().positive(), frequency: z.enum(["weekly", "monthly", "yearly"]).default("monthly"), dayOfMonth: z.number().int().min(1).max(31).default(1) }))
-      .mutation(({ ctx, input }) => requireLedger(input.ledgerId, ctx.user.id).then(() => createRecurring({ ...input, userId: ctx.user.id }))),
+      .mutation(async ({ ctx, input }) => {
+        await requireLedger(input.ledgerId, ctx.user.id);
+        const id = await createRecurring({ ...input, userId: ctx.user.id });
+        await logActivity({ ledgerId: input.ledgerId, userId: ctx.user.id, action: "create", entityType: "recurring", entityId: id, summary: `新增固定${input.type === "income" ? "收入" : "支出"}：${input.title}` });
+        return id;
+      }),
+    updateRecurring: protectedProcedure
+      .input(z.object({ recurringId: z.number().int().positive(), ledgerId: z.number().int().positive(), title: z.string().trim().min(1).max(128), amount: z.number().int().positive(), type: z.enum(["expense", "income"]), categoryId: z.number().int().positive(), paymentMethodId: z.number().int().positive(), frequency: z.enum(["weekly", "monthly", "yearly"]), dayOfMonth: z.number().int().min(1).max(31) }))
+      .mutation(async ({ ctx, input }) => {
+        await requireLedger(input.ledgerId, ctx.user.id);
+        const id = await updateRecurring({ ...input, id: input.recurringId });
+        await logActivity({ ledgerId: input.ledgerId, userId: ctx.user.id, action: "update", entityType: "recurring", entityId: id, summary: `修改固定${input.type === "income" ? "收入" : "支出"}：${input.title}` });
+        return id;
+      }),
+    deleteRecurring: protectedProcedure
+      .input(z.object({ ledgerId: z.number().int().positive(), recurringId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        await requireLedger(input.ledgerId, ctx.user.id);
+        const id = await deleteRecurring({ ledgerId: input.ledgerId, id: input.recurringId });
+        await logActivity({ ledgerId: input.ledgerId, userId: ctx.user.id, action: "delete", entityType: "recurring", entityId: id, summary: "移除固定收支" });
+        return id;
+      }),
   }),
   profile: router({
     updateName: protectedProcedure

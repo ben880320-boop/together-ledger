@@ -114,7 +114,7 @@ const appearanceDefaults: AppearancePreferences = {
   autoReceiptNote: true,
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.2.8.2";
+const APP_VERSION = "1.2.8.3";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 
@@ -760,8 +760,10 @@ function AppContent() {
   const [transactionModal, setTransactionModal] = useState(false);
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
   const [budgetModal, setBudgetModal] = useState(false);
+  const [editingBudget, setEditingBudget] = useState<Budget | null>(null);
   const [travelPlanModal, setTravelPlanModal] = useState(false);
   const [recurringModal, setRecurringModal] = useState(false);
+  const [editingRecurring, setEditingRecurring] = useState<Recurring | null>(null);
   const [settingsModal, setSettingsModal] = useState<
     "category" | "payment" | null
   >(null);
@@ -1407,11 +1409,69 @@ function AppContent() {
       setError(deleteError instanceof Error ? deleteError.message : "刪除支付方式失敗；若已有歷史交易，請改用隱藏功能。");
     }
   };
+  const openBudgetEditor = (budget?: Budget) => {
+    setEditingBudget(budget || null);
+    setBudgetModal(true);
+  };
+  const openRecurringEditor = (item?: Recurring) => {
+    setEditingRecurring(item || null);
+    setRecurringModal(true);
+  };
+  const removeBudget = (budget: Budget) => {
+    const category = categories.find(item => item.id === budget.categoryId);
+    const label = budget.categoryId === 0 ? "每月總預算" : `${category?.icon || "◌"} ${category?.name || "分類預算"}`;
+    setConfirmRequest({
+      title: "移除預算設定",
+      message: `要移除「${label}」嗎？這不會刪除任何既有收支紀錄。`,
+      confirmText: "下一步",
+      onConfirm: () => setConfirmRequest({
+        title: "再次確認移除預算",
+        message: "移除後可隨時重新設定，但本月預算警示將不再使用此設定。",
+        confirmText: "確定移除",
+        destructive: true,
+        onConfirm: async () => {
+          try {
+            await api.ledger.deleteBudget.mutate({ ledgerId: activeLedger!.id, budgetId: budget.id });
+            setBudgets(current => current.filter(item => item.id !== budget.id));
+            void refresh();
+            showToast("預算設定已移除。");
+          } catch (removeError) {
+            setError(removeError instanceof Error ? removeError.message : "移除預算失敗。");
+          }
+        },
+      }),
+    });
+  };
+  const removeRecurring = (item: Recurring) => {
+    setConfirmRequest({
+      title: "移除固定收支",
+      message: `要移除「${item.title}」嗎？已建立的歷史收支紀錄會保留。`,
+      confirmText: "下一步",
+      onConfirm: () => setConfirmRequest({
+        title: "再次確認移除固定收支",
+        message: "移除後系統不會再自動建立此項目的未來收支。",
+        confirmText: "確定移除",
+        destructive: true,
+        onConfirm: async () => {
+          try {
+            await api.ledger.deleteRecurring.mutate({ ledgerId: activeLedger!.id, recurringId: item.id });
+            setRecurring(current => current.filter(currentItem => currentItem.id !== item.id));
+            void refresh();
+            showToast("固定收支已移除。");
+          } catch (removeError) {
+            setError(removeError instanceof Error ? removeError.message : "移除固定收支失敗。");
+          }
+        },
+      }),
+    });
+  };
   const afterMutation = async (successMessage = "資料已儲存。") => {
     setTransactionModal(false);
     setEditingTransaction(null);
     setBudgetModal(false);
+    setEditingBudget(null);
     setRecurringModal(false);
+    setEditingRecurring(null);
     setSettingsModal(null);
     await refresh();
     showToast(successMessage);
@@ -1581,10 +1641,14 @@ function AppContent() {
         travelPlans={travelPlans}
         categories={categories}
         recurring={recurring}
-        onBudget={() => setBudgetModal(true)}
+        onBudget={() => openBudgetEditor()}
+        onEditBudget={openBudgetEditor}
+        onDeleteBudget={removeBudget}
         onTravelPlan={() => setTravelPlanModal(true)}
         onDeleteTravelPlan={removeTravelPlan}
-        onRecurring={() => setRecurringModal(true)}
+        onRecurring={() => openRecurringEditor()}
+        onEditRecurring={openRecurringEditor}
+        onDeleteRecurring={removeRecurring}
       />
     ) : (
       <SettingsSection
@@ -1717,14 +1781,18 @@ function AppContent() {
         categories={categories}
         currentMonth={currentMonth()}
         ledgerId={activeLedger!.id}
-        onClose={() => setBudgetModal(false)}
+        editingBudget={editingBudget}
+        onClose={() => {
+          setBudgetModal(false);
+          setEditingBudget(null);
+        }}
         onSubmit={async input => {
           const mutationKey = `budget-${input.ledgerId}-${input.month}`;
           if (mutationGuardRef.current.has(mutationKey)) return;
           mutationGuardRef.current.add(mutationKey);
           try {
             await api.ledger.upsertBudget.mutate(input);
-            await afterMutation("預算已儲存。");
+            await afterMutation(editingBudget ? "分類預算已更新。" : "預算已儲存。");
           } catch (mutationError) {
             setError(
               mutationError instanceof Error
@@ -1741,17 +1809,24 @@ function AppContent() {
         categories={categories}
         paymentMethods={paymentMethods}
         ledgerId={activeLedger!.id}
-        onClose={() => setRecurringModal(false)}
+        editingRecurring={editingRecurring}
+        onClose={() => {
+          setRecurringModal(false);
+          setEditingRecurring(null);
+        }}
         onSubmit={async input => {
-          const mutationKey = `recurring-${activeLedger!.id}-${input.title.trim().toLowerCase()}`;
+          const mutationKey = editingRecurring
+            ? `update-recurring-${editingRecurring.id}`
+            : `recurring-${activeLedger!.id}-${input.title.trim().toLowerCase()}`;
           if (mutationGuardRef.current.has(mutationKey)) return;
           mutationGuardRef.current.add(mutationKey);
           try {
-            await api.ledger.createRecurring.mutate({
-              ledgerId: activeLedger!.id,
-              ...input,
-            });
-            await afterMutation("固定收支已建立。");
+            if (editingRecurring) {
+              await api.ledger.updateRecurring.mutate({ ledgerId: activeLedger!.id, recurringId: editingRecurring.id, ...input });
+            } else {
+              await api.ledger.createRecurring.mutate({ ledgerId: activeLedger!.id, ...input });
+            }
+            await afterMutation(editingRecurring ? "固定收支已更新。" : "固定收支已建立。");
           } catch (mutationError) {
             setError(
               mutationError instanceof Error
@@ -2773,9 +2848,13 @@ function PlanningSection({
   categories,
   recurring,
   onBudget,
+  onEditBudget,
+  onDeleteBudget,
   onTravelPlan,
   onDeleteTravelPlan,
   onRecurring,
+  onEditRecurring,
+  onDeleteRecurring,
 }: {
   analytics: Analytics | null;
   budgets: Budget[];
@@ -2783,9 +2862,13 @@ function PlanningSection({
   categories: Category[];
   recurring: Recurring[];
   onBudget: () => void;
+  onEditBudget: (budget: Budget) => void;
+  onDeleteBudget: (budget: Budget) => void;
   onTravelPlan: () => void;
   onDeleteTravelPlan: (planId: number) => void;
   onRecurring: () => void;
+  onEditRecurring: (item: Recurring) => void;
+  onDeleteRecurring: (item: Recurring) => void;
 }) {
   const { palette } = useAppearance();
   const totalBudget = budgets.find(item => item.categoryId === 0);
@@ -2908,6 +2991,14 @@ function PlanningSection({
                   <Text style={styles.rowAmount}>
                     {money(amount)} / {money(budget.amount)}
                   </Text>
+                  <View style={styles.transactionActions}>
+                    <Pressable accessibilityLabel={`編輯${category?.name || "分類"}預算`} onPress={() => onEditBudget(budget)} style={styles.rowActionButton}>
+                      <MaterialCommunityIcons name="pencil-outline" size={16} color={palette.muted} />
+                    </Pressable>
+                    <Pressable accessibilityLabel={`刪除${category?.name || "分類"}預算`} onPress={() => onDeleteBudget(budget)} style={styles.rowActionButton}>
+                      <MaterialCommunityIcons name="trash-can-outline" size={16} color={palette.rose} />
+                    </Pressable>
+                  </View>
                 </View>
                 <View style={styles.barTrack}>
                   <View
@@ -2961,6 +3052,14 @@ function PlanningSection({
                 {item.type === "expense" ? "-" : "+"}
                 {money(item.amount)}
               </Text>
+              <View style={styles.transactionActions}>
+                <Pressable accessibilityLabel={`編輯固定收支${item.title}`} onPress={() => onEditRecurring(item)} style={styles.rowActionButton}>
+                  <MaterialCommunityIcons name="pencil-outline" size={16} color={palette.muted} />
+                </Pressable>
+                <Pressable accessibilityLabel={`刪除固定收支${item.title}`} onPress={() => onDeleteRecurring(item)} style={styles.rowActionButton}>
+                  <MaterialCommunityIcons name="trash-can-outline" size={16} color={palette.rose} />
+                </Pressable>
+              </View>
             </View>
           ))
         )}
@@ -4055,27 +4154,29 @@ function LedgerModal({
             />
           )}
           {!!error && <Text style={styles.errorText}>{error}</Text>}
-          <Pressable
-            disabled={busy}
-            onPress={onSubmit}
-            style={({ pressed }) => [
-              styles.primaryButton,
-              pressed && styles.pressed,
-              busy && styles.disabled,
-            ]}
-          >
-            <Text style={styles.primaryButtonText}>
-              {busy
-                ? "處理中…"
-                : mode === "create"
-                  ? "建立空白帳本"
-                  : "加入帳本"}
-            </Text>
-            {busy && <ActivityIndicator color="#FFFFFF" />}
-          </Pressable>
-          <Pressable onPress={onClose} style={styles.modalCancel}>
-            <Text style={styles.modalCancelText}>取消</Text>
-          </Pressable>
+          <View style={styles.modalActionBar}>
+            <Pressable
+              disabled={busy}
+              onPress={onSubmit}
+              style={({ pressed }) => [
+                styles.primaryButton,
+                pressed && styles.pressed,
+                busy && styles.disabled,
+              ]}
+            >
+              <Text style={styles.primaryButtonText}>
+                {busy
+                  ? "處理中…"
+                  : mode === "create"
+                    ? "建立空白帳本"
+                    : "加入帳本"}
+              </Text>
+              {busy && <ActivityIndicator color="#FFFFFF" />}
+            </Pressable>
+            <Pressable onPress={onClose} style={styles.modalCancel}>
+              <Text style={styles.modalCancelText}>取消</Text>
+            </Pressable>
+          </View>
         </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -4949,6 +5050,7 @@ function BudgetModal({
   categories,
   currentMonth: month,
   ledgerId,
+  editingBudget,
   onClose,
   onSubmit,
 }: {
@@ -4956,6 +5058,7 @@ function BudgetModal({
   categories: Category[];
   currentMonth: string;
   ledgerId: number;
+  editingBudget: Budget | null;
   onClose: () => void;
   onSubmit: (input: {
     ledgerId: number;
@@ -4970,11 +5073,11 @@ function BudgetModal({
   const [localError, setLocalError] = useState("");
   useEffect(() => {
     if (visible) {
-      setCategoryId(0);
-      setAmount("");
+      setCategoryId(editingBudget?.categoryId || 0);
+      setAmount(editingBudget ? String(editingBudget.amount) : "");
       setLocalError("");
     }
-  }, [visible]);
+  }, [visible, editingBudget]);
   return (
     <Modal
       visible={visible}
@@ -4997,23 +5100,29 @@ function BudgetModal({
         >
           <View style={styles.modalCard}>
           <View style={styles.modalHandle} />
-          <Text style={styles.modalTitle}>設定預算</Text>
+          <Text style={styles.modalTitle}>{editingBudget ? "編輯分類預算" : "設定預算"}</Text>
           <Text style={styles.modalDescription}>
-            設定本月總預算或指定分類預算；超支時會顯示警示。
+            {editingBudget ? "調整此分類本月的預算金額；既有收支資料不會變更。" : "設定本月總預算或指定分類預算；超支時會顯示警示。"}
           </Text>
-          <OptionScroller
-            items={[
-              { id: 0, label: "總預算" },
-              ...categories
-                .filter(item => item.type === "expense")
-                .map(item => ({
-                  id: item.id,
-                  label: `${item.icon} ${item.name}`,
-                })),
-            ]}
-            value={categoryId}
-            onChange={value => setCategoryId(value)}
-          />
+          {editingBudget ? (
+            <Field label="預算分類">
+              <Text style={styles.input}>{editingBudget.categoryId === 0 ? "總預算" : `${categories.find(item => item.id === editingBudget.categoryId)?.icon || "◌"} ${categories.find(item => item.id === editingBudget.categoryId)?.name || "分類"}`}</Text>
+            </Field>
+          ) : (
+            <OptionScroller
+              items={[
+                { id: 0, label: "總預算" },
+                ...categories
+                  .filter(item => item.type === "expense")
+                  .map(item => ({
+                    id: item.id,
+                    label: `${item.icon} ${item.name}`,
+                  })),
+              ]}
+              value={categoryId}
+              onChange={value => setCategoryId(value)}
+            />
+          )}
           <TextInput
             value={amount}
             onChangeText={setAmount}
@@ -5024,34 +5133,36 @@ function BudgetModal({
             style={styles.input}
           />
           {!!localError && <Text style={styles.errorText}>{localError}</Text>}
-          <Pressable
-            onPress={() => {
-              const value = Number(amount);
-              if (!Number.isInteger(value) || value <= 0) {
-                setLocalError("請輸入正整數預算。");
-                return;
-              }
-              if (value > MAX_BUDGET_AMOUNT) {
-                setLocalError("預算上限為 NT$ 100,000,000，請分開規劃較大的目標。");
-                return;
-              }
-              onSubmit({
-                ledgerId,
-                categoryId: Number(categoryId) || 0,
-                amount: value,
-                month,
-              });
-            }}
-            style={({ pressed }) => [
-              styles.primaryButton,
-              pressed && styles.pressed,
-            ]}
-          >
-            <Text style={styles.primaryButtonText}>儲存預算</Text>
-          </Pressable>
-          <Pressable onPress={onClose} style={styles.modalCancel}>
-            <Text style={styles.modalCancelText}>取消</Text>
-          </Pressable>
+          <View style={styles.modalActionBar}>
+            <Pressable
+              onPress={() => {
+                const value = Number(amount);
+                if (!Number.isInteger(value) || value <= 0) {
+                  setLocalError("請輸入正整數預算。");
+                  return;
+                }
+                if (value > MAX_BUDGET_AMOUNT) {
+                  setLocalError("預算上限為 NT$ 100,000,000，請分開規劃較大的目標。");
+                  return;
+                }
+                onSubmit({
+                  ledgerId,
+                  categoryId: Number(categoryId) || 0,
+                  amount: value,
+                  month,
+                });
+              }}
+              style={({ pressed }) => [
+                styles.primaryButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.primaryButtonText}>{editingBudget ? "更新預算" : "儲存預算"}</Text>
+            </Pressable>
+            <Pressable onPress={onClose} style={styles.modalCancel}>
+              <Text style={styles.modalCancelText}>取消</Text>
+            </Pressable>
+          </View>
         </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -5064,6 +5175,7 @@ function RecurringModal({
   categories,
   paymentMethods,
   ledgerId,
+  editingRecurring,
   onClose,
   onSubmit,
 }: {
@@ -5071,6 +5183,7 @@ function RecurringModal({
   categories: Category[];
   paymentMethods: PaymentMethod[];
   ledgerId: number;
+  editingRecurring: Recurring | null;
   onClose: () => void;
   onSubmit: (input: {
     title: string;
@@ -5095,16 +5208,16 @@ function RecurringModal({
   const [localError, setLocalError] = useState("");
   useEffect(() => {
     if (visible) {
-      setTitle("");
-      setAmount("");
-      setType("expense");
-      setCategoryId("");
-      setPaymentId("");
-      setFrequency("monthly");
-      setDay("1");
+      setTitle(editingRecurring?.title || "");
+      setAmount(editingRecurring ? String(editingRecurring.amount) : "");
+      setType(editingRecurring?.type || "expense");
+      setCategoryId(editingRecurring ? String(editingRecurring.categoryId) : "");
+      setPaymentId(editingRecurring ? String(editingRecurring.paymentMethodId) : "");
+      setFrequency(editingRecurring?.frequency || "monthly");
+      setDay(editingRecurring ? String(editingRecurring.dayOfMonth) : "1");
       setLocalError("");
     }
-  }, [visible]);
+  }, [visible, editingRecurring]);
   const filtered = categories.filter(item => item.type === type);
   const selectedCategory = categoryId || String(filtered[0]?.id || "");
   const selectedPayment = paymentId || String(paymentMethods[0]?.id || "");
@@ -5130,9 +5243,9 @@ function RecurringModal({
         >
           <View style={styles.modalCard}>
             <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>新增固定收支</Text>
+            <Text style={styles.modalTitle}>{editingRecurring ? "編輯固定收支" : "新增固定收支"}</Text>
             <Text style={styles.modalDescription}>
-              每次開啟帳本時會以固定鍵檢查並補入當期記錄，不會重複建立。
+              {editingRecurring ? "更新後將套用至未來自動建立的記錄，既有收支不會變更。" : "每次開啟帳本時會以固定鍵檢查並補入當期記錄，不會重複建立。"}
             </Text>
             <TextInput
               value={title}
@@ -5229,42 +5342,44 @@ function RecurringModal({
               style={styles.input}
             />
             {!!localError && <Text style={styles.errorText}>{localError}</Text>}
-            <Pressable
-              onPress={() => {
-                const parsedAmount = Number(amount);
-                const parsedDay = Number(day);
-                if (
-                  !title.trim() ||
-                  !Number.isInteger(parsedAmount) ||
-                  parsedAmount <= 0 ||
-                  !selectedCategory ||
-                  !selectedPayment ||
-                  parsedDay < 1 ||
-                  parsedDay > 31
-                ) {
-                  setLocalError("請完整填寫名稱、金額、分類、支付方式與日期。");
-                  return;
-                }
-                onSubmit({
-                  title: title.trim(),
-                  amount: parsedAmount,
-                  type,
-                  categoryId: Number(selectedCategory),
-                  paymentMethodId: Number(selectedPayment),
-                  frequency,
-                  dayOfMonth: parsedDay,
-                });
-              }}
-              style={({ pressed }) => [
-                styles.primaryButton,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Text style={styles.primaryButtonText}>儲存固定收支</Text>
-            </Pressable>
-            <Pressable onPress={onClose} style={styles.modalCancel}>
-              <Text style={styles.modalCancelText}>取消</Text>
-            </Pressable>
+            <View style={styles.modalActionBar}>
+              <Pressable
+                onPress={() => {
+                  const parsedAmount = Number(amount);
+                  const parsedDay = Number(day);
+                  if (
+                    !title.trim() ||
+                    !Number.isInteger(parsedAmount) ||
+                    parsedAmount <= 0 ||
+                    !selectedCategory ||
+                    !selectedPayment ||
+                    parsedDay < 1 ||
+                    parsedDay > 31
+                  ) {
+                    setLocalError("請完整填寫名稱、金額、分類、支付方式與日期。");
+                    return;
+                  }
+                  onSubmit({
+                    title: title.trim(),
+                    amount: parsedAmount,
+                    type,
+                    categoryId: Number(selectedCategory),
+                    paymentMethodId: Number(selectedPayment),
+                    frequency,
+                    dayOfMonth: parsedDay,
+                  });
+                }}
+                style={({ pressed }) => [
+                  styles.primaryButton,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.primaryButtonText}>{editingRecurring ? "更新固定收支" : "儲存固定收支"}</Text>
+              </Pressable>
+              <Pressable onPress={onClose} style={styles.modalCancel}>
+                <Text style={styles.modalCancelText}>取消</Text>
+              </Pressable>
+            </View>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -6381,20 +6496,30 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
   },
   modalDismiss: { flex: 1 },
   modalScroll: { width: "100%", alignSelf: "center", maxHeight: "92%", flexShrink: 1 },
-  modalScrollableContent: { flexGrow: 1, paddingBottom: 12 },
+  modalScrollableContent: { paddingBottom: 12 },
   transactionModalScrollContent: { flexGrow: 1, paddingBottom: 12 },
   modalCard: {
     width: "100%",
     alignSelf: "center",
     paddingHorizontal: 22,
     paddingTop: 12,
-    paddingBottom: 52,
+    paddingBottom: 18,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     backgroundColor: palette.surface,
   },
   modalFixedCard: { maxHeight: "92%" },
   transactionModalCard: { paddingBottom: 78 },
+  modalActionBar: {
+    marginHorizontal: -22,
+    marginTop: 10,
+    paddingHorizontal: 22,
+    paddingTop: 16,
+    paddingBottom: 6,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: palette.border,
+    backgroundColor: palette.background,
+  },
   modalHandle: {
     alignSelf: "center",
     width: 44,
