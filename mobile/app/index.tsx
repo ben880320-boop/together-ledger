@@ -119,24 +119,39 @@ const appearanceDefaults: AppearancePreferences = {
   autoDownloadUpdatesOnWifi: true,
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.2.8.5";
+const APP_VERSION = "1.2.8.6";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 const GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/ben880320-boop/together-ledger/releases/latest";
 const OFFICIAL_APK_URL_PREFIX = "https://github.com/ben880320-boop/together-ledger/releases/download/";
 const APK_MIME_TYPE = "application/vnd.android.package-archive";
+const updateResumeStorageKey = "together-ledger-update-resume-v1";
 
 type AppUpdateStatus = "idle" | "checking" | "downloading" | "installing";
 type GitHubReleaseAsset = { name?: string; browser_download_url?: string };
 type GitHubReleasePayload = { tag_name?: string; body?: string; assets?: GitHubReleaseAsset[] };
 type AppUpdateRelease = { version: string; notes: string; apkUrl: string };
+type SavedUpdateResume = FileSystem.DownloadPauseState & {
+  version: string;
+  notes: string;
+  savedAt: number;
+};
 
-const formatUpdateMessage = (release: AppUpdateRelease) => {
+const getUpdateNotesPreview = (release: AppUpdateRelease) => {
   const notes = release.notes.length > 420 ? `${release.notes.slice(0, 420)}…` : release.notes;
+  return notes;
+};
+
+const getUpdateSecuritySummary = (release: AppUpdateRelease) => {
   const hasSecurityNotes = /安全|security|漏洞|修補|修复|隱私|privacy|權限|permission|認證|authentication|加密/i.test(release.notes);
-  const securitySummary = hasSecurityNotes
+  return hasSecurityNotes
     ? "此版本的發行說明包含安全性、隱私或權限相關調整，建議儘快完成更新。"
     : "發行說明未標示專屬安全性修正；更新檔仍只會自官方 GitHub Release 下載。";
+};
+
+const formatUpdateMessage = (release: AppUpdateRelease) => {
+  const notes = getUpdateNotesPreview(release);
+  const securitySummary = getUpdateSecuritySummary(release);
   return `目前版本：v${APP_VERSION}\n可更新至：v${release.version}\n\n更新內容\n${notes}\n\n安全性摘要\n${securitySummary}\n\n更新檔會直接在 App 內下載，完成後由 Android 系統要求你確認安裝。`;
 };
 
@@ -182,6 +197,19 @@ const fetchLatestAndroidRelease = async (): Promise<AppUpdateRelease | null> => 
   if (!version || !apkUrl) return null;
   return { version, notes: release.body?.trim() || "包含最新功能、修正與穩定性改善。", apkUrl };
 };
+
+const isSavedUpdateResume = (value: unknown): value is SavedUpdateResume => {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Partial<SavedUpdateResume>;
+  return typeof record.version === "string" &&
+    typeof record.notes === "string" &&
+    typeof record.url === "string" &&
+    record.url.startsWith(OFFICIAL_APK_URL_PREFIX) &&
+    typeof record.fileUri === "string" &&
+    typeof record.resumeData === "string" &&
+    Number(record.resumeData) > 0;
+};
+
 const appearancePalettes: Record<AppearanceTheme, typeof colors> = {
   rose: colors,
   cherry: {
@@ -824,6 +852,8 @@ function AppContent() {
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [appUpdateStatus, setAppUpdateStatus] = useState<AppUpdateStatus>("idle");
   const [appUpdateProgress, setAppUpdateProgress] = useState(0);
+  const [latestRelease, setLatestRelease] = useState<AppUpdateRelease | null>(null);
+  const [savedUpdateResume, setSavedUpdateResume] = useState<SavedUpdateResume | null>(null);
   const [accountDeletionVisible, setAccountDeletionVisible] = useState(false);
   const ledgerRequestRef = useRef(0);
   const ledgerSelectionRef = useRef(0);
@@ -840,26 +870,56 @@ function AppContent() {
     setToast(current => current?.id === id ? null : current);
   }, []);
 
-  const installAndroidUpdate = useCallback(async (release: AppUpdateRelease) => {
+  const readSavedUpdateResume = useCallback(async (release: AppUpdateRelease) => {
+    try {
+      const raw = await AsyncStorage.getItem(updateResumeStorageKey);
+      if (!raw) return null;
+      const parsed: unknown = JSON.parse(raw);
+      if (!isSavedUpdateResume(parsed) || parsed.version !== release.version || parsed.url !== release.apkUrl) {
+        await AsyncStorage.removeItem(updateResumeStorageKey);
+        return null;
+      }
+      return parsed;
+    } catch {
+      await AsyncStorage.removeItem(updateResumeStorageKey);
+      return null;
+    }
+  }, []);
+
+  const installAndroidUpdate = useCallback(async (release: AppUpdateRelease, resume?: SavedUpdateResume) => {
     if (Platform.OS !== "android") {
-      setError("App 內更新目前僅支援 Android 裝置。");
+      showToast("App 內更新目前僅支援 Android 裝置。");
       return;
     }
     setAppUpdateStatus("downloading");
-    setAppUpdateProgress(0);
-    const destination = `${FileSystem.cacheDirectory}together-ledger-${release.version}.apk`;
+    setAppUpdateProgress(resume?.resumeData ? 1 : 0);
+    const cacheDirectory = FileSystem.cacheDirectory;
+    if (!cacheDirectory) {
+      setAppUpdateStatus("idle");
+      showToast("裝置暫存空間暫時無法使用，請稍後再試。 ");
+      return;
+    }
+    const destination = resume?.fileUri || `${cacheDirectory}together-ledger-${release.version}.apk`;
+    let download: FileSystem.DownloadResumable | null = null;
     try {
-      const download = FileSystem.createDownloadResumable(
+      if (!resume) {
+        await AsyncStorage.removeItem(updateResumeStorageKey);
+        setSavedUpdateResume(null);
+      }
+      download = FileSystem.createDownloadResumable(
         release.apkUrl,
         destination,
         {},
         progress => {
           const total = progress.totalBytesExpectedToWrite;
           if (total > 0) setAppUpdateProgress(Math.round((progress.totalBytesWritten / total) * 100));
-        }
+        },
+        resume?.resumeData
       );
-      const result = await download.downloadAsync();
+      const result = resume?.resumeData ? await download.resumeAsync() : await download.downloadAsync();
       if (!result?.uri) throw new Error("更新檔下載未完成，請稍後重新嘗試。");
+      await AsyncStorage.removeItem(updateResumeStorageKey);
+      setSavedUpdateResume(null);
       setAppUpdateStatus("installing");
       const contentUri = await FileSystem.getContentUriAsync(result.uri);
       showToast("更新檔已下載完成，請在 Android 系統安裝畫面確認更新。");
@@ -870,20 +930,61 @@ function AppContent() {
       });
     } catch (updateError) {
       const message = updateError instanceof Error ? updateError.message : "更新失敗，請確認網路或安裝權限後再試一次。";
-      setError(`無法完成 App 內更新：${message}`);
+      let pauseState: FileSystem.DownloadPauseState | null = null;
+      if (download) {
+        try {
+          pauseState = await download.pauseAsync();
+        } catch {
+          // A network task that has already stopped cannot expose a valid opaque resume token.
+        }
+      }
+      if (pauseState?.resumeData && Number(pauseState.resumeData) > 0) {
+        const saved: SavedUpdateResume = { ...pauseState, version: release.version, notes: release.notes, savedAt: Date.now() };
+        await AsyncStorage.setItem(updateResumeStorageKey, JSON.stringify(saved));
+        setSavedUpdateResume(saved);
+        showToast("更新下載暫停，返回「更新與下載」可從已完成的部分繼續下載。 ");
+      } else {
+        showToast(`更新下載失敗：${message}`);
+      }
     } finally {
       setAppUpdateStatus("idle");
       setAppUpdateProgress(0);
     }
   }, [showToast]);
 
+  const resumeAndroidUpdate = useCallback(async (resume: SavedUpdateResume) => {
+    await installAndroidUpdate({ version: resume.version, notes: resume.notes, apkUrl: resume.url }, resume);
+  }, [installAndroidUpdate]);
+
+  const restartAndroidUpdate = useCallback(async (release: AppUpdateRelease) => {
+    const cacheDirectory = FileSystem.cacheDirectory;
+    const destination = `${cacheDirectory || ""}together-ledger-${release.version}.apk`;
+    await AsyncStorage.removeItem(updateResumeStorageKey);
+    setSavedUpdateResume(null);
+    if (destination) await FileSystem.deleteAsync(destination, { idempotent: true }).catch(() => undefined);
+    await installAndroidUpdate(release);
+  }, [installAndroidUpdate]);
+
   const checkForAppUpdate = useCallback(async (manual = false) => {
     if (appUpdateStatus !== "idle") return;
     setAppUpdateStatus("checking");
     try {
       const release = await fetchLatestAndroidRelease();
+      setLatestRelease(release);
+      const resume = release ? await readSavedUpdateResume(release) : null;
+      setSavedUpdateResume(resume);
       if (!release || !isVersionNewer(release.version, APP_VERSION)) {
         if (manual) showToast("目前已是最新版本。");
+        return;
+      }
+      if (resume) {
+        setConfirmRequest({
+          title: "可繼續未完成的更新",
+          message: `Together Ledger v${resume.version} 已保留部分下載資料。\n\n按下「繼續下載」將從中斷處續傳，不會重新下載已完成的部分。`,
+          cancelText: "稍後再說",
+          confirmText: "繼續下載",
+          onConfirm: () => resumeAndroidUpdate(resume),
+        });
         return;
       }
       if (!manual && preferences.autoDownloadUpdatesOnWifi && Platform.OS === "android") {
@@ -903,12 +1004,12 @@ function AppContent() {
     } catch (updateError) {
       if (manual) {
         const message = updateError instanceof Error ? updateError.message : "無法檢查更新，請稍後再試。";
-        setError(message);
+        showToast(message);
       }
     } finally {
       setAppUpdateStatus("idle");
     }
-  }, [appUpdateStatus, installAndroidUpdate, preferences.autoDownloadUpdatesOnWifi, showToast]);
+  }, [appUpdateStatus, installAndroidUpdate, preferences.autoDownloadUpdatesOnWifi, readSavedUpdateResume, resumeAndroidUpdate, showToast]);
 
   const reloadLedger = useCallback(async (ledgerId: number) => {
     const requestId = ++ledgerRequestRef.current;
@@ -1606,7 +1707,7 @@ function AppContent() {
         />
         <AccountDeletionModal visible={accountDeletionVisible} busy={busy} error={error} onClose={() => setAccountDeletionVisible(false)} onSubmit={deleteAccount} />
         {homePage === "profile" ? (
-          <PersonalSettingsPage user={user} error={error} notificationPreferences={notificationPreferences} onSaveNotificationPreferences={saveNotificationPreferences} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
+          <PersonalSettingsPage user={user} error={error} notificationPreferences={notificationPreferences} onSaveNotificationPreferences={saveNotificationPreferences} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
         ) : (
           <EmptyLedger
             error={error}
@@ -1652,7 +1753,7 @@ function AppContent() {
         />
         <AccountDeletionModal visible={accountDeletionVisible} busy={busy} error={error} onClose={() => setAccountDeletionVisible(false)} onSubmit={deleteAccount} />
         {homePage === "profile" ? (
-          <PersonalSettingsPage user={user} error={error} notificationPreferences={notificationPreferences} onSaveNotificationPreferences={saveNotificationPreferences} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
+          <PersonalSettingsPage user={user} error={error} notificationPreferences={notificationPreferences} onSaveNotificationPreferences={saveNotificationPreferences} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
         ) : (
           <LedgerHome
             ledgers={ledgers}
@@ -2077,7 +2178,7 @@ function LoginScreen({
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "bottom"]}>
       <ThemeAtmosphere />
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.select({ ios: "padding", android: "height" })}>
+      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView contentContainerStyle={styles.loginContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets>
           <View style={styles.brandMark}>
             <MaterialCommunityIcons name="heart" size={28} color={colors.rose} />
@@ -3172,6 +3273,10 @@ function PersonalSettingsPage({
   onSaveNotificationPreferences,
   onUpdateNickname,
   onCheckForUpdate,
+  latestRelease,
+  savedUpdateResume,
+  onResumeUpdate,
+  onRestartUpdate,
   appUpdateStatus,
   appUpdateProgress,
   onLogout,
@@ -3184,6 +3289,10 @@ function PersonalSettingsPage({
   onSaveNotificationPreferences: (preferences: NotificationPreferences) => void | Promise<void>;
   onUpdateNickname: (name: string) => void | Promise<void>;
   onCheckForUpdate: () => void;
+  latestRelease: AppUpdateRelease | null;
+  savedUpdateResume: SavedUpdateResume | null;
+  onResumeUpdate: () => void;
+  onRestartUpdate: () => void;
   appUpdateStatus: AppUpdateStatus;
   appUpdateProgress: number;
   onLogout: () => void;
@@ -3239,10 +3348,12 @@ function PersonalSettingsPage({
     { key: "line", label: "底線選取", icon: "format-align-bottom" },
     { key: "minimal", label: "極簡導覽", icon: "dots-horizontal" },
   ];
+  const hasNewRelease = Boolean(latestRelease && isVersionNewer(latestRelease.version, APP_VERSION));
+  const resumedMegabytes = savedUpdateResume?.resumeData ? (Number(savedUpdateResume.resumeData) / (1024 * 1024)).toFixed(1) : "0.0";
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["bottom"]}>
       <ThemeAtmosphere />
-      <KeyboardAvoidingView style={styles.keyboardAvoiding} behavior={Platform.select({ ios: "padding", android: "height" })} keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}>
+      <KeyboardAvoidingView style={styles.keyboardAvoiding} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}>
       <ScrollView contentContainerStyle={styles.profileContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets>
         <SectionIntro
           eyebrow="YOUR SPACE"
@@ -3276,11 +3387,77 @@ style={styles.input}
       >
         <Text style={styles.smallButtonText}>儲存暱稱</Text>
       </Pressable>
-<Text style={styles.rowSubtitle}>
-暱稱會顯示在帳本成員與操作日誌中。
-</Text>
-	      </View>
-	      <View style={styles.settingsGroupCard}>
+	<Text style={styles.rowSubtitle}>
+	暱稱會顯示在帳本成員與操作日誌中。
+	</Text>
+		      </View>
+		      <View style={[styles.settingsGroupCard, styles.updateSettingsCard]}>
+		        <View style={styles.cardHeading}>
+		          <View style={styles.personalizationHeading}>
+		            <View style={styles.updateHeaderIcon}>
+		              <MaterialCommunityIcons name="download-circle-outline" size={20} color="#FFFFFF" />
+		            </View>
+		            <View style={styles.preferenceCopy}>
+		              <Text style={styles.cardTitle}>更新與下載</Text>
+		              <Text style={styles.cardHint}>安全更新、Wi‑Fi 規則與下載續傳</Text>
+		            </View>
+		          </View>
+		          <View style={[styles.updateStatusBadge, hasNewRelease ? styles.updateStatusBadgeAvailable : styles.updateStatusBadgeCurrent]}>
+		            <Text style={[styles.updateStatusBadgeText, hasNewRelease && styles.updateStatusBadgeTextAvailable]}>{hasNewRelease ? "可更新" : "已檢查"}</Text>
+		          </View>
+		        </View>
+		        <View style={styles.updateVersionStrip}>
+		          <View>
+		            <Text style={styles.updateMetaLabel}>目前安裝</Text>
+		            <Text style={styles.updateVersionText}>v{APP_VERSION}</Text>
+		          </View>
+		          <MaterialCommunityIcons name="arrow-right" size={18} color={palette.muted} />
+		          <View style={styles.updateVersionRemote}>
+		            <Text style={styles.updateMetaLabel}>最新版本</Text>
+		            <Text style={styles.updateVersionText}>{latestRelease ? `v${latestRelease.version}` : "尚未檢查"}</Text>
+		          </View>
+		        </View>
+		        {latestRelease ? <View style={styles.updateDetailsPanel}>
+		          <View style={styles.updateDetailHeader}>
+		            <MaterialCommunityIcons name="text-box-outline" size={16} color={palette.rose} />
+		            <Text style={styles.updateDetailTitle}>更新內容</Text>
+		          </View>
+		          <Text style={styles.updateDetailBody}>{getUpdateNotesPreview(latestRelease)}</Text>
+		          <View style={styles.updateDetailHeader}>
+		            <MaterialCommunityIcons name="shield-check-outline" size={16} color={palette.rose} />
+		            <Text style={styles.updateDetailTitle}>安全性摘要</Text>
+		          </View>
+		          <Text style={styles.updateDetailBody}>{getUpdateSecuritySummary(latestRelease)}</Text>
+		        </View> : <View style={styles.updateEmptyPanel}>
+		          <MaterialCommunityIcons name="information-outline" size={18} color={palette.muted} />
+		          <Text style={styles.updateEmptyText}>點選下方按鈕即可取得官方 GitHub Release 的版本內容與安全性摘要。</Text>
+		        </View>}
+		        <View style={styles.updatePreferenceRow}>
+		          <View style={styles.preferenceCopy}>
+		            <Text style={styles.rowTitle}>僅 Wi‑Fi 自動下載</Text>
+		            <Text style={styles.rowSubtitle}>啟動時找到新版，只有連上 Wi‑Fi 才會在 App 內自動下載；行動網路一律由你手動確認。</Text>
+		          </View>
+		          <Switch value={preferences.autoDownloadUpdatesOnWifi} onValueChange={value => updatePreferences({ autoDownloadUpdatesOnWifi: value })} trackColor={{ false: palette.border, true: palette.roseSoft }} thumbColor={preferences.autoDownloadUpdatesOnWifi ? palette.rose : palette.muted} />
+		        </View>
+		        {savedUpdateResume && <View style={styles.updateResumePanel}>
+		          <View style={styles.preferenceCopy}>
+		            <Text style={styles.rowTitle}>下載已暫停</Text>
+		            <Text style={styles.rowSubtitle}>已保留約 {resumedMegabytes} MB 的更新資料。網路恢復後可從中斷處繼續。</Text>
+		          </View>
+		          <Pressable disabled={appUpdateStatus !== "idle"} onPress={onResumeUpdate} style={({ pressed }) => [styles.resumeUpdateButton, pressed && styles.pressed, appUpdateStatus !== "idle" && styles.disabled]}>
+		            <MaterialCommunityIcons name="play-circle-outline" size={17} color="#FFFFFF" />
+		            <Text style={styles.resumeUpdateButtonText}>繼續</Text>
+		          </Pressable>
+		        </View>}
+		        <Pressable disabled={appUpdateStatus !== "idle"} onPress={onCheckForUpdate} style={({ pressed }) => [styles.updatePrimaryButton, pressed && styles.pressed, appUpdateStatus !== "idle" && styles.disabled]} accessibilityLabel="檢查 Together Ledger 更新">
+		          {appUpdateStatus === "idle" ? <MaterialCommunityIcons name="refresh" size={18} color="#FFFFFF" /> : <ActivityIndicator size="small" color="#FFFFFF" />}
+		          <Text style={styles.updatePrimaryButtonText}>{appUpdateStatus === "checking" ? "正在檢查更新…" : appUpdateStatus === "downloading" ? `正在下載更新 ${appUpdateProgress}%` : appUpdateStatus === "installing" ? "正在開啟安裝確認…" : hasNewRelease ? "查看並下載更新" : "檢查版本與更新內容"}</Text>
+		        </Pressable>
+		        {savedUpdateResume && latestRelease && <Pressable disabled={appUpdateStatus !== "idle"} onPress={onRestartUpdate} style={({ pressed }) => [styles.updateRestartButton, pressed && styles.pressed, appUpdateStatus !== "idle" && styles.disabled]}>
+		          <Text style={styles.updateRestartButtonText}>捨棄已下載部分，重新開始</Text>
+		        </Pressable>}
+		      </View>
+		      <View style={styles.settingsGroupCard}>
 	      <View style={styles.cardHeading}>
 	        <View style={styles.personalizationHeading}>
 	          <MaterialCommunityIcons name="palette-outline" size={19} color={palette.rose} />
@@ -3395,14 +3572,7 @@ style={styles.input}
         </View>
 <Switch value={preferences.autoReceiptNote} onValueChange={value => updatePreferences({ autoReceiptNote: value })} trackColor={{ false: palette.border, true: palette.roseSoft }} thumbColor={preferences.autoReceiptNote ? palette.rose : palette.muted} />
 </View>
-	  <View style={styles.preferenceRow}>
-	    <View style={styles.preferenceCopy}>
-	      <Text style={styles.rowTitle}>僅 Wi‑Fi 自動下載更新</Text>
-	      <Text style={styles.rowSubtitle}>啟動時發現新版本，僅在 Wi‑Fi 下自動下載；行動網路可手動選擇更新。</Text>
-	    </View>
-	    <Switch value={preferences.autoDownloadUpdatesOnWifi} onValueChange={value => updatePreferences({ autoDownloadUpdatesOnWifi: value })} trackColor={{ false: palette.border, true: palette.roseSoft }} thumbColor={preferences.autoDownloadUpdatesOnWifi ? palette.rose : palette.muted} />
-	  </View>
-	      </View>
+		      </View>
 	      <View style={styles.settingsGroupCard}>
 	      <View style={styles.cardHeading}>
 	        <View style={styles.personalizationHeading}>
@@ -3453,7 +3623,7 @@ style={styles.input}
 	      <View style={styles.cardHeading}>
 	        <View style={styles.personalizationHeading}>
 	          <MaterialCommunityIcons name="rocket-launch-outline" size={19} color={palette.rose} />
-	          <Text style={styles.cardTitle}>專案與帳號</Text>
+		          <Text style={styles.cardTitle}>帳號與支援</Text>
 	        </View>
 	      </View>
       <View style={styles.preferenceRow}>
@@ -3466,12 +3636,6 @@ style={styles.input}
           <MaterialCommunityIcons name="github" size={20} color={palette.rose} />
         </Pressable>
       </View>
-      <Pressable disabled={appUpdateStatus !== "idle"} onPress={onCheckForUpdate} style={({ pressed }) => [styles.outlineButton, pressed && styles.pressed, appUpdateStatus !== "idle" && styles.disabled]} accessibilityLabel="在 App 內檢查並下載更新">
-        {appUpdateStatus === "idle" ? <MaterialCommunityIcons name="download-circle-outline" size={18} color={palette.rose} /> : <ActivityIndicator size="small" color={palette.rose} />}
-        <Text style={styles.outlineButtonText}>
-          {appUpdateStatus === "checking" ? "正在檢查更新…" : appUpdateStatus === "downloading" ? `正在下載更新 ${appUpdateProgress}%` : appUpdateStatus === "installing" ? "正在開啟安裝確認…" : "在 App 內檢查並下載更新"}
-        </Text>
-      </Pressable>
       <Pressable
         onPress={onLogout}
         style={({ pressed }) => [styles.outlineButton, pressed && styles.pressed]}
@@ -4209,7 +4373,7 @@ function LedgerModal({
     >
       <KeyboardAvoidingView
         style={styles.modalBackdrop}
-        behavior={Platform.select({ ios: "padding", android: "height" })}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
       >
       <Pressable style={styles.modalDismiss} onPress={onClose} />
@@ -4327,7 +4491,7 @@ function LedgerManageModal({
   const others = members.filter(item => item.user.id !== user.id);
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.select({ ios: "padding", android: "height" })}>
+      <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <Pressable style={styles.modalDismiss} onPress={onClose} />
         <ScrollView
           style={styles.modalScroll}
@@ -4443,7 +4607,7 @@ function TravelPlanModal({
   };
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.select({ ios: "padding", android: "height" })}>
+      <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <Pressable style={styles.modalDismiss} onPress={onClose} />
         <ScrollView
           style={styles.modalScroll}
@@ -4844,7 +5008,7 @@ function TransactionModal({
     >
       <KeyboardAvoidingView
         style={styles.modalBackdrop}
-        behavior={Platform.select({ ios: "padding", android: "height" })}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
       >
       <Pressable style={styles.modalDismiss} onPress={onClose} />
@@ -5199,7 +5363,7 @@ function BudgetModal({
     >
       <KeyboardAvoidingView
         style={styles.modalBackdrop}
-        behavior={Platform.select({ ios: "padding", android: "height" })}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
       >
         <Pressable style={styles.modalDismiss} onPress={onClose} />
@@ -5343,7 +5507,7 @@ function RecurringModal({
     >
       <KeyboardAvoidingView
         style={styles.modalBackdrop}
-        behavior={Platform.select({ ios: "padding", android: "height" })}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
       >
         <Pressable style={styles.modalDismiss} onPress={onClose} />
@@ -5548,7 +5712,7 @@ function SettingsModal({
     >
       <KeyboardAvoidingView
         style={styles.modalBackdrop}
-        behavior={Platform.select({ ios: "padding", android: "height" })}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
       >
       <Pressable style={styles.modalDismiss} onPress={onClose} />
@@ -5911,6 +6075,101 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     backgroundColor: palette.surface,
     ...(preferences.cardStyle === "soft" ? { shadowColor: palette.ink, shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 5 }, elevation: 2 } : {}),
   },
+  updateSettingsCard: {
+    borderColor: palette.roseSoft,
+    backgroundColor: palette.surface,
+  },
+  updateHeaderIcon: {
+    width: 38,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 14,
+    backgroundColor: palette.rose,
+  },
+  updateStatusBadge: {
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  updateStatusBadgeCurrent: { backgroundColor: palette.roseSoft },
+  updateStatusBadgeAvailable: { backgroundColor: palette.rose },
+  updateStatusBadgeText: { color: palette.rose, fontSize: 11, fontWeight: "800" },
+  updateStatusBadgeTextAvailable: { color: "#FFFFFF" },
+  updateVersionStrip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 12,
+    padding: 13,
+    borderRadius: 15,
+    backgroundColor: palette.background,
+  },
+  updateVersionRemote: { flex: 1, alignItems: "flex-end" },
+  updateMetaLabel: { color: palette.muted, fontSize: 10, fontWeight: "700" },
+  updateVersionText: { marginTop: 2, color: palette.ink, fontSize: 15, fontWeight: "800" },
+  updateDetailsPanel: {
+    gap: 7,
+    marginBottom: 12,
+    padding: 13,
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 15,
+    backgroundColor: palette.background,
+  },
+  updateDetailHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
+  updateDetailTitle: { color: palette.ink, fontSize: 12, fontWeight: "800" },
+  updateDetailBody: { color: palette.muted, fontSize: 12, lineHeight: 18 },
+  updateEmptyPanel: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    marginBottom: 12,
+    padding: 13,
+    borderRadius: 15,
+    backgroundColor: palette.background,
+  },
+  updateEmptyText: { flex: 1, color: palette.muted, fontSize: 12, lineHeight: 18 },
+  updatePreferenceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: palette.border,
+  },
+  updateResumePanel: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 10,
+    padding: 12,
+    borderRadius: 15,
+    backgroundColor: palette.roseSoft,
+  },
+  resumeUpdateButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+    borderRadius: 12,
+    backgroundColor: palette.rose,
+  },
+  resumeUpdateButtonText: { color: "#FFFFFF", fontSize: 12, fontWeight: "800" },
+  updatePrimaryButton: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderRadius: 15,
+    backgroundColor: palette.rose,
+  },
+  updatePrimaryButtonText: { color: "#FFFFFF", fontSize: 13, fontWeight: "800" },
+  updateRestartButton: { alignSelf: "center", marginTop: 11, paddingHorizontal: 8, paddingVertical: 4 },
+  updateRestartButtonText: { color: palette.muted, fontSize: 11, fontWeight: "700", textDecorationLine: "underline" },
   preferenceRow: {
     flexDirection: "row",
     alignItems: "center",

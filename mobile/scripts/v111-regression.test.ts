@@ -67,7 +67,7 @@ describe("Together Ledger v1.2.8 Android wiring", () => {
     expect(app).toContain("fetchLatestAndroidRelease");
     expect(app).toContain("FileSystem.createDownloadResumable");
     expect(app).toContain("IntentLauncher.startActivityAsync");
-    expect(app).toContain("在 App 內檢查並下載更新");
+    expect(app).toContain("檢查版本與更新內容");
     expect(app).toContain("再次確認移除");
     expect((app.match(/name=\"logout\"/g) || []).length).toBe(1);
   });
@@ -170,8 +170,8 @@ describe("Together Ledger v1.2.8 Android wiring", () => {
     expect(app).toContain("key={`wave-${left}`}");
     expect(app).toContain("key={`reflection-${index}`}");
     expect(app).toContain("KeyboardAvoidingView");
-    expect(app).toContain('android: "height"');
-    expect(app).not.toContain('android: undefined');
+    expect(app).toContain('Platform.OS === "ios" ? "padding" : undefined');
+    expect(app).not.toContain('android: "height"');
     expect(app).toContain("confirmContent");
     expect(app).toContain('maxHeight: "88%"');
   });
@@ -243,9 +243,9 @@ describe("Together Ledger v1.2.8 Android wiring", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
       expo?: { version?: string; scheme?: string; android?: { versionCode?: number } };
     };
-    expect(appJson.expo?.version).toBe("1.2.8.5");
-    expect(appJson.expo?.android?.versionCode).toBe(15);
-    expect(readMobile("package.json")).toContain('"version": "1.2.8.5"');
+    expect(appJson.expo?.version).toBe("1.2.8.6");
+    expect(appJson.expo?.android?.versionCode).toBe(16);
+    expect(readMobile("package.json")).toContain('"version": "1.2.8.6"');
     expect(appJson.expo?.scheme).toBe("togetherledger");
     expect(readMobile("app.json")).toContain("expo-notifications");
     expect(readMobile("app.json")).toContain('"googleServicesFile": "./google-services.json"');
@@ -254,6 +254,13 @@ describe("Together Ledger v1.2.8 Android wiring", () => {
     expect(app).toContain("Network.getNetworkStateAsync");
     expect(app).toContain("formatUpdateMessage");
     expect(app).toContain("安全性摘要");
+    expect(app).toContain("更新與下載");
+    expect(app).toContain("僅 Wi‑Fi 自動下載");
+    expect(app).toContain("getUpdateNotesPreview");
+    expect(app).toContain("getUpdateSecuritySummary");
+    expect(app).toContain("readSavedUpdateResume");
+    expect(app).toContain("download.pauseAsync");
+    expect(app).toContain("resumeAndroidUpdate");
     expect(app).toContain("availablePayments");
     expect(app).toContain("managerActionScroll");
     expect(app).toContain('name="delete-outline"');
