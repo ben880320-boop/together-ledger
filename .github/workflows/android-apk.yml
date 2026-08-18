@@ -31,25 +31,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Restore mobile source from release archive
-        shell: bash
-        run: |
-          set -euo pipefail
-          archive="$(find . -maxdepth 1 -type f -name '*release-source*.tar.gz' -print | sort -V | tail -n 1)"
-          if [ -z "$archive" ]; then
-            echo "No release source archive found; using mobile source from checkout."
-            test -f mobile/pnpm-lock.yaml
-            exit 0
-          fi
-
-          temp_dir="$(mktemp -d)"
-          trap 'rm -rf "$temp_dir"' EXIT
-          tar -xzf "$archive" -C "$temp_dir"
-          test -f "$temp_dir/mobile/pnpm-lock.yaml"
-          rm -rf mobile
-          cp -a "$temp_dir/mobile" mobile
-          echo "Restored mobile source from $archive"
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 

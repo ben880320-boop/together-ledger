@@ -23,7 +23,9 @@ describe("local email/password session tokens", () => {
       expiresInMs: 60_000,
     });
 
-    const tamperedToken = `${token.slice(0, -1)}${token.endsWith("a") ? "b" : "a"}`;
+    const [header, payload, signature] = token.split(".");
+    const alteredPayload = `${payload.slice(0, -1)}${payload.endsWith("a") ? "b" : "a"}`;
+    const tamperedToken = [header, alteredPayload, signature].join(".");
     await expect(sdk.verifySession(tamperedToken)).resolves.toBeNull();
   });
 });
