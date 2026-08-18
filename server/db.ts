@@ -38,6 +38,17 @@ export async function getDb() {
 }
 
 function requireDb() {
+  // Public auth routes may be the first request after a cold start, before an
+  // authenticated context has had a chance to call getDb(). Drizzle's client
+  // construction is synchronous, so initialize the cache here as well.
+  if (!_db && process.env.DATABASE_URL) {
+    try {
+      _db = drizzle(process.env.DATABASE_URL);
+    } catch (error) {
+      console.warn("[Database] Failed to initialize required connection:", error);
+      _db = null;
+    }
+  }
   if (!_db) throw new Error("Database is not available");
   return _db;
 }

@@ -275,6 +275,7 @@
 
 ## v1.2.8.1 登入端點與部署同步修正
 
-- [ ] 修正已安裝 Android App 呼叫 `auth.register` 時，後端尚未提供端點的版本不同步問題
-- [ ] 修正 Web 後端部署的 pnpm ignored-builds 設定，讓最新 tRPC 認證端點可以發佈
+- [x] 修正已安裝 Android App 呼叫 `auth.register` 時，後端尚未提供端點的版本不同步問題（正式端點已回傳輸入驗證結果，不再為 procedure NOT_FOUND）
+- [x] 修正 Web 後端部署的 pnpm ignored-builds 設定，讓最新 tRPC 認證端點可以發佈
 - [ ] 驗證電子信箱註冊／登入 API 可從 App 使用，並建立修正版 Android APK
+- [ ] 修正公開帳密註冊與登入在後端冷啟動時未初始化資料庫而回傳 500 的問題
