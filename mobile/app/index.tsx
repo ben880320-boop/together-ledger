@@ -1,6 +1,8 @@
 import * as Linking from "expo-linking";
 import * as Clipboard from "expo-clipboard";
+import * as FileSystem from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
+import * as IntentLauncher from "expo-intent-launcher";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
@@ -114,9 +116,17 @@ const appearanceDefaults: AppearancePreferences = {
   autoReceiptNote: true,
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.2.8.3";
+const APP_VERSION = "1.2.8.4";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
+const GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/ben880320-boop/together-ledger/releases/latest";
+const OFFICIAL_APK_URL_PREFIX = "https://github.com/ben880320-boop/together-ledger/releases/download/";
+const APK_MIME_TYPE = "application/vnd.android.package-archive";
+
+type AppUpdateStatus = "idle" | "checking" | "downloading" | "installing";
+type GitHubReleaseAsset = { name?: string; browser_download_url?: string };
+type GitHubReleasePayload = { tag_name?: string; body?: string; assets?: GitHubReleaseAsset[] };
+type AppUpdateRelease = { version: string; notes: string; apkUrl: string };
 
 const normalizeNotificationPreferences = (input?: Partial<NotificationPreferences> | Record<string, unknown>): NotificationPreferences => {
   const raw = (input || {}) as Record<string, unknown>;
@@ -143,6 +153,22 @@ const isVersionNewer = (remote: string, local: string) => {
     if (remotePart !== localPart) return remotePart > localPart;
   }
   return false;
+};
+
+const fetchLatestAndroidRelease = async (): Promise<AppUpdateRelease | null> => {
+  const response = await fetch(GITHUB_LATEST_RELEASE_API, {
+    headers: { Accept: "application/vnd.github+json" },
+  });
+  if (!response.ok) throw new Error("暫時無法取得更新資訊，請確認網路後再試一次。");
+  const release = (await response.json()) as GitHubReleasePayload;
+  const version = release.tag_name?.replace(/^v/i, "");
+  const apkUrl = release.assets?.find(asset =>
+    asset.name === "together-ledger.apk" &&
+    typeof asset.browser_download_url === "string" &&
+    asset.browser_download_url.startsWith(OFFICIAL_APK_URL_PREFIX)
+  )?.browser_download_url;
+  if (!version || !apkUrl) return null;
+  return { version, notes: release.body?.trim() || "包含最新功能、修正與穩定性改善。", apkUrl };
 };
 const appearancePalettes: Record<AppearanceTheme, typeof colors> = {
   rose: colors,
@@ -784,6 +810,8 @@ function AppContent() {
   const [error, setError] = useState("");
   const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
+  const [appUpdateStatus, setAppUpdateStatus] = useState<AppUpdateStatus>("idle");
+  const [appUpdateProgress, setAppUpdateProgress] = useState(0);
   const [accountDeletionVisible, setAccountDeletionVisible] = useState(false);
   const ledgerRequestRef = useRef(0);
   const ledgerSelectionRef = useRef(0);
@@ -799,6 +827,70 @@ function AppContent() {
   const dismissToast = useCallback((id: number) => {
     setToast(current => current?.id === id ? null : current);
   }, []);
+
+  const installAndroidUpdate = useCallback(async (release: AppUpdateRelease) => {
+    if (Platform.OS !== "android") {
+      setError("App 內更新目前僅支援 Android 裝置。");
+      return;
+    }
+    setAppUpdateStatus("downloading");
+    setAppUpdateProgress(0);
+    const destination = `${FileSystem.cacheDirectory}together-ledger-${release.version}.apk`;
+    try {
+      const download = FileSystem.createDownloadResumable(
+        release.apkUrl,
+        destination,
+        {},
+        progress => {
+          const total = progress.totalBytesExpectedToWrite;
+          if (total > 0) setAppUpdateProgress(Math.round((progress.totalBytesWritten / total) * 100));
+        }
+      );
+      const result = await download.downloadAsync();
+      if (!result?.uri) throw new Error("更新檔下載未完成，請稍後重新嘗試。");
+      setAppUpdateStatus("installing");
+      const contentUri = await FileSystem.getContentUriAsync(result.uri);
+      showToast("更新檔已下載完成，請在 Android 系統安裝畫面確認更新。");
+      await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
+        data: contentUri,
+        flags: 1,
+        type: APK_MIME_TYPE,
+      });
+    } catch (updateError) {
+      const message = updateError instanceof Error ? updateError.message : "更新失敗，請確認網路或安裝權限後再試一次。";
+      setError(`無法完成 App 內更新：${message}`);
+    } finally {
+      setAppUpdateStatus("idle");
+      setAppUpdateProgress(0);
+    }
+  }, [showToast]);
+
+  const checkForAppUpdate = useCallback(async (manual = false) => {
+    if (appUpdateStatus !== "idle") return;
+    setAppUpdateStatus("checking");
+    try {
+      const release = await fetchLatestAndroidRelease();
+      if (!release || !isVersionNewer(release.version, APP_VERSION)) {
+        if (manual) showToast("目前已是最新版本。");
+        return;
+      }
+      const notes = release.notes.length > 240 ? `${release.notes.slice(0, 240)}…` : release.notes;
+      setConfirmRequest({
+        title: "發現新版 Together Ledger",
+        message: `目前為 v${APP_VERSION}，可更新至 v${release.version}。\n\n${notes}\n\n更新檔會直接在 App 內下載，完成後由 Android 系統要求你確認安裝。`,
+        cancelText: "稍後再說",
+        confirmText: "下載並更新",
+        onConfirm: () => installAndroidUpdate(release),
+      });
+    } catch (updateError) {
+      if (manual) {
+        const message = updateError instanceof Error ? updateError.message : "無法檢查更新，請稍後再試。";
+        setError(message);
+      }
+    } finally {
+      setAppUpdateStatus("idle");
+    }
+  }, [appUpdateStatus, installAndroidUpdate, showToast]);
 
   const reloadLedger = useCallback(async (ledgerId: number) => {
     const requestId = ++ledgerRequestRef.current;
@@ -909,21 +1001,8 @@ function AppContent() {
   useEffect(() => {
     if (!user || updateNoticeRef.current) return;
     updateNoticeRef.current = true;
-    void fetch("https://api.github.com/repos/ben880320-boop/together-ledger/releases/latest", { headers: { Accept: "application/vnd.github+json" } })
-      .then(response => response.ok ? response.json() as Promise<{ tag_name?: string }> : null)
-      .then(release => {
-        const remoteVersion = release?.tag_name?.replace(/^v/i, "");
-        if (!remoteVersion || !isVersionNewer(remoteVersion, APP_VERSION)) return;
-        setConfirmRequest({
-          title: "發現新版 Together Ledger",
-          message: `目前為 v${APP_VERSION}，GitHub 已提供 v${remoteVersion}。更新可獲得最新修正與體驗改善。`,
-          cancelText: "稍後再說",
-          confirmText: "前往下載",
-          onConfirm: () => void Linking.openURL(GITHUB_RELEASES_URL),
-        });
-      })
-      .catch(() => undefined);
-  }, [user]);
+    void checkForAppUpdate();
+  }, [checkForAppUpdate, user]);
   useEffect(() => {
     if (!ready || !user || !pendingInviteCode || ledgerModal) return;
     setInviteCode(pendingInviteCode);
@@ -1509,7 +1588,7 @@ function AppContent() {
         />
         <AccountDeletionModal visible={accountDeletionVisible} busy={busy} error={error} onClose={() => setAccountDeletionVisible(false)} onSubmit={deleteAccount} />
         {homePage === "profile" ? (
-          <PersonalSettingsPage user={user} error={error} notificationPreferences={notificationPreferences} onSaveNotificationPreferences={saveNotificationPreferences} onUpdateNickname={updateNickname} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
+          <PersonalSettingsPage user={user} error={error} notificationPreferences={notificationPreferences} onSaveNotificationPreferences={saveNotificationPreferences} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
         ) : (
           <EmptyLedger
             error={error}
@@ -1555,7 +1634,7 @@ function AppContent() {
         />
         <AccountDeletionModal visible={accountDeletionVisible} busy={busy} error={error} onClose={() => setAccountDeletionVisible(false)} onSubmit={deleteAccount} />
         {homePage === "profile" ? (
-          <PersonalSettingsPage user={user} error={error} notificationPreferences={notificationPreferences} onSaveNotificationPreferences={saveNotificationPreferences} onUpdateNickname={updateNickname} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
+          <PersonalSettingsPage user={user} error={error} notificationPreferences={notificationPreferences} onSaveNotificationPreferences={saveNotificationPreferences} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
         ) : (
           <LedgerHome
             ledgers={ledgers}
@@ -3074,6 +3153,9 @@ function PersonalSettingsPage({
   notificationPreferences,
   onSaveNotificationPreferences,
   onUpdateNickname,
+  onCheckForUpdate,
+  appUpdateStatus,
+  appUpdateProgress,
   onLogout,
   onDeleteAccount,
   onBack,
@@ -3083,6 +3165,9 @@ function PersonalSettingsPage({
   notificationPreferences: NotificationPreferences;
   onSaveNotificationPreferences: (preferences: NotificationPreferences) => void | Promise<void>;
   onUpdateNickname: (name: string) => void | Promise<void>;
+  onCheckForUpdate: () => void;
+  appUpdateStatus: AppUpdateStatus;
+  appUpdateProgress: number;
   onLogout: () => void;
   onDeleteAccount: () => void;
   onBack: () => void;
@@ -3356,9 +3441,11 @@ style={styles.input}
           <MaterialCommunityIcons name="github" size={20} color={palette.rose} />
         </Pressable>
       </View>
-      <Pressable onPress={() => void Linking.openURL(GITHUB_RELEASES_URL)} style={({ pressed }) => [styles.outlineButton, pressed && styles.pressed]}>
-        <MaterialCommunityIcons name="download-circle-outline" size={18} color={palette.rose} />
-        <Text style={styles.outlineButtonText}>前往 GitHub 下載最新版本</Text>
+      <Pressable disabled={appUpdateStatus !== "idle"} onPress={onCheckForUpdate} style={({ pressed }) => [styles.outlineButton, pressed && styles.pressed, appUpdateStatus !== "idle" && styles.disabled]} accessibilityLabel="在 App 內檢查並下載更新">
+        {appUpdateStatus === "idle" ? <MaterialCommunityIcons name="download-circle-outline" size={18} color={palette.rose} /> : <ActivityIndicator size="small" color={palette.rose} />}
+        <Text style={styles.outlineButtonText}>
+          {appUpdateStatus === "checking" ? "正在檢查更新…" : appUpdateStatus === "downloading" ? `正在下載更新 ${appUpdateProgress}%` : appUpdateStatus === "installing" ? "正在開啟安裝確認…" : "在 App 內檢查並下載更新"}
+        </Text>
       </Pressable>
       <Pressable
         onPress={onLogout}

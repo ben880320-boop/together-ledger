@@ -54,7 +54,7 @@ describe("Together Ledger v1.2.8 Android wiring", () => {
     expect(app).toContain("endOfDay ? 59 : 0");
   });
 
-  it("uses the themed confirmation surface for destructive actions and GitHub update availability", () => {
+  it("uses the themed confirmation surface for destructive actions and App 內更新 availability", () => {
     const app = readMobile("app/index.tsx");
     expect(app).toContain("function ConfirmModal(");
     expect(app).toContain("<ConfirmModal request={confirmRequest}");
@@ -63,7 +63,11 @@ describe("Together Ledger v1.2.8 Android wiring", () => {
     ).toBeGreaterThanOrEqual(3);
     expect(app).toContain("confirmOverlay");
     expect(app).toContain('title: "發現新版 Together Ledger"');
-    expect(app).toContain('confirmText: "前往下載"');
+    expect(app).toContain('confirmText: "下載並更新"');
+    expect(app).toContain("fetchLatestAndroidRelease");
+    expect(app).toContain("FileSystem.createDownloadResumable");
+    expect(app).toContain("IntentLauncher.startActivityAsync");
+    expect(app).toContain("在 App 內檢查並下載更新");
     expect(app).toContain("再次確認移除");
     expect((app.match(/name=\"logout\"/g) || []).length).toBe(1);
   });
@@ -120,7 +124,7 @@ describe("Together Ledger v1.2.8 Android wiring", () => {
     expect(app).toContain('background: "#060A1D"');
     expect(app).toContain('background: "#062638"');
     expect(app).toContain("GITHUB_REPOSITORY_URL");
-    expect(app).toContain("GITHUB_RELEASES_URL");
+    expect(app).toContain("GITHUB_LATEST_RELEASE_API");
     expect(app).toContain("isVersionNewer");
     expect(app).toContain("mutationGuardRef");
     expect(app).toContain("setTimeout(() => setError");
@@ -128,6 +132,7 @@ describe("Together Ledger v1.2.8 Android wiring", () => {
     expect(app).toContain("maxToRenderPerBatch={4}");
     expect(app).toContain("backgroundColor: palette.surface");
     expect(readMobile("app.json")).toContain("softwareKeyboardLayoutMode");
+    expect(readMobile("app.json")).toContain("REQUEST_INSTALL_PACKAGES");
   });
 
   it("keeps long ledger management and viewing tasks in themed, bounded dialogs", () => {
@@ -237,9 +242,9 @@ describe("Together Ledger v1.2.8 Android wiring", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
       expo?: { version?: string; scheme?: string; android?: { versionCode?: number } };
     };
-    expect(appJson.expo?.version).toBe("1.2.8.3");
-    expect(appJson.expo?.android?.versionCode).toBe(13);
-    expect(readMobile("package.json")).toContain('"version": "1.2.8.3"');
+    expect(appJson.expo?.version).toBe("1.2.8.4");
+    expect(appJson.expo?.android?.versionCode).toBe(14);
+    expect(readMobile("package.json")).toContain('"version": "1.2.8.4"');
     expect(appJson.expo?.scheme).toBe("togetherledger");
     expect(readMobile("app.json")).toContain("expo-notifications");
     expect(readMobile("app.json")).toContain('"googleServicesFile": "./google-services.json"');
