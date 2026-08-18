@@ -6,7 +6,7 @@ const mobileRoot = resolve(process.cwd(), "mobile");
 const readMobile = (relativePath: string) =>
   readFileSync(resolve(mobileRoot, relativePath), "utf8");
 
-describe("Together Ledger v1.2.6 Android wiring", () => {
+describe("Together Ledger v1.2.7 Android wiring", () => {
   it("registers a concrete OAuth callback route with state verification", () => {
     const callbackPath = resolve(mobileRoot, "app/oauth/callback.tsx");
     expect(existsSync(callbackPath)).toBe(true);
@@ -77,6 +77,8 @@ describe("Together Ledger v1.2.6 Android wiring", () => {
     expect(app).toContain("通知金額門檻（NT$）");
     expect(app).toContain("saveNotificationPreferences");
     expect(app).toContain("requestExpoPushToken");
+    expect(app).toContain("pushRegistrationUnavailable");
+    expect(app).toContain("推播裝置尚未完成註冊");
     expect(app).toContain("Math.min(100_000_000");
     expect(app).toContain("Math.min(28");
     expect(app).toContain("normalizeNotificationPreferences");
@@ -184,11 +186,12 @@ describe("Together Ledger v1.2.6 Android wiring", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
       expo?: { version?: string; scheme?: string; android?: { versionCode?: number } };
     };
-    expect(appJson.expo?.version).toBe("1.2.6");
-    expect(appJson.expo?.android?.versionCode).toBe(8);
-    expect(readMobile("package.json")).toContain('"version": "1.2.6"');
+    expect(appJson.expo?.version).toBe("1.2.7");
+    expect(appJson.expo?.android?.versionCode).toBe(9);
+    expect(readMobile("package.json")).toContain('"version": "1.2.7"');
     expect(appJson.expo?.scheme).toBe("togetherledger");
     expect(readMobile("app.json")).toContain("expo-notifications");
+    expect(readMobile("app.json")).toContain('"googleServicesFile": "./google-services.json"');
     expect(readMobile("app.json")).toContain('"softwareKeyboardLayoutMode": "resize"');
   });
 

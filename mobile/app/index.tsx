@@ -119,7 +119,7 @@ const appearanceDefaults: AppearancePreferences = {
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
 const oauthStateKey = "together-ledger-oauth-state";
-const APP_VERSION = "1.2.6";
+const APP_VERSION = "1.2.7";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 
@@ -1130,9 +1130,12 @@ function AppContent() {
       return;
     }
     setBusy(true);
+    setSettingsNotice("");
+    setError("");
     try {
       const updated = await api.profile.updateName.mutate({ name: trimmed });
       setUser(current => (current ? { ...current, name: updated.name } : current));
+      setSettingsNotice("暱稱已儲存。");
     } catch (nameError) {
       setError(nameError instanceof Error ? nameError.message : "暱稱更新失敗。");
     } finally {
@@ -1145,6 +1148,7 @@ function AppContent() {
     const wasNormalized = normalizedAmount !== next.minimumAmount || normalizedReminderDay !== next.monthlyReminderDay;
     const requiresPush = next.incomeEnabled === 1 || next.expenseEnabled === 1 || next.monthlySettlementEnabled === 1;
     let pushPermissionUnavailable = false;
+    let pushRegistrationUnavailable = false;
     const requestId = ++notificationRequestRef.current;
     const previous = notificationPreferences;
     const normalized = normalizeNotificationPreferences({ ...next, minimumAmount: normalizedAmount, monthlyReminderDay: normalizedReminderDay });
@@ -1153,14 +1157,19 @@ function AppContent() {
     setBusy(true);
     try {
       if (requiresPush) {
-        const expoPushToken = await requestExpoPushToken();
-        if (expoPushToken) {
-          await api.notifications.registerDevice.mutate({
-            expoPushToken,
-            platform: Platform.OS === "ios" ? "ios" : "android",
-          });
-        } else {
-          pushPermissionUnavailable = true;
+        try {
+          const expoPushToken = await requestExpoPushToken();
+          if (expoPushToken) {
+            await api.notifications.registerDevice.mutate({
+              expoPushToken,
+              platform: Platform.OS === "ios" ? "ios" : "android",
+            });
+          } else {
+            pushPermissionUnavailable = true;
+          }
+        } catch {
+          // 裝置註冊不可阻斷偏好保存；可能是 Firebase 初次設定、網路或系統服務暫時不可用。
+          pushRegistrationUnavailable = true;
         }
       }
       const saved = await api.notifications.updatePreferences.mutate({
@@ -1175,6 +1184,8 @@ function AppContent() {
         setSettingsNotice(
           pushPermissionUnavailable
             ? "提醒設定已儲存。請在手機系統設定允許通知後，即可收到推播。"
+            : pushRegistrationUnavailable
+              ? "提醒設定已儲存。推播裝置尚未完成註冊，請確認網路與通知權限後再次儲存。"
             : wasNormalized
               ? "提醒日期與通知門檻已調整為可支援範圍並儲存。"
               : "提醒設定已儲存並同步。"
@@ -2987,8 +2998,9 @@ function PersonalSettingsPage({
           body="這些偏好只會影響你的裝置，不會改變共同帳本資料。"
         />
         {!!error && <Text style={styles.globalError}>{error}</Text>}
-        {!!settingsNotice && <Text style={styles.settingsNotice}>{settingsNotice}</Text>}
-        <View style={styles.card}>
+        {!!settingsNotice && <View style={styles.settingsNotice}><MaterialCommunityIcons name="check-circle-outline" size={18} color={palette.sage} /><Text style={styles.settingsNoticeText}>{settingsNotice}</Text></View>}
+        <View style={styles.profileSettingsShell}>
+        <View style={styles.settingsGroupCard}>
           <View style={styles.cardHeading}>
         <View style={styles.personalizationHeading}>
           <MaterialCommunityIcons name="account-cog-outline" size={19} color={palette.rose} />
@@ -3016,8 +3028,16 @@ style={styles.input}
 <Text style={styles.rowSubtitle}>
 暱稱會顯示在帳本成員與操作日誌中。
 </Text>
-      <View style={styles.settingsDivider} />
-<Text style={styles.personalizationLabel}>App 主題</Text>
+	      </View>
+	      <View style={styles.settingsGroupCard}>
+	      <View style={styles.cardHeading}>
+	        <View style={styles.personalizationHeading}>
+	          <MaterialCommunityIcons name="palette-outline" size={19} color={palette.rose} />
+	          <Text style={styles.cardTitle}>外觀與介面</Text>
+	        </View>
+	      </View>
+	      <Text style={styles.cardHint}>主題、字體與版型會立即套用並保存在這台裝置。</Text>
+	<Text style={styles.personalizationLabel}>App 主題</Text>
       <View style={styles.optionRow}>
         {themes.map(theme => (
           <Pressable
@@ -3124,8 +3144,14 @@ style={styles.input}
         </View>
 <Switch value={preferences.autoReceiptNote} onValueChange={value => updatePreferences({ autoReceiptNote: value })} trackColor={{ false: palette.border, true: palette.roseSoft }} thumbColor={preferences.autoReceiptNote ? palette.rose : palette.muted} />
 </View>
-      <View style={styles.settingsDivider} />
-<Text style={styles.personalizationLabel}>提醒與通知</Text>
+	      </View>
+	      <View style={styles.settingsGroupCard}>
+	      <View style={styles.cardHeading}>
+	        <View style={styles.personalizationHeading}>
+	          <MaterialCommunityIcons name="bell-cog-outline" size={19} color={palette.rose} />
+	          <Text style={styles.cardTitle}>提醒與通知</Text>
+	        </View>
+	      </View>
       <Text style={styles.cardHint}>可個別關閉收入、支出與月結算提醒；啟用後才會要求手機通知權限。</Text>
       <View style={styles.preferenceRow}>
         <View style={styles.preferenceCopy}>
@@ -3164,8 +3190,14 @@ style={styles.input}
 <MaterialCommunityIcons name="bell-check-outline" size={17} color="#FFFFFF" />
 <Text style={styles.smallButtonText}>儲存提醒設定</Text>
 </Pressable>
-      <View style={styles.settingsDivider} />
-<Text style={styles.personalizationLabel}>專案與更新</Text>
+	      </View>
+	      <View style={styles.settingsGroupCard}>
+	      <View style={styles.cardHeading}>
+	        <View style={styles.personalizationHeading}>
+	          <MaterialCommunityIcons name="rocket-launch-outline" size={19} color={palette.rose} />
+	          <Text style={styles.cardTitle}>專案與帳號</Text>
+	        </View>
+	      </View>
       <View style={styles.preferenceRow}>
         <View style={styles.preferenceCopy}>
 <Text style={styles.rowTitle}>Together Ledger GitHub</Text>
@@ -3191,6 +3223,7 @@ style={styles.input}
         <MaterialCommunityIcons name="arrow-left" size={17} color={palette.rose} />
         <Text style={styles.secondaryButtonText}>返回我的帳本</Text>
       </Pressable>
+        </View>
         </View>
       </ScrollView>
       </KeyboardAvoidingView>
@@ -3627,24 +3660,32 @@ function SettingsSection({
           })
         )}
             </View>
-      <Modal visible={managerModal !== null} transparent animationType="slide" onRequestClose={() => setManagerModal(null)}>
+      <Modal visible={managerModal !== null} transparent animationType="slide" onRequestClose={() => { setPendingItemAction(null); setManagerModal(null); }}>
         <View style={styles.modalBackdrop}>
-          <Pressable style={styles.modalDismiss} onPress={() => setManagerModal(null)} />
+          <Pressable style={styles.modalDismiss} onPress={() => { setPendingItemAction(null); setManagerModal(null); }} />
           <View style={styles.modalCard}>
             <View style={styles.modalHandle} />
             <View style={styles.cardHeading}>
               <View style={styles.memberPaymentName}>
-                <Text style={styles.modalTitle}>{managerModal === "category" ? "分類管理" : managerModal === "payment" ? "支付方式管理" : "操作日誌"}</Text>
-                <Text style={styles.modalDescription}>{managerModal === "activity" ? "依時間保留帳本的重要異動與操作者。" : "可搜尋、編輯、恢復，以及選擇隱藏或永久刪除。"}</Text>
+                <Text style={styles.modalTitle}>{pendingItemAction ? `管理「${pendingItemAction.name}」` : managerModal === "category" ? "分類管理" : managerModal === "payment" ? "支付方式管理" : "操作日誌"}</Text>
+                <Text style={styles.modalDescription}>{pendingItemAction ? "請選擇保留歷史資料的隱藏方式，或在項目未被使用時永久刪除。" : managerModal === "activity" ? "依時間保留帳本的重要異動與操作者。" : "可搜尋、編輯、恢復，以及選擇隱藏或永久刪除。"}</Text>
               </View>
-              <Pressable onPress={() => setManagerModal(null)} style={styles.outlineIconButton} accessibilityLabel="關閉管理視窗"><MaterialCommunityIcons name="close" size={18} color={palette.rose} /></Pressable>
+              <Pressable onPress={() => pendingItemAction ? setPendingItemAction(null) : setManagerModal(null)} style={styles.outlineIconButton} accessibilityLabel={pendingItemAction ? "返回管理清單" : "關閉管理視窗"}><MaterialCommunityIcons name={pendingItemAction ? "arrow-left" : "close"} size={18} color={palette.rose} /></Pressable>
             </View>
+            {pendingItemAction ? <View style={styles.managerActionPanel}>
+              <View style={styles.managerActionNotice}><MaterialCommunityIcons name="information-outline" size={18} color={palette.rose} /><Text style={styles.managerActionNoticeText}>已有交易、預算或固定收支引用的項目不能永久刪除；隱藏後可隨時由「已隱藏項目」恢復。</Text></View>
+              <Pressable onPress={() => resolveItemAction("archive")} style={[styles.confirmPrimary, { backgroundColor: palette.rose }]}><MaterialCommunityIcons name="archive-arrow-down-outline" size={18} color="#FFFFFF" /><Text style={styles.confirmPrimaryText}>隱藏，保留歷史紀錄</Text></Pressable>
+              <Pressable onPress={() => resolveItemAction("delete")} style={styles.confirmDanger}><MaterialCommunityIcons name="delete-outline" size={18} color={palette.danger} /><Text style={styles.confirmDangerText}>永久刪除（未被使用時）</Text></Pressable>
+              <Pressable onPress={() => setPendingItemAction(null)} style={styles.confirmCancel}><Text style={styles.confirmCancelText}>返回清單</Text></Pressable>
+            </View> : <>
             {managerModal === "category" && <>
               <TextInput value={categoryQuery} onChangeText={setCategoryQuery} placeholder="搜尋分類名稱或圖示" placeholderTextColor={palette.muted} style={styles.input} />
+              <Pressable onPress={() => setShowInactiveCategories(value => !value)} style={styles.managerInactiveToggle}><MaterialCommunityIcons name={showInactiveCategories ? "eye-off-outline" : "eye-outline"} size={16} color={palette.rose} /><Text style={styles.managerInactiveToggleText}>{showInactiveCategories ? "隱藏已隱藏項目" : `查看已隱藏項目（${categories.filter(item => item.isActive === 0).length}）`}</Text></Pressable>
               <ScrollView style={styles.managerScroll} keyboardShouldPersistTaps="handled">{visibleCategories.length ? visibleCategories.map(item => <View key={item.id} style={styles.settingsListRow}><View style={styles.settingsListIcon}><Text style={styles.settingsListIconText}>{categoryEmoji(item)}</Text></View><View style={styles.memberPaymentName}><Text style={styles.rowTitle}>{item.name}</Text><Text style={styles.rowSubtitle}>{item.type === "expense" ? "支出分類" : "收入分類"}{item.isActive === 0 ? " · 已停用" : ""}</Text></View>{isAdmin && <><Pressable onPress={() => startEditCategory(item)} style={styles.outlineIconButton} accessibilityLabel={`編輯分類 ${item.name}`}><MaterialCommunityIcons name="pencil-outline" size={17} color={palette.rose} /></Pressable><Pressable onPress={() => item.isActive === 0 ? restoreCategory(item) : setPendingItemAction({ kind: "category", id: item.id, name: item.name })} style={styles.outlineIconButton} accessibilityLabel={`處理分類 ${item.name}`}><MaterialCommunityIcons name={item.isActive === 0 ? "restore" : "dots-horizontal"} size={18} color={palette.rose} /></Pressable></>}</View>) : <EmptyInline text="找不到符合的分類。" />}</ScrollView>
             </>}
             {managerModal === "payment" && <>
               <TextInput value={paymentQuery} onChangeText={setPaymentQuery} placeholder="搜尋支付方式或圖示" placeholderTextColor={palette.muted} style={styles.input} />
+              <Pressable onPress={() => setShowInactivePayments(value => !value)} style={styles.managerInactiveToggle}><MaterialCommunityIcons name={showInactivePayments ? "eye-off-outline" : "eye-outline"} size={16} color={palette.rose} /><Text style={styles.managerInactiveToggleText}>{showInactivePayments ? "隱藏已隱藏項目" : `查看已隱藏項目（${paymentMethods.filter(item => item.isActive === 0).length}）`}</Text></Pressable>
               <ScrollView style={styles.managerScroll} keyboardShouldPersistTaps="handled">{visiblePayments.length ? visiblePayments.map(item => <View key={item.id} style={styles.settingsListRow}><View style={styles.settingsListIcon}><Text style={styles.settingsListIconText}>{paymentEmoji(item)}</Text></View><View style={styles.memberPaymentName}><Text style={styles.rowTitle}>{item.name}</Text><Text style={styles.rowSubtitle}>{item.isActive === 0 ? "已停用" : "可用於新增收支"}</Text></View>{isAdmin && <><Pressable onPress={() => startEditPayment(item)} style={styles.outlineIconButton} accessibilityLabel={`編輯支付方式 ${item.name}`}><MaterialCommunityIcons name="pencil-outline" size={17} color={palette.rose} /></Pressable><Pressable onPress={() => item.isActive === 0 ? restorePayment(item) : setPendingItemAction({ kind: "payment", id: item.id, name: item.name })} style={styles.outlineIconButton} accessibilityLabel={`處理支付方式 ${item.name}`}><MaterialCommunityIcons name={item.isActive === 0 ? "restore" : "dots-horizontal"} size={18} color={palette.rose} /></Pressable></>}</View>) : <EmptyInline text="找不到符合的支付方式。" />}</ScrollView>
             </>}
             {managerModal === "activity" && <>
@@ -3667,19 +3708,7 @@ function SettingsSection({
                 }) : <EmptyInline text="這個篩選條件下尚未有操作紀錄。" />}
               </ScrollView>
             </>}
-          </View>
-        </View>
-      </Modal>
-      <Modal visible={Boolean(pendingItemAction)} transparent animationType="fade" onRequestClose={() => setPendingItemAction(null)}>
-        <View style={styles.modalBackdrop}>
-          <Pressable style={styles.modalDismiss} onPress={() => setPendingItemAction(null)} />
-          <View style={styles.confirmModalCard}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>管理「{pendingItemAction?.name}」</Text>
-            <Text style={styles.modalDescription}>已有交易引用的項目無法永久刪除；選擇隱藏可保留歷史資料並停止新增時顯示。</Text>
-            <Pressable onPress={() => resolveItemAction("archive")} style={[styles.confirmPrimary, { backgroundColor: palette.rose }]}><Text style={styles.confirmPrimaryText}>隱藏，保留歷史紀錄</Text></Pressable>
-            <Pressable onPress={() => resolveItemAction("delete")} style={styles.confirmDanger}><Text style={styles.confirmDangerText}>永久刪除（未被使用時）</Text></Pressable>
-            <Pressable onPress={() => setPendingItemAction(null)} style={styles.confirmCancel}><Text style={styles.confirmCancelText}>取消</Text></Pressable>
+            </>}
           </View>
         </View>
       </Modal>
@@ -5449,6 +5478,15 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
   inviteCopyHint: { flexDirection: "row", alignItems: "center", gap: 5 },
   inviteCopyHintText: { color: palette.rose, fontSize: 11, fontWeight: "700" },
   personalizationHeading: { flexDirection: "row", alignItems: "center", gap: 7 },
+  profileSettingsShell: { gap: 14 },
+  settingsGroupCard: {
+    padding: 18,
+    borderWidth: cardBorderWidth,
+    borderColor: palette.border,
+    borderRadius: cardRadius,
+    backgroundColor: palette.surface,
+    ...(preferences.cardStyle === "soft" ? { shadowColor: palette.ink, shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 5 }, elevation: 2 } : {}),
+  },
   preferenceRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -5809,7 +5847,19 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     backgroundColor: palette.rose,
   },
   smallButtonText: { color: "#FFFFFF", fontSize: 11, fontWeight: "700" },
-  settingsNotice: { color: palette.sage, fontSize: 13, fontWeight: "700", marginBottom: 10 },
+  settingsNotice: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 12,
+    paddingHorizontal: 13,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: palette.sage,
+    borderRadius: 13,
+    backgroundColor: palette.surface,
+  },
+  settingsNoticeText: { flex: 1, color: palette.sage, fontSize: 13, fontWeight: "700" },
   keyboardAvoiding: { flex: 1 },
   settingsDivider: { height: 1, marginVertical: 18, backgroundColor: palette.border },
   appVersionText: { marginTop: 5, color: palette.rose, fontSize: 11, fontWeight: "800" },
@@ -6004,6 +6054,23 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
   settingsRemovePillText: { color: palette.rose, fontSize: 11, fontWeight: "700" },
   activityLogScroll: { maxHeight: 250 },
   managerScroll: { maxHeight: 390, marginTop: 8 },
+  managerInactiveToggle: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 9,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 11,
+    backgroundColor: palette.surface,
+  },
+  managerInactiveToggleText: { color: palette.rose, fontSize: 11, fontWeight: "700" },
+  managerActionPanel: { gap: 11, paddingTop: 8, paddingBottom: 4 },
+  managerActionNotice: { flexDirection: "row", alignItems: "flex-start", gap: 9, padding: 13, borderRadius: 14, backgroundColor: palette.roseSoft },
+  managerActionNoticeText: { flex: 1, color: palette.ink, fontSize: 12, lineHeight: 19 },
   activityLogRow: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 54, borderBottomWidth: 1, borderBottomColor: palette.border },
   activityLogDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: palette.rose },
   activityLogIcon: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 11 },
@@ -6079,9 +6146,9 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
   confirmCancel: { flex: 1, minHeight: 46, alignItems: "center", justifyContent: "center", borderWidth: 1, borderRadius: 14 },
   confirmCancelLink: { alignItems: "center", justifyContent: "center", minHeight: 42, marginTop: 6 },
   confirmCancelText: { fontSize: 13, fontWeight: "700" },
-  confirmPrimary: { flex: 1, minHeight: 46, alignItems: "center", justifyContent: "center", borderRadius: 14 },
+  confirmPrimary: { flex: 1, minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 14 },
   confirmPrimaryText: { color: "#FFFFFF", fontSize: 13, fontWeight: "800" },
-  confirmDanger: { flex: 1, minHeight: 46, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: "#B83B49" },
+  confirmDanger: { flex: 1, minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 7, borderRadius: 14, backgroundColor: "#B83B49" },
   confirmDangerText: { color: "#FFFFFF", fontSize: 12, fontWeight: "800" },
   confirmOptionList: { gap: 9, marginTop: 20 },
   confirmOption: { minHeight: 50, flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 13, borderWidth: 1, borderRadius: 14 },
