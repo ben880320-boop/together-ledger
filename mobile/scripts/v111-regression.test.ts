@@ -243,9 +243,9 @@ describe("Together Ledger v1.2.8 Android wiring", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
       expo?: { version?: string; scheme?: string; android?: { versionCode?: number } };
     };
-    expect(appJson.expo?.version).toBe("1.2.8.6");
-    expect(appJson.expo?.android?.versionCode).toBe(16);
-    expect(readMobile("package.json")).toContain('"version": "1.2.8.6"');
+    expect(appJson.expo?.version).toBe("1.2.8.7");
+    expect(appJson.expo?.android?.versionCode).toBe(17);
+    expect(readMobile("package.json")).toContain('"version": "1.2.8.7"');
     expect(appJson.expo?.scheme).toBe("togetherledger");
     expect(readMobile("app.json")).toContain("expo-notifications");
     expect(readMobile("app.json")).toContain('"googleServicesFile": "./google-services.json"');
@@ -261,6 +261,14 @@ describe("Together Ledger v1.2.8 Android wiring", () => {
     expect(app).toContain("readSavedUpdateResume");
     expect(app).toContain("download.pauseAsync");
     expect(app).toContain("resumeAndroidUpdate");
+    expect(app).toContain("GITHUB_RELEASE_HISTORY_API");
+    expect(app).toContain("更新歷程");
+    expect(app).toContain("取得更新歷程");
+    expect(app).toContain("跟隨系統");
+    expect(app).toContain("淺色模式");
+    expect(app).toContain("深色模式");
+    expect(app).toContain("colorMode");
+    expect(app).toContain("updateStatusBadge");
     expect(app).toContain("availablePayments");
     expect(app).toContain("managerActionScroll");
     expect(app).toContain('name="delete-outline"');

@@ -35,6 +35,7 @@ import {
   Switch,
   Text as NativeTextComponent,
   TextInput,
+  useColorScheme,
   View,
   type TextProps,
 } from "react-native";
@@ -79,6 +80,7 @@ type AppearanceFont = "system" | "rounded" | "serif" | "clean" | "mono";
 type AppearanceScale = "tiny" | "small" | "standard" | "large" | "xl";
 type AppearanceCardStyle = "soft" | "outlined" | "flat";
 type AppearanceNavStyle = "pill" | "line" | "minimal";
+type AppearanceColorMode = "system" | "light" | "dark";
 type AppearancePreferences = {
   theme: AppearanceTheme;
   font: AppearanceFont;
@@ -89,6 +91,7 @@ type AppearancePreferences = {
   reduceMotion: boolean;
   autoReceiptNote: boolean;
   autoDownloadUpdatesOnWifi: boolean;
+  colorMode: AppearanceColorMode;
 };
 
 type NotificationPreferences = {
@@ -117,20 +120,23 @@ const appearanceDefaults: AppearancePreferences = {
   reduceMotion: false,
   autoReceiptNote: true,
   autoDownloadUpdatesOnWifi: true,
+  colorMode: "system",
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.2.8.6";
+const APP_VERSION = "1.2.8.7";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 const GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/ben880320-boop/together-ledger/releases/latest";
+const GITHUB_RELEASE_HISTORY_API = "https://api.github.com/repos/ben880320-boop/together-ledger/releases?per_page=20";
 const OFFICIAL_APK_URL_PREFIX = "https://github.com/ben880320-boop/together-ledger/releases/download/";
 const APK_MIME_TYPE = "application/vnd.android.package-archive";
 const updateResumeStorageKey = "together-ledger-update-resume-v1";
 
 type AppUpdateStatus = "idle" | "checking" | "downloading" | "installing";
 type GitHubReleaseAsset = { name?: string; browser_download_url?: string };
-type GitHubReleasePayload = { tag_name?: string; body?: string; assets?: GitHubReleaseAsset[] };
+type GitHubReleasePayload = { tag_name?: string; body?: string; published_at?: string; assets?: GitHubReleaseAsset[] };
 type AppUpdateRelease = { version: string; notes: string; apkUrl: string };
+type AppUpdateHistoryItem = { version: string; notes: string; publishedAt?: string };
 type SavedUpdateResume = FileSystem.DownloadPauseState & {
   version: string;
   notes: string;
@@ -147,6 +153,17 @@ const getUpdateSecuritySummary = (release: AppUpdateRelease) => {
   return hasSecurityNotes
     ? "此版本的發行說明包含安全性、隱私或權限相關調整，建議儘快完成更新。"
     : "發行說明未標示專屬安全性修正；更新檔仍只會自官方 GitHub Release 下載。";
+};
+
+const getHistorySecuritySummary = (release: AppUpdateHistoryItem) =>
+  getUpdateSecuritySummary({ ...release, apkUrl: "" });
+
+const formatReleaseDate = (value?: string) => {
+  if (!value) return "發行日期未提供";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "發行日期未提供"
+    : date.toLocaleDateString("zh-TW", { year: "numeric", month: "short", day: "numeric" });
 };
 
 const formatUpdateMessage = (release: AppUpdateRelease) => {
@@ -196,6 +213,22 @@ const fetchLatestAndroidRelease = async (): Promise<AppUpdateRelease | null> => 
   )?.browser_download_url;
   if (!version || !apkUrl) return null;
   return { version, notes: release.body?.trim() || "包含最新功能、修正與穩定性改善。", apkUrl };
+};
+
+const fetchReleaseHistory = async (): Promise<AppUpdateHistoryItem[]> => {
+  const response = await fetch(GITHUB_RELEASE_HISTORY_API, {
+    headers: { Accept: "application/vnd.github+json" },
+  });
+  if (!response.ok) throw new Error("暫時無法取得更新歷程，請確認網路後再試一次。");
+  const releases = (await response.json()) as GitHubReleasePayload[];
+  if (!Array.isArray(releases)) return [];
+  return releases
+    .map(release => ({
+      version: release.tag_name?.replace(/^v/i, "") || "",
+      notes: release.body?.trim() || "包含功能更新、錯誤修正與穩定性改善。",
+      publishedAt: release.published_at,
+    }))
+    .filter(release => Boolean(release.version));
 };
 
 const isSavedUpdateResume = (value: unknown): value is SavedUpdateResume => {
@@ -379,18 +412,45 @@ const appearanceFontMap: Record<AppearanceFont, string> = {
   mono: Platform.select({ android: "monospace", ios: "Menlo" }) || "monospace",
 };
 
+const resolveAppearancePalette = (
+  theme: AppearanceTheme,
+  colorMode: AppearanceColorMode,
+  systemScheme: "light" | "dark" | null | undefined
+) => {
+  const base = appearancePalettes[theme];
+  const isDark = colorMode === "dark" || (colorMode === "system" && systemScheme === "dark");
+  if (!isDark) return { palette: base, isDark: false };
+  const naturallyDark = theme === "ocean" || theme === "starry";
+  return {
+    palette: {
+      ...base,
+      background: naturallyDark ? base.background : "#11171C",
+      surface: naturallyDark ? base.surface : "#1B242B",
+      ink: "#F4F7F9",
+      muted: "#B1C0C9",
+      border: naturallyDark ? base.border : "#3A4952",
+      roseSoft: naturallyDark ? base.roseSoft : "#26373E",
+      burgundy: "#EDF6F8",
+    },
+    isDark: true,
+  };
+};
+
 type AppearanceContextValue = {
   preferences: AppearancePreferences;
   palette: typeof colors;
+  isDarkMode: boolean;
   updatePreferences: (patch: Partial<AppearancePreferences>) => void;
 };
 const AppearanceContext = createContext<AppearanceContextValue>({
   preferences: appearanceDefaults,
   palette: colors,
+  isDarkMode: false,
   updatePreferences: () => undefined,
 });
 
 function AppearanceProvider({ children }: { children: ReactNode }) {
+  const systemColorScheme = useColorScheme();
   const [preferences, setPreferences] = useState<AppearancePreferences>(
     appearanceDefaults
   );
@@ -415,13 +475,18 @@ function AppearanceProvider({ children }: { children: ReactNode }) {
     },
     []
   );
+  const resolvedPalette = useMemo(
+    () => resolveAppearancePalette(preferences.theme, preferences.colorMode, systemColorScheme),
+    [preferences.colorMode, preferences.theme, systemColorScheme]
+  );
   const value = useMemo(
     () => ({
       preferences,
-      palette: appearancePalettes[preferences.theme],
+      palette: resolvedPalette.palette,
+      isDarkMode: resolvedPalette.isDark,
       updatePreferences,
     }),
-    [preferences, updatePreferences]
+    [preferences, resolvedPalette, updatePreferences]
   );
   styles = createStyles(value.palette, preferences);
   return (
@@ -479,12 +544,15 @@ function ThemeAtmosphere() {
   }
   if (preferences.theme === "cherry") {
     return <View pointerEvents="none" style={sceneContainer}>
+      <View style={{ position: "absolute", width: "150%", height: 180, top: -50, left: "-25%", backgroundColor: "#FFF4F8", opacity: 0.72 }} />
+      <View style={{ position: "absolute", width: 210, height: 210, borderRadius: 105, backgroundColor: "#FFE5ED", opacity: 0.58, top: 30, right: -72 }} />
       <View style={{ position: "absolute", width: 28, height: 330, borderRadius: 18, backgroundColor: "#654351", opacity: 0.62, top: -42, left: 42, transform: [{ rotate: "-13deg" }] }} />
       <View style={{ position: "absolute", width: 262, height: 15, borderRadius: 12, backgroundColor: "#734958", opacity: 0.68, top: 58, left: -30, transform: [{ rotate: "24deg" }] }} />
       <View style={{ position: "absolute", width: 166, height: 11, borderRadius: 10, backgroundColor: "#8E5A67", opacity: 0.58, top: 106, left: 28, transform: [{ rotate: "-27deg" }] }} />
       {[[4, 4, 74], [19, 1, 66], [36, 8, 70], [55, 0, 60], [73, 7, 68]].map(([left, top, size], index) => <View key={`blossom-${left}`} style={{ position: "absolute", left: `${left}%`, top: `${top}%`, width: size, height: size * 0.68, borderRadius: size, backgroundColor: index % 2 ? "#F6B1C5" : "#F8C8D7", opacity: 0.56 }} />)}
       {petalPositions.map(([left, top, size, rotation], index) => <View key={`${left}-${top}`} style={{ position: "absolute", left: `${left}%`, top: `${top}%`, width: size, height: Math.max(5, size - 2), borderRadius: size, backgroundColor: index % 2 ? "#E989AF" : "#FAD0DC", opacity: 0.88, transform: [{ rotate: `${rotation}deg` }] }} />)}
       <View style={{ position: "absolute", width: "145%", height: 92, bottom: -35, left: "-24%", borderRadius: 120, backgroundColor: "#A5C28F", opacity: 0.48 }} />
+      <View style={{ position: "absolute", width: "145%", height: 28, bottom: 46, left: "-22%", borderRadius: 120, backgroundColor: "#E8F2D9", opacity: 0.5, transform: [{ rotate: "-3deg" }] }} />
       <View style={{ position: "absolute", width: "145%", height: 98, bottom: -76, left: "-14%", borderRadius: 120, backgroundColor: "#F9DDE7", opacity: 0.76 }} />
     </View>;
   }
@@ -511,25 +579,32 @@ function ThemeAtmosphere() {
   }
   if (preferences.theme === "starry") {
     return <View pointerEvents="none" style={sceneContainer}>
+      <View style={{ position: "absolute", width: "150%", height: 260, top: -50, left: "-25%", backgroundColor: "#111C46", opacity: 0.88 }} />
       <View style={{ position: "absolute", width: 280, height: 280, borderRadius: 140, backgroundColor: "#27346C", opacity: 0.32, top: -150, right: -88 }} />
       {starPositions.map(([left, top, size], index) => <Animated.View key={`${left}-${top}`} style={{ position: "absolute", left: `${left}%`, top: `${top}%`, width: size, height: size, borderRadius: size, backgroundColor: "#FFFFFF", opacity: index % 3 === 0 ? glow : 0.72, shadowColor: "#B8D8FF", shadowOpacity: 0.9, shadowRadius: 5 }} />)}
+      <View style={{ position: "absolute", width: 190, height: 190, borderRadius: 95, borderWidth: 24, borderColor: "#6F86C5", opacity: 0.2, top: 74, left: -105 }} />
       <View style={{ position: "absolute", width: "145%", height: 130, bottom: -93, left: "-22%", borderRadius: 130, backgroundColor: "#101C45", opacity: 0.9 }} />
     </View>;
   }
   if (preferences.theme === "ocean") {
     return <View pointerEvents="none" style={sceneContainer}>
+      <View style={{ position: "absolute", width: "150%", height: 205, top: -22, left: "-24%", backgroundColor: "#78CFE0", opacity: 0.45 }} />
       <View style={{ position: "absolute", width: 190, height: 190, borderRadius: 100, backgroundColor: "#9BE8F3", opacity: 0.16, top: -98, right: -36 }} />
+      <View style={{ position: "absolute", width: 88, height: 88, borderRadius: 44, backgroundColor: "#FFE9A6", opacity: 0.54, top: 42, right: 32 }} />
       <View style={{ position: "absolute", width: "150%", height: 122, bottom: 125, left: "-25%", borderRadius: 150, backgroundColor: "#0B5470", opacity: 0.8, transform: [{ rotate: "-5deg" }] }} />
       <View style={{ position: "absolute", width: "150%", height: 178, bottom: 18, left: "-20%", borderRadius: 180, backgroundColor: "#0E718A", opacity: 0.8, transform: [{ rotate: "4deg" }] }} />
       <View style={{ position: "absolute", width: "155%", height: 132, bottom: -63, left: "-26%", borderRadius: 160, backgroundColor: "#0B4967", opacity: 0.92, transform: [{ rotate: "-3deg" }] }} />
       {[5, 25, 45, 65, 85].map((left, index) => <View key={`wave-${left}`} style={{ position: "absolute", width: 72, height: 26, borderRadius: 36, borderTopWidth: 4, borderColor: "#B7F7FF", opacity: 0.68 - index * 0.06, bottom: index % 2 ? 118 : 146, left: `${left}%`, transform: [{ rotate: index % 2 ? "-8deg" : "7deg" }] }} />)}
+      {[12, 35, 58].map((left, index) => <View key={`ocean-light-${left}`} style={{ position: "absolute", width: 56 - index * 9, height: 5, borderRadius: 5, backgroundColor: "#D6FCFF", opacity: 0.28, top: 145 + index * 23, left: `${left}%`, transform: [{ rotate: "-6deg" }] }} />)}
       <View style={{ position: "absolute", width: 16, height: 34, borderRadius: 12, backgroundColor: "#9EE8EE", opacity: 0.56, bottom: 90, left: "68%", transform: [{ rotate: "-16deg" }] }} />
       <View style={{ position: "absolute", width: 74, height: 12, borderRadius: 12, backgroundColor: "#9EE8EE", opacity: 0.5, bottom: 104, left: "60%", transform: [{ rotate: "8deg" }] }} />
     </View>;
   }
   if (preferences.theme === "sunset") {
     return <View pointerEvents="none" style={sceneContainer}>
+      <View style={{ position: "absolute", width: "150%", height: 210, top: -12, left: "-25%", backgroundColor: "#F4A27D", opacity: 0.48 }} />
       <View style={{ position: "absolute", width: 158, height: 158, borderRadius: 80, backgroundColor: "#FFE0A6", opacity: 0.82, top: 58, right: 30 }} />
+      <View style={{ position: "absolute", width: 216, height: 216, borderRadius: 108, borderWidth: 16, borderColor: "#FFD493", opacity: 0.18, top: 28, right: 0 }} />
       <View style={{ position: "absolute", width: "145%", height: 26, bottom: 188, left: "-23%", backgroundColor: "#C96D66", opacity: 0.52 }} />
       <View style={{ position: "absolute", width: "150%", height: 116, bottom: 73, left: "-25%", borderRadius: 120, backgroundColor: "#B95C69", opacity: 0.64, transform: [{ rotate: "-3deg" }] }} />
       <View style={{ position: "absolute", width: "150%", height: 130, bottom: -23, left: "-20%", borderRadius: 150, backgroundColor: "#754D75", opacity: 0.64 }} />
@@ -540,8 +615,11 @@ function ThemeAtmosphere() {
   }
   if (preferences.theme === "forest") {
     return <View pointerEvents="none" style={sceneContainer}>
+      <View style={{ position: "absolute", width: "150%", height: 210, top: -32, left: "-25%", backgroundColor: "#DCEAD7", opacity: 0.62 }} />
+      <View style={{ position: "absolute", width: 118, height: 118, borderRadius: 59, backgroundColor: "#FFF0B8", opacity: 0.35, top: 34, right: 25 }} />
       <View style={{ position: "absolute", width: 42, height: 210, borderRadius: 25, backgroundColor: "#8BB095", opacity: 0.28, left: 20, top: -58, transform: [{ rotate: "16deg" }] }} />
       <View style={{ position: "absolute", width: 160, height: 160, borderRadius: 100, backgroundColor: "#B4D3B7", opacity: 0.43, right: -42, top: 12 }} />
+      {[5, 29, 78].map((left, index) => <View key={`forest-tree-${left}`} style={{ position: "absolute", width: 12 + index * 3, height: 95 + index * 18, borderRadius: 14, backgroundColor: "#568767", opacity: 0.4, bottom: 70, left: `${left}%`, transform: [{ rotate: index === 1 ? "-4deg" : "5deg" }] }} />)}
       <View style={{ position: "absolute", width: "155%", height: 160, bottom: -88, left: "-26%", borderRadius: 160, backgroundColor: "#9BC5A0", opacity: 0.46, transform: [{ rotate: "-4deg" }] }} />
       <View style={{ position: "absolute", width: "150%", height: 125, bottom: -95, left: "-20%", borderRadius: 140, backgroundColor: "#6FA87A", opacity: 0.35, transform: [{ rotate: "5deg" }] }} />
     </View>;
@@ -3302,6 +3380,10 @@ function PersonalSettingsPage({
   const { preferences, palette, updatePreferences } = useAppearance();
   const [nickname, setNickname] = useState(user.name || "");
   const [notificationDraft, setNotificationDraft] = useState<NotificationPreferences>(() => normalizeNotificationPreferences(notificationPreferences));
+  const [historyVisible, setHistoryVisible] = useState(false);
+  const [releaseHistory, setReleaseHistory] = useState<AppUpdateHistoryItem[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
   const notificationDraftRef = useRef(notificationDraft);
   useEffect(() => { notificationDraftRef.current = notificationDraft; }, [notificationDraft]);
   useEffect(() => {
@@ -3348,8 +3430,26 @@ function PersonalSettingsPage({
     { key: "line", label: "底線選取", icon: "format-align-bottom" },
     { key: "minimal", label: "極簡導覽", icon: "dots-horizontal" },
   ];
+  const colorModes: Array<{ key: AppearanceColorMode; label: string; icon: keyof typeof MaterialCommunityIcons.glyphMap; hint: string }> = [
+    { key: "system", label: "跟隨系統", icon: "cellphone-cog", hint: "依手機設定切換" },
+    { key: "light", label: "淺色模式", icon: "weather-sunny", hint: "明亮、清楚" },
+    { key: "dark", label: "深色模式", icon: "weather-night", hint: "夜間更舒適" },
+  ];
   const hasNewRelease = Boolean(latestRelease && isVersionNewer(latestRelease.version, APP_VERSION));
   const resumedMegabytes = savedUpdateResume?.resumeData ? (Number(savedUpdateResume.resumeData) / (1024 * 1024)).toFixed(1) : "0.0";
+  const openReleaseHistory = async () => {
+    setHistoryVisible(true);
+    if (releaseHistory.length || historyLoading) return;
+    setHistoryLoading(true);
+    setHistoryError("");
+    try {
+      setReleaseHistory(await fetchReleaseHistory());
+    } catch (loadError) {
+      setHistoryError(loadError instanceof Error ? loadError.message : "暫時無法取得更新歷程，請稍後再試一次。");
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["bottom"]}>
       <ThemeAtmosphere />
@@ -3390,12 +3490,12 @@ style={styles.input}
 	<Text style={styles.rowSubtitle}>
 	暱稱會顯示在帳本成員與操作日誌中。
 	</Text>
-		      </View>
-		      <View style={[styles.settingsGroupCard, styles.updateSettingsCard]}>
-		        <View style={styles.cardHeading}>
-		          <View style={styles.personalizationHeading}>
-		            <View style={styles.updateHeaderIcon}>
-		              <MaterialCommunityIcons name="download-circle-outline" size={20} color="#FFFFFF" />
+	      </View>
+	      <View style={[styles.settingsGroupCard, styles.updateSettingsCard]}>
+	        <View style={styles.updateCardHeader}>
+	          <View style={[styles.personalizationHeading, styles.updateHeaderHeading]}>
+	            <View style={styles.updateHeaderIcon}>
+	              <MaterialCommunityIcons name="download-circle-outline" size={20} color="#FFFFFF" />
 		            </View>
 		            <View style={styles.preferenceCopy}>
 		              <Text style={styles.cardTitle}>更新與下載</Text>
@@ -3453,10 +3553,18 @@ style={styles.input}
 		          {appUpdateStatus === "idle" ? <MaterialCommunityIcons name="refresh" size={18} color="#FFFFFF" /> : <ActivityIndicator size="small" color="#FFFFFF" />}
 		          <Text style={styles.updatePrimaryButtonText}>{appUpdateStatus === "checking" ? "正在檢查更新…" : appUpdateStatus === "downloading" ? `正在下載更新 ${appUpdateProgress}%` : appUpdateStatus === "installing" ? "正在開啟安裝確認…" : hasNewRelease ? "查看並下載更新" : "檢查版本與更新內容"}</Text>
 		        </Pressable>
-		        {savedUpdateResume && latestRelease && <Pressable disabled={appUpdateStatus !== "idle"} onPress={onRestartUpdate} style={({ pressed }) => [styles.updateRestartButton, pressed && styles.pressed, appUpdateStatus !== "idle" && styles.disabled]}>
-		          <Text style={styles.updateRestartButtonText}>捨棄已下載部分，重新開始</Text>
-		        </Pressable>}
-		      </View>
+	        {savedUpdateResume && latestRelease && <Pressable disabled={appUpdateStatus !== "idle"} onPress={onRestartUpdate} style={({ pressed }) => [styles.updateRestartButton, pressed && styles.pressed, appUpdateStatus !== "idle" && styles.disabled]}>
+	          <Text style={styles.updateRestartButtonText}>捨棄已下載部分，重新開始</Text>
+	        </Pressable>}
+	        <Pressable onPress={() => void openReleaseHistory()} style={({ pressed }) => [styles.updateHistoryButton, pressed && styles.pressed]} accessibilityLabel="查看版本更新歷程">
+	          <MaterialCommunityIcons name="history" size={17} color={palette.rose} />
+	          <View style={styles.preferenceCopy}>
+	            <Text style={styles.updateHistoryButtonTitle}>查看更新歷程</Text>
+	            <Text style={styles.updateHistoryButtonHint}>瀏覽歷次版本的更新內容與安全性摘要</Text>
+	          </View>
+	          <MaterialCommunityIcons name="chevron-right" size={20} color={palette.muted} />
+	        </Pressable>
+	      </View>
 		      <View style={styles.settingsGroupCard}>
 	      <View style={styles.cardHeading}>
 	        <View style={styles.personalizationHeading}>
@@ -3465,7 +3573,25 @@ style={styles.input}
 	        </View>
 	      </View>
 	      <Text style={styles.cardHint}>主題、字體與版型會立即套用並保存在這台裝置。</Text>
-	<Text style={styles.personalizationLabel}>App 主題</Text>
+	      <Text style={styles.personalizationLabel}>顯示模式</Text>
+	      <View style={styles.appearanceGrid}>
+	        {colorModes.map(mode => (
+	          <Pressable
+	            key={mode.key}
+	            accessibilityRole="button"
+	            accessibilityLabel={`選擇${mode.label}`}
+	            onPress={() => updatePreferences({ colorMode: mode.key })}
+	            style={[styles.appearanceStyleOption, preferences.colorMode === mode.key && styles.appearanceOptionActive]}
+	          >
+	            <MaterialCommunityIcons name={mode.icon} size={18} color={palette.rose} />
+	            <View style={styles.appearanceStyleCopy}>
+	              <Text style={styles.appearanceOptionText}>{mode.label}</Text>
+	              <Text style={styles.appearanceStyleHint}>{mode.hint}</Text>
+	            </View>
+	          </Pressable>
+	        ))}
+	      </View>
+		<Text style={styles.personalizationLabel}>App 主題</Text>
       <View style={styles.optionRow}>
         {themes.map(theme => (
           <Pressable
@@ -3653,14 +3779,51 @@ style={styles.input}
           <Text style={styles.accountDeleteButtonText}>刪除帳號</Text>
         </Pressable>
       </View>
-      <Pressable onPress={onBack} style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
-        <MaterialCommunityIcons name="arrow-left" size={17} color={palette.rose} />
-        <Text style={styles.secondaryButtonText}>返回我的帳本</Text>
-      </Pressable>
-        </View>
-        </View>
-      </ScrollView>
-      </KeyboardAvoidingView>
+	      <Pressable onPress={onBack} style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
+	        <MaterialCommunityIcons name="arrow-left" size={17} color={palette.rose} />
+	        <Text style={styles.secondaryButtonText}>返回我的帳本</Text>
+	      </Pressable>
+	        </View>
+	        </View>
+	      </ScrollView>
+	      </KeyboardAvoidingView>
+	      <Modal visible={historyVisible} animationType="slide" onRequestClose={() => setHistoryVisible(false)}>
+	        <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "bottom"]}>
+	          <ThemeAtmosphere />
+	          <View style={styles.historyPageHeader}>
+	            <Pressable onPress={() => setHistoryVisible(false)} style={styles.historyBackButton} accessibilityLabel="返回個人設定">
+	              <MaterialCommunityIcons name="arrow-left" size={21} color={palette.rose} />
+	            </Pressable>
+	            <View style={styles.historyHeaderCopy}>
+	              <Text style={styles.historyPageTitle}>更新歷程</Text>
+	              <Text style={styles.historyPageSubtitle}>版本內容與安全性摘要</Text>
+	            </View>
+	          </View>
+	          <ScrollView contentContainerStyle={styles.historyPageContent} showsVerticalScrollIndicator={false}>
+	            <View style={styles.historyIntroCard}>
+	              <MaterialCommunityIcons name="shield-sync-outline" size={23} color={palette.rose} />
+	              <Text style={styles.historyIntroText}>內容來自 Together Ledger 官方 GitHub Release。建議優先安裝含安全性或權限調整的新版。</Text>
+	            </View>
+	            {historyLoading ? <View style={styles.historyLoading}><ActivityIndicator color={palette.rose} /><Text style={styles.rowSubtitle}>正在取得更新歷程…</Text></View> : null}
+	            {!!historyError && <View style={styles.historyErrorPanel}><MaterialCommunityIcons name="wifi-alert" size={18} color={palette.rose} /><Text style={styles.historyErrorText}>{historyError}</Text></View>}
+	            {!historyLoading && !historyError && !releaseHistory.length ? <View style={styles.historyLoading}><Text style={styles.rowSubtitle}>目前沒有可顯示的版本紀錄。</Text></View> : null}
+	            {releaseHistory.map((release, index) => <View key={`${release.version}-${release.publishedAt || index}`} style={styles.historyReleaseCard}>
+	              <View style={styles.historyReleaseTopRow}>
+	                <View>
+	                  <Text style={styles.historyVersionText}>v{release.version}</Text>
+	                  <Text style={styles.historyDateText}>{formatReleaseDate(release.publishedAt)}</Text>
+	                </View>
+	                {index === 0 ? <View style={styles.historyCurrentBadge}><Text style={styles.historyCurrentBadgeText}>最新</Text></View> : null}
+	              </View>
+	              <View style={styles.historyDivider} />
+	              <View style={styles.historySectionHeading}><MaterialCommunityIcons name="text-box-outline" size={16} color={palette.rose} /><Text style={styles.historySectionTitle}>更新內容</Text></View>
+	              <Text style={styles.historyBody}>{release.notes}</Text>
+	              <View style={styles.historySectionHeading}><MaterialCommunityIcons name="shield-check-outline" size={16} color={palette.rose} /><Text style={styles.historySectionTitle}>安全性摘要</Text></View>
+	              <Text style={styles.historyBody}>{getHistorySecuritySummary(release)}</Text>
+	            </View>)}
+	          </ScrollView>
+	        </SafeAreaView>
+	      </Modal>
     </SafeAreaView>
   );
 }
@@ -6079,6 +6242,14 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     borderColor: palette.roseSoft,
     backgroundColor: palette.surface,
   },
+  updateCardHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 8,
+    marginBottom: 12,
+  },
+  updateHeaderHeading: { flex: 1, minWidth: 0 },
   updateHeaderIcon: {
     width: 38,
     height: 38,
@@ -6088,6 +6259,10 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     backgroundColor: palette.rose,
   },
   updateStatusBadge: {
+    flexShrink: 0,
+    alignSelf: "flex-start",
+    marginLeft: 2,
+    marginRight: 4,
     paddingHorizontal: 9,
     paddingVertical: 5,
     borderRadius: 999,
@@ -6170,6 +6345,58 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
   updatePrimaryButtonText: { color: "#FFFFFF", fontSize: 13, fontWeight: "800" },
   updateRestartButton: { alignSelf: "center", marginTop: 11, paddingHorizontal: 8, paddingVertical: 4 },
   updateRestartButtonText: { color: palette.muted, fontSize: 11, fontWeight: "700", textDecorationLine: "underline" },
+  updateHistoryButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: palette.border,
+    borderRadius: 15,
+    backgroundColor: palette.background,
+  },
+  updateHistoryButtonTitle: { color: palette.ink, fontSize: 13, fontWeight: "800" },
+  updateHistoryButtonHint: { marginTop: 2, color: palette.muted, fontSize: 11, lineHeight: 16 },
+  historyPageHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: palette.border,
+    backgroundColor: palette.surface,
+  },
+  historyBackButton: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderRadius: 14, backgroundColor: palette.roseSoft },
+  historyHeaderCopy: { flex: 1 },
+  historyPageTitle: { color: palette.ink, fontSize: 19, fontWeight: "900" },
+  historyPageSubtitle: { marginTop: 2, color: palette.muted, fontSize: 12 },
+  historyPageContent: { flexGrow: 1, gap: 12, padding: 18, paddingBottom: 38 },
+  historyIntroCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: palette.roseSoft,
+    borderRadius: 17,
+    backgroundColor: palette.surface,
+  },
+  historyIntroText: { flex: 1, color: palette.muted, fontSize: 12, lineHeight: 18 },
+  historyLoading: { alignItems: "center", gap: 10, paddingVertical: 30 },
+  historyErrorPanel: { flexDirection: "row", alignItems: "flex-start", gap: 9, padding: 14, borderRadius: 16, backgroundColor: palette.roseSoft },
+  historyErrorText: { flex: 1, color: palette.rose, fontSize: 12, lineHeight: 18 },
+  historyReleaseCard: { gap: 9, padding: 16, borderWidth: 1, borderColor: palette.border, borderRadius: 18, backgroundColor: palette.surface },
+  historyReleaseTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  historyVersionText: { color: palette.ink, fontSize: 17, fontWeight: "900" },
+  historyDateText: { marginTop: 3, color: palette.muted, fontSize: 11 },
+  historyCurrentBadge: { paddingHorizontal: 9, paddingVertical: 5, borderRadius: 999, backgroundColor: palette.rose },
+  historyCurrentBadgeText: { color: "#FFFFFF", fontSize: 10, fontWeight: "900" },
+  historyDivider: { height: 1, backgroundColor: palette.border, marginVertical: 2 },
+  historySectionHeading: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
+  historySectionTitle: { color: palette.ink, fontSize: 12, fontWeight: "900" },
+  historyBody: { color: palette.muted, fontSize: 12, lineHeight: 18 },
   preferenceRow: {
     flexDirection: "row",
     alignItems: "center",
