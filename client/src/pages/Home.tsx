@@ -40,8 +40,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ReleaseFooter } from "@/components/ReleaseFooter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { startLogin } from "@/const";
+import { useLocation } from "wouter";
 
 const money = (value: number) => `NT$ ${Math.round(value).toLocaleString("zh-TW")}`;
 const shortMoney = (value: number) => `NT$${Math.round(value).toLocaleString("zh-TW")}`;
@@ -151,12 +153,13 @@ function DonutChart({ values }: { values: { value: number; color: string }[] }) 
  * `?legacyWorkspacePreview=1` 開啟。
  */
 export default function Home() {
+  const [, setLocation] = useLocation();
   const allowLegacyWorkspacePreview =
     import.meta.env.DEV &&
     new URLSearchParams(window.location.search).get("legacyWorkspacePreview") === "1";
 
   if (!allowLegacyWorkspacePreview) {
-    return <LoginLanding onLogin={() => startLogin()} />;
+    return <LoginLanding onLogin={() => setLocation("/login")} />;
   }
 
   return <LegacyWorkspacePreview />;
@@ -286,6 +289,7 @@ function LoginLanding({ onLogin }: { onLogin: () => void }) {
       </section>
       <section className="grid gap-5 lg:grid-cols-[0.86fr_1.14fr]"><div className="rounded-[26px] border border-[#EADFD9] bg-[#FFFDFC] p-6 shadow-[0_14px_35px_rgba(89,61,51,0.05)]"><div className="flex items-center gap-2 text-[#A35F6D]"><Settings2 size={18} /><span className="text-sm font-bold">同一套外觀，依你的使用情境切換</span></div><div className="mt-5 space-y-3"><div className="rounded-xl bg-[#F9F4F1] p-4"><div className="font-semibold">跟隨系統、淺色與深色模式</div><p className="mt-1 text-sm leading-6 text-[#8A756D]">App 可配合裝置模式；情境主題會維持足夠對比與低負載背景。</p></div><div className="rounded-xl bg-[#F4F7F5] p-4"><div className="font-semibold">跨裝置共同使用</div><p className="mt-1 text-sm leading-6 text-[#718478]">手機快速記帳、電腦瀏覽分析；沒有 Android App 的使用者也能由網頁登入。</p></div></div></div><div className="rounded-[26px] border border-[#EADFD9] bg-[#FFFDFC] p-6 shadow-[0_14px_35px_rgba(89,61,51,0.05)]"><div className="flex items-center justify-between"><div><div className="text-lg font-bold">更新歷程</div><p className="mt-1 text-sm text-[#8A756D]">Android App 與網頁同步顯示的重要變更。</p></div><span className="rounded-full bg-[#F8E6E6] px-3 py-1.5 text-xs font-bold text-[#A35F6D]">v1.2.8.7</span></div><div className="mt-5 space-y-3">{updates.map((item, index) => <div key={item.version} className="flex gap-3 rounded-2xl border border-[#F0E6E1] p-4"><div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#F8E6E6] text-[#B56C78]"><Check size={15} strokeWidth={2.5} /></div><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-x-2 gap-y-1"><span className="font-bold text-[#4A3833]">v{item.version}</span><span className="text-xs text-[#A18A82]">{item.date}</span>{index === 0 && <span className="rounded-full bg-[#EAF4EC] px-2 py-0.5 text-[10px] font-bold text-[#5D8968]">安全摘要已更新</span>}</div><div className="mt-1 text-sm font-semibold text-[#6C514B]">{item.title}</div><p className="mt-1 text-sm leading-6 text-[#88736B]">{item.detail}</p></div></div>)}</div></div></section>
     </main>
+    <ReleaseFooter />
   </div>;
 }
 

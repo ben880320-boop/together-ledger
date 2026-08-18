@@ -1,0 +1,82 @@
+import { RefreshCw, ShieldCheck } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+
+export const WEB_RELEASE_VERSION = "1.2.8.7";
+export const DEFAULT_WEB_RELEASED_AT = "2026-08-19 01:54（台北時間）";
+
+type DeploymentMeta = { version?: string; timestamp?: number };
+
+function formatTaipeiTimestamp(timestamp?: number) {
+  if (!timestamp) return DEFAULT_WEB_RELEASED_AT;
+  return `${new Intl.DateTimeFormat("zh-TW", {
+    timeZone: "Asia/Taipei",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(new Date(timestamp))}（台北時間）`;
+}
+
+async function reloadLatestVersion() {
+  try {
+    if ("caches" in window) {
+      const cacheNames = await window.caches.keys();
+      await Promise.all(cacheNames.map(cacheName => window.caches.delete(cacheName)));
+    }
+  } catch {
+    // Cache Storage may be unavailable in private browsing. The URL revision
+    // below still causes the document to be requested again.
+  }
+
+  const url = new URL(window.location.href);
+  url.searchParams.set("refresh", Date.now().toString());
+  window.location.replace(url.toString());
+}
+
+export function ReleaseFooter({ compact = false }: { compact?: boolean }) {
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [deployment, setDeployment] = useState<DeploymentMeta | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void fetch("/__manus__/version.json", { cache: "no-store" })
+      .then(response => response.ok ? response.json() as Promise<DeploymentMeta> : null)
+      .then(metadata => { if (active && metadata) setDeployment(metadata); })
+      .catch(() => { /* The fallback keeps the footer readable offline. */ });
+    return () => { active = false; };
+  }, []);
+
+  return (
+    <footer className={compact ? "mt-8 border-t border-[#EADFD9] pt-5" : "mt-12 border-t border-[#E9DED8] bg-white/55"}>
+      <div className={compact ? "flex flex-col gap-3 text-xs text-[#87736B] sm:flex-row sm:items-center sm:justify-between" : "mx-auto flex w-full max-w-6xl flex-col gap-4 px-5 py-7 text-xs text-[#87736B] md:flex-row md:items-center md:justify-between md:px-8"}>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <span className="font-semibold text-[#684F48]">共帳 Together Ledger</span>
+          <span>網頁版 v{WEB_RELEASE_VERSION}</span>
+          <span className="hidden text-[#C5AEA5] sm:inline">•</span>
+          <span>本次發布：{formatTaipeiTimestamp(deployment?.timestamp)}</span>
+          {deployment?.version && <><span className="hidden text-[#C5AEA5] sm:inline">•</span><span>建置 {deployment.version.slice(0, 8)}</span></>}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1 text-[#6D8A73]"><ShieldCheck size={14} />版本資訊已同步</span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            disabled={isRefreshing}
+            onClick={() => {
+              setIsRefreshing(true);
+              void reloadLatestVersion();
+            }}
+            className="h-8 rounded-lg border-[#DEC9C2] bg-white/80 px-3 text-xs font-semibold text-[#8C5862] hover:bg-white"
+          >
+            <RefreshCw size={14} className={isRefreshing ? "mr-1.5 animate-spin" : "mr-1.5"} />
+            {isRefreshing ? "正在取得最新版" : "重新載入最新版本"}
+          </Button>
+        </div>
+      </div>
+    </footer>
+  );
+}
