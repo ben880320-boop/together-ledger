@@ -272,3 +272,9 @@
 - [x] 在個人設定提供安全的帳號刪除功能，包含不可逆警告、確認步驟與資料處理
 - [x] 修正 Web 部署的 pnpm ignored-builds 設定，恢復檢查點自動部署
 - [x] 補齊測試、建置 v1.2.8 Android APK 並驗證 Release 產物（42 項 Vitest、行動端回歸、Android 核心流程與 TypeScript 檢查通過；GitHub Actions run #32097036297 成功，APK SHA-256 已獨立驗證）
+
+## v1.2.8.1 登入端點與部署同步修正
+
+- [ ] 修正已安裝 Android App 呼叫 `auth.register` 時，後端尚未提供端點的版本不同步問題
+- [ ] 修正 Web 後端部署的 pnpm ignored-builds 設定，讓最新 tRPC 認證端點可以發佈
+- [ ] 驗證電子信箱註冊／登入 API 可從 App 使用，並建立修正版 Android APK
