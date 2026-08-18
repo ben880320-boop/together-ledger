@@ -57,7 +57,8 @@ const checks = [
   ["所有成功儲存回饋使用右下角五秒提示", app.includes('function SuccessToast(') && app.includes('showToast') && app.includes('5_000') && app.includes('globalToastLayer')],
   ["帳本載入採單一工作區快照以減少請求", app.includes('api.ledger.workspace.query') && router.includes('workspace: protectedProcedure') && router.includes('Promise.all([')],
   ["個人設定提供密碼確認的帳號刪除流程", app.includes('function AccountDeletionModal(') && app.includes('永久刪除帳號') && app.includes('api.auth.deleteAccount.mutate') && router.includes('deleteAccount: protectedProcedure') && db.includes('deleteUserAccount')],
-  ["Android 交付版本為 1.2.8.1", appConfig.includes('"version": "1.2.8.1"') && appConfig.includes('"versionCode": 11')],
+  ["交易與輸入彈窗可捲動並具備鍵盤安全區", app.includes("modalScrollableContent") && app.includes('keyboardDismissMode="on-drag"') && app.includes("automaticallyAdjustKeyboardInsets") && app.includes("transactionModalScrollContent: { flexGrow: 1, paddingBottom: 12 }") && !app.includes('transactionModalScrollContent: { flexGrow: 1, justifyContent: "flex-end"') && !app.includes('transactionModalCard: { minHeight: "100%"')],
+  ["Android 交付版本為 1.2.8.2", appConfig.includes('"version": "1.2.8.2"') && appConfig.includes('"versionCode": 12')],
 ];
 
 const failed = checks.filter(([, passed]) => !passed).map(([label]) => label);

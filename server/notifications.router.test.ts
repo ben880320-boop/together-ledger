@@ -44,10 +44,10 @@ import { appRouter } from "./routers";
 
 type AuthenticatedUser = NonNullable<TrpcContext["user"]>;
 
-function createNotificationContext(): TrpcContext {
+function createNotificationContext(openId = "notification-test-user"): TrpcContext {
   const user: AuthenticatedUser = {
     id: 7,
-    openId: "notification-test-user",
+    openId,
     email: "notify@example.com",
     name: "通知測試者",
     loginMethod: "manus",
@@ -98,6 +98,29 @@ describe("notification router integration", () => {
     expect(mocks.saveTaskUid).toHaveBeenCalledWith(7, "task_v122");
     expect(mocks.updatePreferences).toHaveBeenCalledWith(7, expect.objectContaining({ minimumAmount: 500, monthlyReminderDay: 18 }));
     expect(mocks.upsertPushDevice).toHaveBeenCalledWith({ userId: 7, expoPushToken: "ExponentPushToken[v122-device]", platform: "android" });
+  });
+
+  it("uses the owner-scoped Heartbeat fallback for local email accounts without losing preferences", async () => {
+    const preference = {
+      id: 1, userId: 7, incomeEnabled: 1, expenseEnabled: 1, minimumAmount: 500,
+      monthlySettlementEnabled: 1, monthlyReminderDay: 18, scheduleCronTaskUid: null,
+      createdAt: new Date(), updatedAt: new Date(),
+    };
+    mocks.getPreferences.mockResolvedValue(preference);
+    mocks.updatePreferences.mockResolvedValue(preference);
+    mocks.createHeartbeatJob.mockRejectedValue(new Error("provider temporarily unavailable"));
+
+    const caller = appRouter.createCaller(createNotificationContext("local_test-user"));
+    await expect(caller.notifications.updatePreferences({
+      incomeEnabled: true,
+      expenseEnabled: true,
+      minimumAmount: 500,
+      monthlySettlementEnabled: true,
+      monthlyReminderDay: 18,
+    })).resolves.toEqual(preference);
+
+    expect(mocks.updatePreferences).toHaveBeenCalledWith(7, expect.objectContaining({ monthlySettlementEnabled: 1 }));
+    expect(mocks.createHeartbeatJob).toHaveBeenCalledWith(expect.any(Object), "");
   });
 
   it("accepts a replacement token after an invalid device token was disabled", async () => {

@@ -147,6 +147,18 @@ describe("Together Ledger v1.2.8 Android wiring", () => {
     expect(router).toContain("deletePaymentMethod: protectedProcedure");
   });
 
+  it("keeps transaction and input dialogs scrollable above the keyboard", () => {
+    const app = readMobile("app/index.tsx");
+    expect(app).toContain("modalScrollableContent");
+    expect(app).toContain("keyboardDismissMode=\"on-drag\"");
+    expect(app).toContain("automaticallyAdjustKeyboardInsets");
+    expect(app).toContain("transactionModalScrollContent: { flexGrow: 1, paddingBottom: 12 }");
+    expect(app).toContain("transactionModalCard: { paddingBottom: 78 }");
+    expect(app).not.toContain("transactionModalScrollContent: { flexGrow: 1, justifyContent: \"flex-end\"");
+    expect(app).not.toContain("transactionModalCard: { minHeight: \"100%\"");
+    expect((app.match(/contentContainerStyle=\{styles\.modalScrollableContent\}/g) || []).length).toBeGreaterThanOrEqual(5);
+  });
+
   it("renders clear ocean, cherry and sunset scene elements without fixed light surfaces", () => {
     const app = readMobile("app/index.tsx");
     expect(app).toContain("key={`blossom-${left}`}");
@@ -208,9 +220,9 @@ describe("Together Ledger v1.2.8 Android wiring", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
       expo?: { version?: string; scheme?: string; android?: { versionCode?: number } };
     };
-    expect(appJson.expo?.version).toBe("1.2.8.1");
-    expect(appJson.expo?.android?.versionCode).toBe(11);
-    expect(readMobile("package.json")).toContain('"version": "1.2.8.1"');
+    expect(appJson.expo?.version).toBe("1.2.8.2");
+    expect(appJson.expo?.android?.versionCode).toBe(12);
+    expect(readMobile("package.json")).toContain('"version": "1.2.8.2"');
     expect(appJson.expo?.scheme).toBe("togetherledger");
     expect(readMobile("app.json")).toContain("expo-notifications");
     expect(readMobile("app.json")).toContain('"googleServicesFile": "./google-services.json"');

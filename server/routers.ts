@@ -171,21 +171,35 @@ export const appRouter = router({
         const bearerToken = typeof authorization === "string" && authorization.startsWith("Bearer ")
           ? authorization.slice("Bearer ".length)
           : "";
-        const sessionToken = parseCookieHeader(ctx.req.headers.cookie ?? "")[COOKIE_NAME] ?? bearerToken;
-        if (!sessionToken) throw new TRPCError({ code: "UNAUTHORIZED", message: "請重新登入後再更新提醒設定" });
-        await syncMonthlySettlementReminderSchedule({
-          userId: ctx.user.id,
-          sessionToken,
-          monthlySettlementEnabled: input.monthlySettlementEnabled,
-          monthlyReminderDay: input.monthlyReminderDay,
-        });
-        return updateNotificationPreferences(ctx.user.id, {
+        const isLocalAccount = ctx.user.openId.startsWith("local_");
+        // Heartbeat only understands a Manus session. Local email/password
+        // sessions therefore intentionally use the project-owner fallback.
+        const sessionToken = isLocalAccount
+          ? ""
+          : (parseCookieHeader(ctx.req.headers.cookie ?? "")[COOKIE_NAME] ?? bearerToken);
+        if (!isLocalAccount && !sessionToken) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: "請重新登入後再更新提醒設定" });
+        }
+        const preferences = await updateNotificationPreferences(ctx.user.id, {
           incomeEnabled: input.incomeEnabled ? 1 : 0,
           expenseEnabled: input.expenseEnabled ? 1 : 0,
           minimumAmount: input.minimumAmount,
           monthlySettlementEnabled: input.monthlySettlementEnabled ? 1 : 0,
           monthlyReminderDay: input.monthlyReminderDay,
         });
+        try {
+          await syncMonthlySettlementReminderSchedule({
+            userId: ctx.user.id,
+            sessionToken,
+            monthlySettlementEnabled: input.monthlySettlementEnabled,
+            monthlyReminderDay: input.monthlyReminderDay,
+          });
+        } catch (error) {
+          // Preferences remain durable even when the scheduling provider is
+          // temporarily unavailable. A later save will reconcile the job.
+          console.warn("[Notifications] Monthly reminder schedule sync deferred", error);
+        }
+        return preferences;
       }),
     registerDevice: protectedProcedure
       .input(z.object({ expoPushToken: z.string().trim().regex(/^ExponentPushToken\[.+\]$|^ExpoPushToken\[.+\]$/, "無效的 Expo 推播 token"), platform: z.enum(["android", "ios"]) }))
@@ -229,9 +243,11 @@ export const appRouter = router({
         const bearerToken = typeof authorization === "string" && authorization.startsWith("Bearer ")
           ? authorization.slice("Bearer ".length)
           : "";
-        const sessionToken = parseCookieHeader(ctx.req.headers.cookie ?? "")[COOKIE_NAME] ?? bearerToken;
+        const sessionToken = ctx.user.openId.startsWith("local_")
+          ? ""
+          : (parseCookieHeader(ctx.req.headers.cookie ?? "")[COOKIE_NAME] ?? bearerToken);
         const preferences = await getNotificationPreferences(ctx.user.id);
-        if (preferences.scheduleCronTaskUid && sessionToken) {
+        if (preferences.scheduleCronTaskUid) {
           await updateHeartbeatJob(preferences.scheduleCronTaskUid, { enable: false }, sessionToken)
             .catch(error => console.warn("[Notifications] Failed to disable deleted account schedule", error));
         }

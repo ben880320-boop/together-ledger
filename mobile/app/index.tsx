@@ -114,7 +114,7 @@ const appearanceDefaults: AppearancePreferences = {
   autoReceiptNote: true,
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.2.8";
+const APP_VERSION = "1.2.8.2";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 
@@ -2405,7 +2405,7 @@ function Overview({
       <Modal visible={showAllTransactions} transparent animationType="slide" onRequestClose={() => setShowAllTransactions(false)}>
         <View style={styles.modalBackdrop}>
           <Pressable style={styles.modalDismiss} onPress={() => setShowAllTransactions(false)} />
-          <View style={styles.modalCard}>
+          <View style={[styles.modalCard, styles.modalFixedCard]}>
             <View style={styles.modalHandle} />
             <View style={styles.cardHeading}>
               <View>
@@ -3722,7 +3722,7 @@ function SettingsSection({
       <Modal visible={managerModal !== null} transparent animationType="slide" onRequestClose={() => { setPendingItemAction(null); setManagerModal(null); }}>
         <View style={styles.modalBackdrop}>
           <Pressable style={styles.modalDismiss} onPress={() => { setPendingItemAction(null); setManagerModal(null); }} />
-          <View style={styles.modalCard}>
+          <View style={[styles.modalCard, styles.modalFixedCard]}>
             <View style={styles.modalHandle} />
             <View style={styles.cardHeading}>
               <View style={styles.memberPaymentName}>
@@ -3774,6 +3774,13 @@ function SettingsSection({
       <Modal visible={Boolean(editingCategory)} transparent animationType="slide" onRequestClose={() => setEditingCategory(null)}>
         <View style={styles.modalBackdrop}>
           <Pressable style={styles.modalDismiss} onPress={() => setEditingCategory(null)} />
+          <ScrollView
+            style={styles.modalScroll}
+            contentContainerStyle={styles.modalScrollableContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            automaticallyAdjustKeyboardInsets
+          >
           <View style={styles.modalCard}>
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>編輯分類</Text>
@@ -3797,11 +3804,19 @@ function SettingsSection({
               </Pressable>
             </View>
           </View>
+          </ScrollView>
         </View>
       </Modal>
       <Modal visible={Boolean(editingPayment)} transparent animationType="slide" onRequestClose={() => setEditingPayment(null)}>
         <View style={styles.modalBackdrop}>
           <Pressable style={styles.modalDismiss} onPress={() => setEditingPayment(null)} />
+          <ScrollView
+            style={styles.modalScroll}
+            contentContainerStyle={styles.modalScrollableContent}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            automaticallyAdjustKeyboardInsets
+          >
           <View style={styles.modalCard}>
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>編輯支付方式</Text>
@@ -3818,6 +3833,7 @@ function SettingsSection({
               </Pressable>
             </View>
           </View>
+          </ScrollView>
         </View>
       </Modal>
     </>
@@ -3986,7 +4002,14 @@ function LedgerModal({
         keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
       >
         <Pressable style={styles.modalDismiss} onPress={onClose} />
-        <View style={styles.modalCard}>
+        <ScrollView
+          style={styles.modalScroll}
+          contentContainerStyle={styles.modalScrollableContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          automaticallyAdjustKeyboardInsets
+        >
+          <View style={styles.modalCard}>
           <View style={styles.modalHandle} />
           <Text style={styles.modalTitle}>
             {mode === "create" ? "建立空白共同帳本" : "加入共同帳本"}
@@ -4054,6 +4077,7 @@ function LedgerModal({
             <Text style={styles.modalCancelText}>取消</Text>
           </Pressable>
         </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -4092,7 +4116,14 @@ function LedgerManageModal({
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.select({ ios: "padding", android: undefined })}>
         <Pressable style={styles.modalDismiss} onPress={onClose} />
-        <View style={styles.modalCard}>
+        <ScrollView
+          style={styles.modalScroll}
+          contentContainerStyle={styles.modalScrollableContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          automaticallyAdjustKeyboardInsets
+        >
+          <View style={styles.modalCard}>
           <View style={styles.modalHandle} />
           <Text style={styles.modalTitle}>{mode === "rename" ? "修改帳本名稱" : "直接轉讓所有權"}</Text>
           <Text style={styles.modalDescription}>
@@ -4137,6 +4168,7 @@ function LedgerManageModal({
             <Text style={styles.modalCancelText}>取消</Text>
           </Pressable>
         </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -4200,7 +4232,13 @@ function TravelPlanModal({
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.select({ ios: "padding", android: undefined })}>
         <Pressable style={styles.modalDismiss} onPress={onClose} />
-        <ScrollView contentContainerStyle={styles.modalCard} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          style={styles.modalScroll}
+          contentContainerStyle={[styles.modalCard, styles.modalScrollableContent]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          automaticallyAdjustKeyboardInsets
+        >
           <View style={styles.modalHandle} />
           <Text style={styles.modalTitle}>新增出遊規劃</Text>
           <Text style={styles.modalDescription}>設定旅行、聚會或短期目標預算，不會納入每月預算。</Text>
@@ -4950,7 +4988,14 @@ function BudgetModal({
         keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
       >
         <Pressable style={styles.modalDismiss} onPress={onClose} />
-        <View style={styles.modalCard}>
+        <ScrollView
+          style={styles.modalScroll}
+          contentContainerStyle={styles.modalScrollableContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          automaticallyAdjustKeyboardInsets
+        >
+          <View style={styles.modalCard}>
           <View style={styles.modalHandle} />
           <Text style={styles.modalTitle}>設定預算</Text>
           <Text style={styles.modalDescription}>
@@ -5008,6 +5053,7 @@ function BudgetModal({
             <Text style={styles.modalCancelText}>取消</Text>
           </Pressable>
         </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -5075,7 +5121,13 @@ function RecurringModal({
         keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
       >
         <Pressable style={styles.modalDismiss} onPress={onClose} />
-        <ScrollView style={styles.modalScroll}>
+        <ScrollView
+          style={styles.modalScroll}
+          contentContainerStyle={styles.modalScrollableContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          automaticallyAdjustKeyboardInsets
+        >
           <View style={styles.modalCard}>
             <View style={styles.modalHandle} />
             <Text style={styles.modalTitle}>新增固定收支</Text>
@@ -5268,7 +5320,14 @@ function SettingsModal({
         keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
       >
         <Pressable style={styles.modalDismiss} onPress={onClose} />
-        <View style={styles.modalCard}>
+        <ScrollView
+          style={styles.modalScroll}
+          contentContainerStyle={styles.modalScrollableContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          automaticallyAdjustKeyboardInsets
+        >
+          <View style={styles.modalCard}>
           <View style={styles.modalHandle} />
           <Text style={styles.modalTitle}>
             {mode === "category" ? "新增分類／子分類" : "新增支付方式"}
@@ -5356,6 +5415,7 @@ function SettingsModal({
             <Text style={styles.modalCancelText}>取消</Text>
           </Pressable>
         </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -6320,20 +6380,21 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     backgroundColor: "rgba(58,47,43,0.28)",
   },
   modalDismiss: { flex: 1 },
-  modalScroll: { width: "100%", alignSelf: "center", maxHeight: "92%" },
-  transactionModalScrollContent: { flexGrow: 1, justifyContent: "flex-end", paddingBottom: 6 },
+  modalScroll: { width: "100%", alignSelf: "center", maxHeight: "92%", flexShrink: 1 },
+  modalScrollableContent: { flexGrow: 1, paddingBottom: 12 },
+  transactionModalScrollContent: { flexGrow: 1, paddingBottom: 12 },
   modalCard: {
     width: "100%",
     alignSelf: "center",
-    maxHeight: "92%",
     paddingHorizontal: 22,
     paddingTop: 12,
-    paddingBottom: 34,
+    paddingBottom: 52,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     backgroundColor: palette.surface,
   },
-  transactionModalCard: { minHeight: "100%", paddingBottom: 78 },
+  modalFixedCard: { maxHeight: "92%" },
+  transactionModalCard: { paddingBottom: 78 },
   modalHandle: {
     alignSelf: "center",
     width: 44,
