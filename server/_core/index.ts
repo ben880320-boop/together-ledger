@@ -10,6 +10,7 @@ import { createContext } from "./context";
 import { processMonthlySettlementReminderForTask } from "../notifications";
 import { sdk } from "./sdk";
 import { serveStatic, setupVite } from "./vite";
+import { resolveListenConfig } from "./listenConfig";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -72,16 +73,24 @@ async function startServer() {
     serveStatic(app);
   }
 
-  const preferredPort = parseInt(process.env.PORT || "3000");
-  const port = await findAvailablePort(preferredPort);
+  const listenConfig = resolveListenConfig({
+    NODE_ENV: process.env.NODE_ENV,
+    PORT: process.env.PORT,
+  });
+  const port = listenConfig.allowPortFallback
+    ? await findAvailablePort(listenConfig.port)
+    : listenConfig.port;
 
-  if (port !== preferredPort) {
-    console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
+  if (port !== listenConfig.port) {
+    console.log(`Port ${listenConfig.port} is busy, using port ${port} instead`);
   }
 
-  server.listen(port, () => {
-    console.log(`Server running on http://localhost:${port}/`);
+  server.listen(port, listenConfig.host, () => {
+    console.log(`Server running on http://${listenConfig.host}:${port}/`);
   });
 }
 
-startServer().catch(console.error);
+startServer().catch(error => {
+  console.error("[Startup] Server failed to start", error);
+  process.exitCode = 1;
+});
