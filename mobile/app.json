@@ -3,14 +3,15 @@
     "owner": "chen880320s-team",
     "name": "共帳 Together Ledger",
     "slug": "together-ledger",
-    "version": "1.2.5",
+    "version": "1.2.6",
     "orientation": "portrait",
     "scheme": "togetherledger",
     "userInterfaceStyle": "light",
     "icon": "./assets/together-ledger-icon.png",
     "android": {
       "package": "com.togetherledger.app",
-      "versionCode": 7,
+      "versionCode": 8,
+      "softwareKeyboardLayoutMode": "resize",
       "permissions": ["POST_NOTIFICATIONS", "VIBRATE", "RECEIVE_BOOT_COMPLETED"],
       "adaptiveIcon": {
         "foregroundImage": "./assets/together-ledger-icon.png",

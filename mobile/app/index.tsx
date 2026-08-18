@@ -119,7 +119,7 @@ const appearanceDefaults: AppearancePreferences = {
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
 const oauthStateKey = "together-ledger-oauth-state";
-const APP_VERSION = "1.2.5";
+const APP_VERSION = "1.2.6";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 
@@ -828,10 +828,15 @@ function AppContent() {
   const mutationGuardRef = useRef(new Set<string>());
   const notificationRequestRef = useRef(0);
   const updateNoticeRef = useRef(false);
+  const recurringSyncRef = useRef(new Map<number, number>());
 
   const reloadLedger = useCallback(async (ledgerId: number) => {
     const requestId = ++ledgerRequestRef.current;
-    await api.ledger.syncRecurring.mutate({ ledgerId }).catch(() => undefined);
+    const lastRecurringSync = recurringSyncRef.current.get(ledgerId) || 0;
+    if (Date.now() - lastRecurringSync > 5 * 60_000) {
+      await api.ledger.syncRecurring.mutate({ ledgerId }).catch(() => undefined);
+      recurringSyncRef.current.set(ledgerId, Date.now());
+    }
     const month = currentMonth();
     const [
       nextMembers,
@@ -860,7 +865,7 @@ function AppContent() {
       api.ledger.budgets.query({ ledgerId, month }),
       api.ledger.travelPlans.query({ ledgerId }),
       api.ledger.recurring.query({ ledgerId }),
-      api.ledger.activityLogs.query({ ledgerId, limit: 100 }),
+      api.ledger.activityLogs.query({ ledgerId, limit: 50 }),
     ]);
     if (requestId !== ledgerRequestRef.current) return false;
     setMembers(nextMembers as LedgerMember[]);
@@ -1377,7 +1382,9 @@ function AppContent() {
                 ledgerId: activeLedger!.id,
                 transactionId: transaction.id,
               });
-              await refresh();
+              setTransactions(current => current.filter(item => item.id !== transaction.id));
+              setCalendarTransactions(current => current.filter(item => item.id !== transaction.id));
+              void refresh();
             } catch (removeError) {
               setError(removeError instanceof Error ? removeError.message : "移除收支失敗。");
             }
@@ -2268,7 +2275,7 @@ function Overview({
       <View style={styles.card}>
         <View style={styles.cardHeading}>
           <Text style={styles.cardTitle}>最近收支</Text>
-          <Pressable onPress={() => setShowAllTransactions(true)} style={styles.settingsManagerButton} accessibilityLabel="查看完整收支">
+          <Pressable onPress={() => setShowAllTransactions(true)} style={styles.recentTransactionsButton} accessibilityLabel="查看完整收支">
             <Text style={styles.settingsManagerText}>完整檢視</Text>
             <MaterialCommunityIcons name="arrow-top-right" size={15} color={palette.rose} />
           </Pressable>
@@ -2972,7 +2979,7 @@ function PersonalSettingsPage({
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["bottom"]}>
       <ThemeAtmosphere />
-      <KeyboardAvoidingView style={styles.keyboardAvoiding} behavior={Platform.select({ ios: "padding", android: "height" })} keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}>
+      <KeyboardAvoidingView style={styles.keyboardAvoiding} behavior={Platform.select({ ios: "padding", android: undefined })} keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}>
       <ScrollView contentContainerStyle={styles.profileContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag">
         <SectionIntro
           eyebrow="YOUR SPACE"
@@ -3302,6 +3309,7 @@ function SettingsSection({
   const [draftPaymentIcon, setDraftPaymentIcon] = useState("");
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [managerModal, setManagerModal] = useState<"category" | "payment" | "activity" | null>(null);
+  const [activityFilter, setActivityFilter] = useState<"all" | "transaction" | "settings" | "members">("all");
   const [pendingItemAction, setPendingItemAction] = useState<{
     kind: "category" | "payment";
     id: number;
@@ -3329,6 +3337,19 @@ function SettingsSection({
     );
   const categoryPreview = visibleCategories.slice(0, 4);
   const paymentPreview = visiblePayments.slice(0, 4);
+  const activityFilters = [
+    { key: "all", label: "全部" },
+    { key: "transaction", label: "收支" },
+    { key: "settings", label: "設定" },
+    { key: "members", label: "成員" },
+  ] as const;
+  const activityKind = (item: ActivityLog) => {
+    const haystack = `${item.log.entityType} ${item.log.action} ${item.log.summary || ""}`.toLowerCase();
+    if (/transaction|expense|income|settlement|budget|recurring|收支|結算|預算|固定/.test(haystack)) return "transaction";
+    if (/member|invite|role|owner|member/.test(haystack)) return "members";
+    return "settings";
+  };
+  const filteredActivityLogs = activityLogs.filter(item => activityFilter === "all" || activityKind(item) === activityFilter);
   const resolveItemAction = async (choice: "archive" | "delete") => {
     const target = pendingItemAction;
     if (!target) return;
@@ -3626,7 +3647,26 @@ function SettingsSection({
               <TextInput value={paymentQuery} onChangeText={setPaymentQuery} placeholder="搜尋支付方式或圖示" placeholderTextColor={palette.muted} style={styles.input} />
               <ScrollView style={styles.managerScroll} keyboardShouldPersistTaps="handled">{visiblePayments.length ? visiblePayments.map(item => <View key={item.id} style={styles.settingsListRow}><View style={styles.settingsListIcon}><Text style={styles.settingsListIconText}>{paymentEmoji(item)}</Text></View><View style={styles.memberPaymentName}><Text style={styles.rowTitle}>{item.name}</Text><Text style={styles.rowSubtitle}>{item.isActive === 0 ? "已停用" : "可用於新增收支"}</Text></View>{isAdmin && <><Pressable onPress={() => startEditPayment(item)} style={styles.outlineIconButton} accessibilityLabel={`編輯支付方式 ${item.name}`}><MaterialCommunityIcons name="pencil-outline" size={17} color={palette.rose} /></Pressable><Pressable onPress={() => item.isActive === 0 ? restorePayment(item) : setPendingItemAction({ kind: "payment", id: item.id, name: item.name })} style={styles.outlineIconButton} accessibilityLabel={`處理支付方式 ${item.name}`}><MaterialCommunityIcons name={item.isActive === 0 ? "restore" : "dots-horizontal"} size={18} color={palette.rose} /></Pressable></>}</View>) : <EmptyInline text="找不到符合的支付方式。" />}</ScrollView>
             </>}
-            {managerModal === "activity" && <ScrollView style={styles.managerScroll}>{activityLogs.length ? activityLogs.slice(0, 100).map(log => <View key={log.log.id} style={styles.activityLogRow}><View style={styles.activityLogDot} /><View style={styles.memberPaymentName}><Text style={styles.rowTitle}>{log.log.summary || `${log.log.action} ${log.log.entityType}`}</Text><Text style={styles.rowSubtitle}>{log.user.name || log.user.email || "成員"} · {new Date(log.log.createdAt).toLocaleString("zh-TW")}</Text></View></View>) : <EmptyInline text="尚未有操作紀錄。" />}</ScrollView>}
+            {managerModal === "activity" && <>
+              <View style={styles.activityLogSummary}>
+                <MaterialCommunityIcons name="history" size={18} color={palette.rose} />
+                <Text style={styles.activityLogSummaryText}>顯示 {filteredActivityLogs.length} 筆，最近 50 筆異動</Text>
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.activityFilterRow} style={styles.activityFilterScroll}>
+                {activityFilters.map(filter => <Pressable key={filter.key} onPress={() => setActivityFilter(filter.key)} style={[styles.activityFilterChip, activityFilter === filter.key && { backgroundColor: palette.roseSoft, borderColor: palette.rose }]}><Text style={[styles.activityFilterText, activityFilter === filter.key && { color: palette.rose }]}>{filter.label}</Text></Pressable>)}
+              </ScrollView>
+              <ScrollView style={styles.managerScroll} contentContainerStyle={styles.activityLogContent}>
+                {filteredActivityLogs.length ? filteredActivityLogs.map(log => {
+                  const kind = activityKind(log);
+                  const icon = kind === "transaction" ? "cash-sync" : kind === "members" ? "account-group-outline" : "cog-outline";
+                  const label = kind === "transaction" ? "收支與預算" : kind === "members" ? "成員與邀請" : "帳本設定";
+                  return <View key={log.log.id} style={styles.activityLogRow}>
+                    <View style={[styles.activityLogIcon, { backgroundColor: palette.roseSoft }]}><MaterialCommunityIcons name={icon as never} size={16} color={palette.rose} /></View>
+                    <View style={styles.memberPaymentName}><Text style={styles.rowTitle}>{log.log.summary || `${log.log.action} ${log.log.entityType}`}</Text><Text style={styles.rowSubtitle}>{log.user.name || log.user.email || "成員"} · {new Date(log.log.createdAt).toLocaleString("zh-TW")}</Text><Text style={styles.activityLogTag}>{label}</Text></View>
+                  </View>;
+                }) : <EmptyInline text="這個篩選條件下尚未有操作紀錄。" />}
+              </ScrollView>
+            </>}
           </View>
         </View>
       </Modal>
@@ -3854,7 +3894,7 @@ function LedgerModal({
     >
       <KeyboardAvoidingView
         style={styles.modalBackdrop}
-        behavior={Platform.select({ ios: "padding", android: "height" })}
+        behavior={Platform.select({ ios: "padding", android: undefined })}
         keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
       >
         <Pressable style={styles.modalDismiss} onPress={onClose} />
@@ -3962,7 +4002,7 @@ function LedgerManageModal({
   const others = members.filter(item => item.user.id !== user.id);
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.select({ ios: "padding", android: "height" })}>
+      <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.select({ ios: "padding", android: undefined })}>
         <Pressable style={styles.modalDismiss} onPress={onClose} />
         <View style={styles.modalCard}>
           <View style={styles.modalHandle} />
@@ -4070,7 +4110,7 @@ function TravelPlanModal({
   };
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.select({ ios: "padding", android: "height" })}>
+      <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.select({ ios: "padding", android: undefined })}>
         <Pressable style={styles.modalDismiss} onPress={onClose} />
         <ScrollView contentContainerStyle={styles.modalCard} keyboardShouldPersistTaps="handled">
           <View style={styles.modalHandle} />
@@ -4135,6 +4175,11 @@ function ConfirmModal({
       <View style={styles.confirmOverlay}>
         <Pressable style={styles.confirmDismiss} onPress={onClose} />
         <View style={[styles.confirmCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+          <ScrollView
+            contentContainerStyle={styles.confirmContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+          >
           <View style={[styles.confirmIcon, { backgroundColor: request.destructive ? palette.roseSoft : palette.roseSoft }]}>
             <MaterialCommunityIcons
               name={request.destructive ? "alert-outline" : "help-circle-outline"}
@@ -4190,6 +4235,7 @@ function ConfirmModal({
               <Text style={[styles.confirmCancelText, { color: palette.muted }]}>{request.cancelText || "取消"}</Text>
             </Pressable>
           )}
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -4394,14 +4440,14 @@ function TransactionModal({
     >
       <KeyboardAvoidingView
         style={styles.modalBackdrop}
-        behavior={Platform.select({ ios: "padding", android: "height" })}
+        behavior={Platform.select({ ios: "padding", android: undefined })}
         keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
       >
         <Pressable style={styles.modalDismiss} onPress={onClose} />
         <ScrollView style={styles.modalScroll}>
           <View style={styles.modalCard}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.modalTitle}>{editingTransaction ? "編輯收支記錄" : "新增收支記錄"}</Text>
+          <View style={styles.modalHandle} />
+          <Text style={styles.modalTitle}>{editingTransaction ? "編輯收支記錄" : "新增收支記錄"}</Text>
             <Text style={styles.modalDescription}>
               金額、分類、日期、付款人、支付方式、備註與分攤方式都會保存。
             </Text>
@@ -4739,7 +4785,7 @@ function BudgetModal({
     >
       <KeyboardAvoidingView
         style={styles.modalBackdrop}
-        behavior={Platform.select({ ios: "padding", android: "height" })}
+        behavior={Platform.select({ ios: "padding", android: undefined })}
         keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
       >
         <Pressable style={styles.modalDismiss} onPress={onClose} />
@@ -4864,7 +4910,7 @@ function RecurringModal({
     >
       <KeyboardAvoidingView
         style={styles.modalBackdrop}
-        behavior={Platform.select({ ios: "padding", android: "height" })}
+        behavior={Platform.select({ ios: "padding", android: undefined })}
         keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
       >
         <Pressable style={styles.modalDismiss} onPress={onClose} />
@@ -5057,7 +5103,7 @@ function SettingsModal({
     >
       <KeyboardAvoidingView
         style={styles.modalBackdrop}
-        behavior={Platform.select({ ios: "padding", android: "height" })}
+        behavior={Platform.select({ ios: "padding", android: undefined })}
         keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}
       >
         <Pressable style={styles.modalDismiss} onPress={onClose} />
@@ -5949,6 +5995,7 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
   settingsPreviewText: { flexShrink: 1, color: palette.ink, fontSize: 11, fontWeight: "700" },
   settingsManagerActions: { flexDirection: "row", gap: 8, marginTop: 12 },
   settingsManagerButton: { flex: 1, minHeight: 42, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingHorizontal: 9, borderRadius: 12, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface },
+  recentTransactionsButton: { minHeight: 30, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3, paddingHorizontal: 8, borderRadius: 10, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface },
   settingsManagerText: { color: palette.rose, fontSize: 11, fontWeight: "800" },
   settingsListRow: { minHeight: 54, flexDirection: "row", alignItems: "center", gap: 9, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: palette.border },
   settingsListIcon: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 11, backgroundColor: palette.roseSoft },
@@ -5959,6 +6006,15 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
   managerScroll: { maxHeight: 390, marginTop: 8 },
   activityLogRow: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: 54, borderBottomWidth: 1, borderBottomColor: palette.border },
   activityLogDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: palette.rose },
+  activityLogIcon: { width: 34, height: 34, alignItems: "center", justifyContent: "center", borderRadius: 11 },
+  activityLogSummary: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2, marginBottom: 8, paddingHorizontal: 11, paddingVertical: 10, borderRadius: 12, backgroundColor: palette.roseSoft },
+  activityLogSummaryText: { flex: 1, color: palette.ink, fontSize: 11, fontWeight: "700" },
+  activityFilterScroll: { maxHeight: 42, marginBottom: 4 },
+  activityFilterRow: { gap: 8, paddingRight: 12 },
+  activityFilterChip: { minHeight: 32, alignItems: "center", justifyContent: "center", paddingHorizontal: 11, borderWidth: 1, borderColor: palette.border, borderRadius: 10, backgroundColor: palette.surface },
+  activityFilterText: { color: palette.muted, fontSize: 11, fontWeight: "700" },
+  activityLogContent: { paddingBottom: 10 },
+  activityLogTag: { alignSelf: "flex-start", marginTop: 4, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 7, color: palette.rose, backgroundColor: palette.roseSoft, fontSize: 10, fontWeight: "700" },
   weekRow: {
     flexDirection: "row",
     justifyContent: "space-around",
@@ -6011,9 +6067,10 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     borderRadius: 12,
     backgroundColor: palette.roseSoft,
   },
-  confirmOverlay: { flex: 1, alignItems: "center", justifyContent: "center", padding: 22, backgroundColor: "rgba(58,47,43,0.34)" },
+  confirmOverlay: { flex: 1, alignItems: "center", justifyContent: "center", padding: 16, backgroundColor: "rgba(58,47,43,0.34)" },
   confirmDismiss: { ...StyleSheet.absoluteFillObject },
-  confirmCard: { width: "100%", maxWidth: 380, borderWidth: 1, borderRadius: 26, padding: 22, shadowColor: "#3A2F2B", shadowOpacity: 0.18, shadowRadius: 24, shadowOffset: { width: 0, height: 10 }, elevation: 8 },
+  confirmCard: { width: "100%", maxWidth: 380, maxHeight: "88%", flexGrow: 0, overflow: "hidden", borderWidth: 1, borderRadius: 26, shadowColor: "#3A2F2B", shadowOpacity: 0.18, shadowRadius: 24, shadowOffset: { width: 0, height: 10 }, elevation: 8 },
+  confirmContent: { padding: 22 },
   confirmModalCard: { width: "100%", maxWidth: 380, borderWidth: 1, borderRadius: 24, padding: 20, backgroundColor: palette.surface, borderColor: palette.border },
   confirmIcon: { width: 48, height: 48, alignItems: "center", justifyContent: "center", borderRadius: 16, marginBottom: 15 },
   confirmTitle: { color: palette.ink, fontSize: 18, fontWeight: "800" },
@@ -6032,14 +6089,19 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
   modalBackdrop: {
     flex: 1,
     justifyContent: "flex-end",
+    paddingHorizontal: 12,
+    paddingTop: 12,
     backgroundColor: "rgba(58,47,43,0.28)",
   },
   modalDismiss: { flex: 1 },
-  modalScroll: { maxHeight: "90%" },
+  modalScroll: { width: "100%", alignSelf: "center", maxHeight: "92%" },
   modalCard: {
+    width: "100%",
+    alignSelf: "center",
+    maxHeight: "92%",
     paddingHorizontal: 22,
     paddingTop: 12,
-    paddingBottom: 30,
+    paddingBottom: 34,
     borderTopLeftRadius: 28,
     borderTopRightRadius: 28,
     backgroundColor: palette.surface,
@@ -6049,7 +6111,7 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     width: 44,
     height: 5,
     borderRadius: 3,
-    backgroundColor: "#E4D6CF",
+    backgroundColor: palette.border,
   },
   modalTitle: {
     marginTop: 22,
@@ -6071,7 +6133,7 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     borderWidth: 1,
     borderColor: palette.border,
     borderRadius: 14,
-    backgroundColor: "#FFFAF7",
+    backgroundColor: palette.surface,
     color: palette.ink,
     fontSize: 15,
   },
@@ -6151,7 +6213,7 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     borderWidth: 1,
     borderColor: palette.border,
     borderRadius: 11,
-    backgroundColor: "#FFFAF7",
+    backgroundColor: palette.surface,
     color: palette.ink,
   },
   primaryButton: {
@@ -6177,7 +6239,7 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     gap: 8,
     marginTop: 12,
     borderWidth: 1,
-    borderColor: "#E3C3C4",
+    borderColor: palette.border,
     borderRadius: 16,
     backgroundColor: palette.surface,
   },

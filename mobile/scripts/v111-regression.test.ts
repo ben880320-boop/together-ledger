@@ -6,7 +6,7 @@ const mobileRoot = resolve(process.cwd(), "mobile");
 const readMobile = (relativePath: string) =>
   readFileSync(resolve(mobileRoot, relativePath), "utf8");
 
-describe("Together Ledger v1.2.5 Android wiring", () => {
+describe("Together Ledger v1.2.6 Android wiring", () => {
   it("registers a concrete OAuth callback route with state verification", () => {
     const callbackPath = resolve(mobileRoot, "app/oauth/callback.tsx");
     expect(existsSync(callbackPath)).toBe(true);
@@ -106,6 +106,8 @@ describe("Together Ledger v1.2.5 Android wiring", () => {
     expect(app).toContain("setTimeout(() => setError");
     expect(app).toContain("FlatList");
     expect(app).toContain("maxToRenderPerBatch={4}");
+    expect(app).toContain("backgroundColor: palette.surface");
+    expect(readMobile("app.json")).toContain("softwareKeyboardLayoutMode");
   });
 
   it("keeps long ledger management and viewing tasks in themed, bounded dialogs", () => {
@@ -131,7 +133,10 @@ describe("Together Ledger v1.2.5 Android wiring", () => {
     expect(app).toContain("key={`wave-${left}`}");
     expect(app).toContain("key={`reflection-${index}`}");
     expect(app).toContain("KeyboardAvoidingView");
-    expect(app).toContain('android: "height"');
+    expect(app).toContain('android: undefined');
+    expect(app).not.toContain('android: "height"');
+    expect(app).toContain("confirmContent");
+    expect(app).toContain('maxHeight: "88%"');
   });
 
   it("keeps a verified per-user monthly reminder schedule lifecycle", () => {
@@ -162,15 +167,29 @@ describe("Together Ledger v1.2.5 Android wiring", () => {
     expect(app).not.toContain('icon: draftCategoryIcon.trim() || "◌"');
   });
 
+  it("keeps instant transaction removal, useful activity filtering, and cached ledger refreshes", () => {
+    const app = readMobile("app/index.tsx");
+    expect(app).toContain("setTransactions(current => current.filter(item => item.id !== transaction.id))");
+    expect(app).toContain("setCalendarTransactions(current => current.filter(item => item.id !== transaction.id))");
+    expect(app).toContain("void refresh()");
+    expect(app).toContain("recentTransactionsButton");
+    expect(app).toContain("activityFilter");
+    expect(app).toContain("activityLogSummary");
+    expect(app).toContain("activityKind");
+    expect(app).toContain("recurringSyncRef");
+    expect(app).toContain("lastRecurringSync");
+  });
+
   it("ships the intended app version and deep-link configuration", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
       expo?: { version?: string; scheme?: string; android?: { versionCode?: number } };
     };
-    expect(appJson.expo?.version).toBe("1.2.5");
-    expect(appJson.expo?.android?.versionCode).toBe(7);
-    expect(readMobile("package.json")).toContain('"version": "1.2.5"');
+    expect(appJson.expo?.version).toBe("1.2.6");
+    expect(appJson.expo?.android?.versionCode).toBe(8);
+    expect(readMobile("package.json")).toContain('"version": "1.2.6"');
     expect(appJson.expo?.scheme).toBe("togetherledger");
     expect(readMobile("app.json")).toContain("expo-notifications");
+    expect(readMobile("app.json")).toContain('"softwareKeyboardLayoutMode": "resize"');
   });
 
   it("keeps a quota-independent GitHub Actions Android APK workflow", () => {

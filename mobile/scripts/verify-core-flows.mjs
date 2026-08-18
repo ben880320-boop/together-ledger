@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 
 const projectRoot = resolve(new URL("..", import.meta.url).pathname);
 const app = readFileSync(resolve(projectRoot, "app/index.tsx"), "utf8");
+const appConfig = readFileSync(resolve(projectRoot, "app.json"), "utf8");
 const router = readFileSync(resolve(projectRoot, "../server/routers.ts"), "utf8");
 const db = readFileSync(resolve(projectRoot, "../server/db.ts"), "utf8");
 const eas = readFileSync(resolve(projectRoot, "eas.json"), "utf8");
@@ -50,7 +51,7 @@ const checks = [
   ["登入、空帳本、帳本與個人設定均掛載主題情境", (app.match(/<ThemeAtmosphere \/>/g) || []).length >= 5],
   ["pnpm 部署設定與 lockfile 使用一致的 workspace 設定", readFileSync(resolve(projectRoot, "../pnpm-workspace.yaml"), "utf8").includes("patchedDependencies:")],
   ["分類與支付方式表情符號正確帶入交易表單", app.includes('categoryEmoji(item)') && app.includes('paymentEmoji(item)')],
-  ["個人設定分區、版本資訊與鍵盤避讓", app.includes('SettingsSection') && app.includes('目前版本 v{APP_VERSION}') && app.includes('KeyboardAvoidingView') && app.includes('android: "height"')],
+  ["個人設定分區、版本資訊與鍵盤避讓", app.includes('SettingsSection') && app.includes('目前版本 v{APP_VERSION}') && app.includes('KeyboardAvoidingView') && app.includes('android: undefined') && appConfig.includes('"softwareKeyboardLayoutMode": "resize"')],
   ["帳本管理使用固定高度彈窗並提供隱藏或安全刪除", app.includes('managerScroll') && app.includes('api.ledger.deleteCategory.mutate') && app.includes('api.ledger.deletePaymentMethod.mutate') && router.includes('deleteCategory: protectedProcedure') && router.includes('deletePaymentMethod: protectedProcedure')],
   ["最近收支可展開本週、本月與上月完整檢視", app.includes('完整收支') && app.includes('本週') && app.includes('本月') && app.includes('上月')],
 ];
