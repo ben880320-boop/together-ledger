@@ -235,4 +235,4 @@
 - [x] 在總覽最近收支新增完整檢視彈窗，支援本週、本月與上月篩選
 - [x] 重繪海洋、櫻花、夕陽與其餘情境主題，使場景元素更清楚可辨並保留流暢度
 - [x] 修正 Web 部署的 pnpm ignored builds 設定，恢復檢查點自動部署
-- [ ] 補齊回歸測試、型別與核心流程驗證，發布新版 GitHub Release 與 Android APK
+- [x] 補齊回歸測試、型別與核心流程驗證，發布新版 GitHub Release 與 Android APK（v1.2.5；37 項測試與 42 項 Android 核心流程檢查通過，GitHub Actions run #32086557197 成功）
