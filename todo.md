@@ -331,4 +331,4 @@
 - [x] 升級所有 App 情境主題的視覺層次、深度與互動回饋，使背景更具真實場景感且維持低負載與文字可讀性
 - [x] 同步網站與 Android App 的版本資訊、更新內容、主題敘事與更新歷程入口
 - [x] 將網站首頁定位為電腦與 iOS 使用者可用的 Together Ledger 產品入口，提供與 Android App 同步的版本狀態、更新歷程及清楚的使用引導
-- [ ] 補齊 v1.2.8.7 回歸測試、建置 Android APK 並驗證 GitHub Release 產物
+- [x] 補齊 v1.2.8.7 回歸測試、建置 Android APK 並驗證 GitHub Release 產物
