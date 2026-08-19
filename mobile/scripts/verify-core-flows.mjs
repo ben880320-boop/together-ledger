@@ -65,7 +65,7 @@ const checks = [
   ["Android 交付版本為 1.2.9.1", appConfig.includes('"version": "1.2.9.1"') && appConfig.includes('"versionCode": 21')],
   ["帳本名稱與圖示可在管理中同步修改", app.includes('帳本圖示') && app.includes('onRename({ name: draftName, icon: draftIcon })') && router.includes('icon: z.string().trim().max(16).nullable().optional()')],
   ["預算 80%／100% 門檻提供跨平台提醒", app.includes('預算 80% 提醒') && app.includes('預算 100% 提醒') && app.includes('budgetAlert80Enabled') && app.includes('budgetAlert100Enabled') && router.includes('budgetAlert80Enabled') && router.includes('budgetAlert100Enabled')],
-  ["通知狀態頁提供投遞診斷與重新註冊", app.includes('通知狀態') && app.includes('重新註冊通知') && app.includes('api.notifications.status.query') && router.includes('status: protectedProcedure') && db.includes('getPushDeviceStatus')],
+  ["通知狀態頁提供投遞診斷與重新註冊", app.includes('通知狀態') && app.includes('重新註冊通知') && app.includes('InvalidCredentials') && app.includes('Android FCM 憑證未設定或已失效') && app.includes('api.notifications.status.query') && router.includes('status: protectedProcedure') && db.includes('getPushDeviceStatus')],
 ];
 
 const failed = checks.filter(([, passed]) => !passed).map(([label]) => label);

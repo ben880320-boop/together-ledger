@@ -10,13 +10,28 @@ import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { categoryEmoji, formatActivityTimestamp, normalizeLedgerWorkspace, paymentEmoji } from "@/lib/ledgerPresentation";
 import { BarChart3, Bell, CalendarDays, Check, ChevronLeft, ChevronRight, Clipboard, Download, Heart, LayoutDashboard, ListChecks, LoaderCircle, LogOut, Pencil, Plus, Receipt, Search, Settings2, Sparkles, Trash2, UserRound, Users, WalletCards, WifiOff } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
 type Page = "overview" | "records" | "calendar" | "analysis" | "planning" | "settings" | "profile";
 type Sheet = "ledger" | "join" | "transaction" | "budget" | "total-budget" | "recurring" | "travel" | "category" | "payment" | "manage" | null;
 const APP_VERSION = "1.2.9.1";
+function StableTransactionDialog(props: any) {
+  const workspaceSnapshot = useRef<any>(null);
+  const activeDraftKey = useRef<string | null>(null);
+  const draftKey = `${props.ledgerId}:${props.editing?.id ?? "new"}`;
+
+  if (!props.open) {
+    workspaceSnapshot.current = null;
+    activeDraftKey.current = null;
+  } else if (!workspaceSnapshot.current || activeDraftKey.current !== draftKey) {
+    workspaceSnapshot.current = props.workspace;
+    activeDraftKey.current = draftKey;
+  }
+
+  return <TransactionDialog {...props} workspace={workspaceSnapshot.current} />;
+}
 const workspaceSnapshotKey = (ledgerId: number) => `together-ledger-web-workspace-v1:${ledgerId}`;
 const money = (value: unknown) => `NT$ ${Math.round(Number(value) || 0).toLocaleString("zh-TW")}`;
 const currentMonth = () => new Date().toISOString().slice(0, 7);
@@ -216,7 +231,7 @@ export default function LedgerWorkspace() {
       </div>
       <CreateLedgerDialog open={sheet === "ledger"} onClose={() => setSheet(null)} onSubmit={(input) => createLedger.mutate(input as any)} />
       <TextDialog open={sheet === "join"} title="使用邀請碼加入帳本" description="加入後兩端會看到完全相同的帳本資料。" label="邀請碼" submit="加入帳本" onClose={() => setSheet(null)} onSubmit={(value: string) => joinLedger.mutate({ inviteCode: value.toUpperCase() } as any)} />
-      <TransactionDialog open={sheet === "transaction"} workspace={workspace} ledgerId={ledgerId!} editing={editing} onClose={() => { setSheet(null); setEditing(null); }} onCreate={(input: any) => createTransaction.mutate(input)} onUpdate={(input: any) => updateTransaction.mutate(input)} />
+      <StableTransactionDialog open={sheet === "transaction"} workspace={workspace} ledgerId={ledgerId!} editing={editing} onClose={() => { setSheet(null); setEditing(null); }} onCreate={(input: any) => createTransaction.mutate(input)} onUpdate={(input: any) => updateTransaction.mutate(input)} />
       <BudgetDialog open={sheet === "budget" || sheet === "total-budget"} totalBudget={sheet === "total-budget"} workspace={workspace} ledgerId={ledgerId!} month={month} onClose={() => setSheet(null)} onSave={(input: any) => saveBudget.mutate(input)} />
       <RecurringDialog open={sheet === "recurring"} workspace={workspace} ledgerId={ledgerId!} editing={sheet === "recurring" ? editing : null} onClose={() => { setSheet(null); setEditing(null); }} onSave={(input: any) => editing ? updateRecurring.mutate(input) : createRecurring.mutate(input)} />
       <TravelDialog open={sheet === "travel"} ledgerId={ledgerId!} onClose={() => setSheet(null)} onSave={(input: any) => createTravel.mutate(input)} />

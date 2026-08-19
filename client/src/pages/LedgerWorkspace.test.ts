@@ -23,6 +23,13 @@ describe("Together Ledger 真實網頁帳本入口", () => {
     expect(auth).toContain("登入並開啟帳本");
   });
 
+  it("在新增收支對話框開啟期間固定工作區快照，不讓背景同步清除未提交草稿", () => {
+    expect(workspace).toContain("function StableTransactionDialog");
+    expect(workspace).toContain("workspaceSnapshot.current = props.workspace");
+    expect(workspace).toContain("<StableTransactionDialog");
+    expect(workspace).not.toContain('<TransactionDialog open={sheet === "transaction"} workspace={workspace}');
+  });
+
   it("讓手機版沿用 Android App 的五項主導覽，並保留收支與帳本外個人設定入口", () => {
     expect(workspace).toContain('aria-label="帳本行動版主要功能導覽"');
     expect(workspace).toContain("const mobileNavigation = navigation.filter");

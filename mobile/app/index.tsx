@@ -3539,9 +3539,15 @@ function PersonalSettingsPage({
     setNotificationStatusLoading(true);
     setNotificationStatusError("");
     try {
-      setNotificationStatus(await api.notifications.status.query());
+      const status = await api.notifications.status.query();
+      const normalizedStatus = {
+        devices: status.devices.map(device => ({ ...device, isActive: device.isActive === 1 })),
+      };
+      setNotificationStatus(normalizedStatus);
+      return normalizedStatus;
     } catch (statusError) {
       setNotificationStatusError(statusError instanceof Error ? statusError.message : "暫時無法讀取通知狀態，請稍後重試。");
+      return null;
     } finally {
       setNotificationStatusLoading(false);
     }
@@ -3557,8 +3563,11 @@ function PersonalSettingsPage({
         return;
       }
       await api.notifications.registerDevice.mutate({ expoPushToken, platform: Platform.OS === "ios" ? "ios" : "android" });
-      await refreshNotificationStatus();
-      setNotificationStatusMessage("裝置已重新註冊。請以另一個帳號新增收支，確認通知是否送達。");
+      const status = await refreshNotificationStatus();
+      const credentialsInvalid = status?.devices.some(device => device.platform === "android" && device.lastDeliveryError === "InvalidCredentials");
+      setNotificationStatusMessage(credentialsInvalid
+        ? "裝置已重新註冊，但 Android FCM 憑證仍無效；需先完成 Expo／Firebase 憑證設定後才能投遞通知。"
+        : "裝置已重新註冊。請以另一個帳號新增收支，確認通知是否送達。");
     } catch (registrationError) {
       setNotificationStatusError(registrationError instanceof Error ? registrationError.message : "裝置重新註冊失敗，請確認網路後重試。");
     } finally {
@@ -3949,7 +3958,7 @@ style={styles.input}
           <Text style={styles.rowSubtitle}>檢查手機權限、裝置註冊與最近一次投遞結果；收入與支出通知未到達時可先重新註冊。</Text>
           {notificationStatusLoading ? <Text style={styles.rowSubtitle}>正在讀取裝置狀態…</Text> : notificationStatus?.devices.length ? notificationStatus.devices.map(device => (
             <Text key={device.id} style={styles.rowSubtitle}>
-              {device.platform === "android" ? "Android" : "iOS"}：{device.isActive ? "已註冊" : "已停用"} · {device.lastDeliveryStatus === "delivered" ? "最近投遞成功" : device.lastDeliveryError ? `失敗：${device.lastDeliveryError}` : "尚無投遞紀錄"}
+              {device.platform === "android" ? "Android" : "iOS"}：{device.isActive ? "已註冊" : "已停用"} · {device.lastDeliveryStatus === "delivered" ? "最近投遞成功" : device.lastDeliveryError === "InvalidCredentials" ? "失敗：Android FCM 憑證未設定或已失效；需先在 Expo 專案更新 Firebase 憑證。" : device.lastDeliveryError ? `失敗：${device.lastDeliveryError}` : "尚無投遞紀錄"}
             </Text>
           )) : <Text style={styles.rowSubtitle}>尚未發現已註冊裝置。</Text>}
           {!!notificationStatusError && <Text style={styles.globalError}>{notificationStatusError}</Text>}
@@ -6366,6 +6375,12 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     backgroundColor: "#FBE9E7",
     fontSize: 12,
   },
+  successText: {
+    marginTop: 8,
+    color: palette.rose,
+    fontSize: 12,
+    lineHeight: 18,
+  },
   headerSafe: { backgroundColor: palette.surface },
   headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   appHeader: {
@@ -7005,6 +7020,7 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     borderRadius: 11,
     backgroundColor: palette.rose,
   },
+  disabledButton: { opacity: 0.55 },
   smallButtonText: { color: "#FFFFFF", fontSize: 11, fontWeight: "700" },
   globalToastLayer: {
     position: "absolute",
