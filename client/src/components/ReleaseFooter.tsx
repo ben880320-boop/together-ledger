@@ -1,14 +1,13 @@
 import { RefreshCw, ShieldCheck } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 
+declare const __WEB_BUILD_TIMESTAMP__: number;
+
 export const WEB_RELEASE_VERSION = "1.2.8.7";
-export const DEFAULT_WEB_RELEASED_AT = "2026-08-19 01:54（台北時間）";
+export const WEB_BUILD_TIMESTAMP = __WEB_BUILD_TIMESTAMP__;
 
-type DeploymentMeta = { version?: string; timestamp?: number };
-
-function formatTaipeiTimestamp(timestamp?: number) {
-  if (!timestamp) return DEFAULT_WEB_RELEASED_AT;
+export function formatTaipeiTimestamp(timestamp: number) {
   return `${new Intl.DateTimeFormat("zh-TW", {
     timeZone: "Asia/Taipei",
     year: "numeric",
@@ -45,16 +44,6 @@ export async function reloadLatestVersion() {
 
 export function ReleaseFooter({ compact = false }: { compact?: boolean }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [deployment, setDeployment] = useState<DeploymentMeta | null>(null);
-
-  useEffect(() => {
-    let active = true;
-    void fetch("/__manus__/version.json", { cache: "no-store" })
-      .then(response => response.ok ? response.json() as Promise<DeploymentMeta> : null)
-      .then(metadata => { if (active && metadata) setDeployment(metadata); })
-      .catch(() => { /* The fallback keeps the footer readable offline. */ });
-    return () => { active = false; };
-  }, []);
 
   return (
     <footer className={compact ? "mt-8 border-t border-[#EADFD9] pt-5" : "mt-12 border-t border-[#E9DED8] bg-white/55"}>
@@ -63,8 +52,9 @@ export function ReleaseFooter({ compact = false }: { compact?: boolean }) {
           <span className="font-semibold text-[#684F48]">共帳 Together Ledger</span>
           <span>網頁版 v{WEB_RELEASE_VERSION}</span>
           <span className="hidden text-[#C5AEA5] sm:inline">•</span>
-          <span>本次發布：{formatTaipeiTimestamp(deployment?.timestamp)}</span>
-          {deployment?.version && <><span className="hidden text-[#C5AEA5] sm:inline">•</span><span>建置 {deployment.version.slice(0, 8)}</span></>}
+          <span>本次發布：{formatTaipeiTimestamp(WEB_BUILD_TIMESTAMP)}</span>
+          <span className="hidden text-[#C5AEA5] sm:inline">•</span>
+          <span>建置已驗證</span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className="inline-flex items-center gap-1 text-[#6D8A73]"><ShieldCheck size={14} />版本資訊已同步</span>
