@@ -33,6 +33,12 @@ describe("notification delivery rules", () => {
     expect(shouldNotifyTransaction(enabled, "transfer", 5_000)).toBe(false);
   });
 
+  it("delivers shared-ledger income and expense notifications by default", () => {
+    const sharedLedgerDefault = { incomeEnabled: 1, expenseEnabled: 1, minimumAmount: 0 };
+    expect(shouldNotifyTransaction(sharedLedgerDefault, "expense", 1)).toBe(true);
+    expect(shouldNotifyTransaction(sharedLedgerDefault, "income", 1)).toBe(true);
+  });
+
   it("only issues a monthly settlement reminder on the selected valid day", () => {
     expect(isMonthlyReminderDue(28, 28)).toBe(true);
     expect(isMonthlyReminderDue(28, 27)).toBe(false);

@@ -152,8 +152,8 @@ export const settlements = mysqlTable("settlements", {
 export const notificationPreferences = mysqlTable("notificationPreferences", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull().unique(),
-  incomeEnabled: int("incomeEnabled").default(0).notNull(),
-  expenseEnabled: int("expenseEnabled").default(0).notNull(),
+  incomeEnabled: int("incomeEnabled").default(1).notNull(),
+  expenseEnabled: int("expenseEnabled").default(1).notNull(),
   minimumAmount: int("minimumAmount").default(0).notNull(),
   monthlySettlementEnabled: int("monthlySettlementEnabled").default(0).notNull(),
   monthlyReminderDay: int("monthlyReminderDay").default(28).notNull(),

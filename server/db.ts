@@ -61,8 +61,10 @@ export type NotificationPreferenceInput = {
 };
 
 const defaultNotificationPreferences: NotificationPreferenceInput = {
-  incomeEnabled: 0,
-  expenseEnabled: 0,
+  // Shared-ledger entries should be visible to the other member by default.
+  // Users can still explicitly turn either channel off in Personal Settings.
+  incomeEnabled: 1,
+  expenseEnabled: 1,
   minimumAmount: 0,
   monthlySettlementEnabled: 0,
   monthlyReminderDay: 28,

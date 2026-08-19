@@ -27,13 +27,14 @@ describe("跨平台載入體驗", () => {
     expect(mobileApp).toContain("preferences.reduceMotion");
   });
 
-  it("讓手機網頁沿用 Android App 的五項主導覽，並保留收支與個人設定的明確工具入口", () => {
+  it("讓手機網頁沿用 Android App 的五項主導覽，並保留收支與帳本外個人設定的明確入口", () => {
     expect(workspace).toContain("const mobileNavigation = navigation.filter");
     expect(workspace).toContain('["overview", "calendar", "analysis", "planning", "settings"]');
     expect(workspace).toContain('aria-label="帳本行動版主要功能導覽"');
     expect(workspace).toContain("grid grid-cols-5");
     expect(workspace).toContain('selectPage("records")');
-    expect(workspace).toContain('selectPage("profile")');
+    expect(workspace).toContain('onClick={onProfile}');
+    expect(workspace).toContain("返回我的帳本");
     expect(workspace).toContain("window.scrollTo");
     expect(styles).toContain("table thead { display: none; }");
   });
