@@ -23,12 +23,14 @@ describe("Together Ledger 真實網頁帳本入口", () => {
     expect(auth).toContain("登入並開啟帳本");
   });
 
-  it("讓手機版也能切換所有帳本功能，不將設定與個人頁面截斷在四個入口之外", () => {
-    expect(workspace).toContain('aria-label="帳本行動版完整功能導覽"');
-    expect(workspace).toContain("navigation.map(([key, label, Icon])");
-    expect(workspace).not.toContain("navigation.slice(0, 4)");
-    expect(workspace).toContain("grid grid-cols-4");
-    expect(workspace).not.toContain("overflow-x-auto rounded-2xl border border-[#E9DED8] bg-white p-2 lg:hidden");
+  it("讓手機版沿用 Android App 的五項主導覽，並以額外入口保留收支與個人設定", () => {
+    expect(workspace).toContain('aria-label="帳本行動版主要功能導覽"');
+    expect(workspace).toContain("const mobileNavigation = navigation.filter");
+    expect(workspace).toContain('["overview", "calendar", "analysis", "planning", "settings"]');
+    expect(workspace).toContain("grid grid-cols-5");
+    expect(workspace).toContain('selectPage("records")');
+    expect(workspace).toContain('selectPage("profile")');
+    expect(workspace).toContain("window.scrollTo");
   });
 
   it("在個人設定保留單一外觀模式入口，並提供登出與 Android App 下載操作", () => {
