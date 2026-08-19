@@ -62,7 +62,10 @@ const checks = [
   ["個人設定提供跟隨系統、淺色、深色模式及不溢出的更新狀態", app.includes('colorMode') && app.includes('跟隨系統') && app.includes('淺色模式') && app.includes('深色模式') && app.includes('updateStatusBadge') && app.includes('flexShrink: 1')],
   ["固定收支僅採用可用的分類與支付方式", app.includes('const availablePayments = paymentMethods.filter(item => item.isActive !== 0)') && app.includes('請先在帳本設定新增或恢復一個可用的支付方式')],
   ["登入與帳本載入提供低負載骨架與安全工作階段解包", app.includes('function AppBootstrapSkeleton(') && app.includes('function LedgerContentSkeleton(') && app.includes('function ContentTransition(') && app.includes('preferences.reduceMotion') && app.includes('const nextUser = authState?.user ?? null') && app.includes('正在安全登入…')],
-  ["Android 交付版本為 1.2.9", appConfig.includes('"version": "1.2.9"') && appConfig.includes('"versionCode": 20')],
+  ["Android 交付版本為 1.2.9.1", appConfig.includes('"version": "1.2.9.1"') && appConfig.includes('"versionCode": 21')],
+  ["帳本名稱與圖示可在管理中同步修改", app.includes('帳本圖示') && app.includes('onRename({ name: draftName, icon: draftIcon })') && router.includes('icon: z.string().trim().max(16).nullable().optional()')],
+  ["預算 80%／100% 門檻提供跨平台提醒", app.includes('預算 80% 提醒') && app.includes('預算 100% 提醒') && app.includes('budgetAlert80Enabled') && app.includes('budgetAlert100Enabled') && router.includes('budgetAlert80Enabled') && router.includes('budgetAlert100Enabled')],
+  ["通知狀態頁提供投遞診斷與重新註冊", app.includes('通知狀態') && app.includes('重新註冊通知') && app.includes('api.notifications.status.query') && router.includes('status: protectedProcedure') && db.includes('getPushDeviceStatus')],
 ];
 
 const failed = checks.filter(([, passed]) => !passed).map(([label]) => label);

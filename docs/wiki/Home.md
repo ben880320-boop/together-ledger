@@ -29,4 +29,4 @@ Together Ledger 是提供 Android App 與網頁版的共享記帳工具。使用
 | Android App | [GitHub Releases](https://github.com/ben880320-boop/together-ledger/releases) | 日常記帳、原生通知、收據掃描與 Android 更新。 |
 | 網頁版 | [Together Ledger 網頁版](https://togetherapp-hdbmsjkf.manus.space) | 電腦、iOS 或尚未安裝 App 的使用者。 |
 
-目前跨平台發布版本為 **1.2.9**。完整更新內容請參閱 [更新與疑難排解](更新與疑難排解)。
+目前跨平台發布版本為 **1.2.9.1**。此版新增可在設定中修改帳本圖示、即時收支更新、月總／分類預算 80%／100% 提醒與通知投遞診斷。完整更新內容請參閱 [更新與疑難排解](更新與疑難排解)。

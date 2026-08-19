@@ -6,7 +6,7 @@ const mobileRoot = resolve(process.cwd(), "mobile");
 const readMobile = (relativePath: string) =>
   readFileSync(resolve(mobileRoot, relativePath), "utf8");
 
-describe("Together Ledger v1.2.9 Android wiring", () => {
+describe("Together Ledger v1.2.9.1 Android wiring", () => {
   it("uses email/password authentication without a Manus OAuth redirect", () => {
     const app = readMobile("app/index.tsx");
     const router = readFileSync(resolve(process.cwd(), "server/routers.ts"), "utf8");
@@ -243,9 +243,9 @@ describe("Together Ledger v1.2.9 Android wiring", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
       expo?: { version?: string; scheme?: string; android?: { versionCode?: number } };
     };
-    expect(appJson.expo?.version).toBe("1.2.9");
-    expect(appJson.expo?.android?.versionCode).toBe(20);
-    expect(readMobile("package.json")).toContain('"version": "1.2.9"');
+    expect(appJson.expo?.version).toBe("1.2.9.1");
+    expect(appJson.expo?.android?.versionCode).toBe(21);
+    expect(readMobile("package.json")).toContain('"version": "1.2.9.1"');
     expect(appJson.expo?.scheme).toBe("togetherledger");
     expect(readMobile("app.json")).toContain("expo-notifications");
     expect(readMobile("app.json")).toContain('"googleServicesFile": "./google-services.json"');

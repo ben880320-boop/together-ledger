@@ -101,6 +101,8 @@ type NotificationPreferences = {
   minimumAmount: number;
   monthlySettlementEnabled: number;
   monthlyReminderDay: number;
+  budgetAlert80Enabled: number;
+  budgetAlert100Enabled: number;
 };
 
 const notificationDefaults: NotificationPreferences = {
@@ -109,6 +111,8 @@ const notificationDefaults: NotificationPreferences = {
   minimumAmount: 0,
   monthlySettlementEnabled: 0,
   monthlyReminderDay: 28,
+  budgetAlert80Enabled: 1,
+  budgetAlert100Enabled: 1,
 };
 
 const appearanceDefaults: AppearancePreferences = {
@@ -124,7 +128,7 @@ const appearanceDefaults: AppearancePreferences = {
   colorMode: "system",
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.2.9";
+const APP_VERSION = "1.2.9.1";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 const GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/ben880320-boop/together-ledger/releases/latest";
@@ -188,6 +192,8 @@ const normalizeNotificationPreferences = (input?: Partial<NotificationPreference
     minimumAmount: Math.max(0, Math.min(100_000_000, Math.trunc(numberAt("minimumAmount", "minimum_amount")))),
     monthlySettlementEnabled: enabled("monthlySettlementEnabled", "monthly_settlement_enabled") ? 1 : 0,
     monthlyReminderDay: Math.max(1, Math.min(28, Math.trunc(numberAt("monthlyReminderDay", "monthly_reminder_day") || 28))),
+    budgetAlert80Enabled: raw.budgetAlert80Enabled === undefined && raw.budget_alert_80_enabled === undefined ? 1 : (enabled("budgetAlert80Enabled", "budget_alert_80_enabled") ? 1 : 0),
+    budgetAlert100Enabled: raw.budgetAlert100Enabled === undefined && raw.budget_alert_100_enabled === undefined ? 1 : (enabled("budgetAlert100Enabled", "budget_alert_100_enabled") ? 1 : 0),
   };
 };
 
@@ -1286,22 +1292,22 @@ function AppContent() {
     setHomePage("ledgers");
     setError("");
   };
-  const updateLedgerName = async (name: string) => {
+  const updateLedgerName = async (input: { name: string; icon: string | null }) => {
     if (!activeLedger) return;
-    const trimmed = name.trim();
+    const trimmed = input.name.trim();
     if (!trimmed) {
       setError("帳本名稱不能是空白。");
       return;
     }
     setBusy(true);
     try {
-      await api.ledger.rename.mutate({ ledgerId: activeLedger.id, name: trimmed });
-      const nextLedger = { ...activeLedger, name: trimmed };
+      await api.ledger.rename.mutate({ ledgerId: activeLedger.id, name: trimmed, icon: input.icon });
+      const nextLedger = { ...activeLedger, name: trimmed, icon: input.icon };
       setActiveLedger(nextLedger);
       setLedgers(current => current.map(item => item.id === nextLedger.id ? nextLedger : item));
       setLedgerManageModal(null);
       setError("");
-      showToast("帳本名稱已更新。");
+      showToast("帳本設定已更新。");
     } catch (renameError) {
       setError(renameError instanceof Error ? renameError.message : "帳本名稱更新失敗。");
     } finally {
@@ -1398,7 +1404,7 @@ function AppContent() {
     const normalizedAmount = Math.max(0, Math.min(100_000_000, Math.trunc(next.minimumAmount)));
     const normalizedReminderDay = Math.max(1, Math.min(28, Math.trunc(next.monthlyReminderDay)));
     const wasNormalized = normalizedAmount !== next.minimumAmount || normalizedReminderDay !== next.monthlyReminderDay;
-    const requiresPush = next.incomeEnabled === 1 || next.expenseEnabled === 1 || next.monthlySettlementEnabled === 1;
+    const requiresPush = next.incomeEnabled === 1 || next.expenseEnabled === 1 || next.monthlySettlementEnabled === 1 || next.budgetAlert80Enabled === 1 || next.budgetAlert100Enabled === 1;
     let pushPermissionUnavailable = false;
     let pushRegistrationUnavailable = false;
     const requestId = ++notificationRequestRef.current;
@@ -1429,6 +1435,8 @@ function AppContent() {
         minimumAmount: normalizedAmount,
         monthlySettlementEnabled: next.monthlySettlementEnabled === 1,
         monthlyReminderDay: normalizedReminderDay,
+        budgetAlert80Enabled: normalized.budgetAlert80Enabled === 1,
+        budgetAlert100Enabled: normalized.budgetAlert100Enabled === 1,
       }) as NotificationPreferences;
       if (requestId === notificationRequestRef.current) {
         setNotificationPreferences(normalizeNotificationPreferences(saved));
@@ -3500,6 +3508,21 @@ function PersonalSettingsPage({
   const { preferences, palette, updatePreferences } = useAppearance();
   const [nickname, setNickname] = useState(user.name || "");
   const [notificationDraft, setNotificationDraft] = useState<NotificationPreferences>(() => normalizeNotificationPreferences(notificationPreferences));
+  const [notificationStatus, setNotificationStatus] = useState<{
+    devices: Array<{
+      id: number;
+      platform: "android" | "ios";
+      isActive: boolean;
+      lastRegisteredAt: Date | string | number | null;
+      lastDeliveryAt: Date | string | number | null;
+      lastDeliveryStatus: string | null;
+      lastDeliveryError: string | null;
+    }>;
+  } | null>(null);
+  const [notificationStatusLoading, setNotificationStatusLoading] = useState(false);
+  const [notificationStatusActionLoading, setNotificationStatusActionLoading] = useState(false);
+  const [notificationStatusError, setNotificationStatusError] = useState("");
+  const [notificationStatusMessage, setNotificationStatusMessage] = useState("");
   const [historyVisible, setHistoryVisible] = useState(false);
   const [releaseHistory, setReleaseHistory] = useState<AppUpdateHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -3512,6 +3535,39 @@ function PersonalSettingsPage({
     const differs = current.incomeEnabled !== next.incomeEnabled || current.expenseEnabled !== next.expenseEnabled || current.minimumAmount !== next.minimumAmount || current.monthlySettlementEnabled !== next.monthlySettlementEnabled || current.monthlyReminderDay !== next.monthlyReminderDay;
     if (differs) setNotificationDraft(next);
   }, [notificationPreferences]);
+  const refreshNotificationStatus = async () => {
+    setNotificationStatusLoading(true);
+    setNotificationStatusError("");
+    try {
+      setNotificationStatus(await api.notifications.status.query());
+    } catch (statusError) {
+      setNotificationStatusError(statusError instanceof Error ? statusError.message : "暫時無法讀取通知狀態，請稍後重試。");
+    } finally {
+      setNotificationStatusLoading(false);
+    }
+  };
+  const reRegisterNotificationDevice = async () => {
+    setNotificationStatusActionLoading(true);
+    setNotificationStatusError("");
+    setNotificationStatusMessage("");
+    try {
+      const expoPushToken = await requestExpoPushToken();
+      if (!expoPushToken) {
+        setNotificationStatusError("尚未取得推播權限或裝置 Token，請先在系統設定允許通知。");
+        return;
+      }
+      await api.notifications.registerDevice.mutate({ expoPushToken, platform: Platform.OS === "ios" ? "ios" : "android" });
+      await refreshNotificationStatus();
+      setNotificationStatusMessage("裝置已重新註冊。請以另一個帳號新增收支，確認通知是否送達。");
+    } catch (registrationError) {
+      setNotificationStatusError(registrationError instanceof Error ? registrationError.message : "裝置重新註冊失敗，請確認網路後重試。");
+    } finally {
+      setNotificationStatusActionLoading(false);
+    }
+  };
+  useEffect(() => {
+    void refreshNotificationStatus();
+  }, [user.id]);
   const themes: Array<{ key: AppearanceTheme; label: string; color: string }> = [
     { key: "rose", label: "玫瑰", color: "#B56C78" },
     { key: "cherry", label: "櫻花", color: "#CE6D91" },
@@ -3866,12 +3922,49 @@ style={styles.input}
         </View>
         <Switch value={notificationDraft.expenseEnabled === 1} onValueChange={value => setNotificationDraft(current => ({ ...current, expenseEnabled: value ? 1 : 0 }))} trackColor={{ false: palette.border, true: palette.roseSoft }} thumbColor={notificationDraft.expenseEnabled ? palette.rose : palette.muted} />
       </View>
+      <View style={styles.preferenceRow}>
+        <View style={styles.preferenceCopy}>
+          <Text style={styles.rowTitle}>預算 80% 提醒</Text>
+          <Text style={styles.rowSubtitle}>月總或分類預算用量達八成時提醒</Text>
+        </View>
+        <Switch value={notificationDraft.budgetAlert80Enabled === 1} onValueChange={value => setNotificationDraft(current => ({ ...current, budgetAlert80Enabled: value ? 1 : 0 }))} trackColor={{ false: palette.border, true: palette.roseSoft }} thumbColor={notificationDraft.budgetAlert80Enabled ? palette.rose : palette.muted} />
+      </View>
+      <View style={styles.preferenceRow}>
+        <View style={styles.preferenceCopy}>
+          <Text style={styles.rowTitle}>預算 100% 提醒</Text>
+          <Text style={styles.rowSubtitle}>月總或分類預算用量達上限時提醒</Text>
+        </View>
+        <Switch value={notificationDraft.budgetAlert100Enabled === 1} onValueChange={value => setNotificationDraft(current => ({ ...current, budgetAlert100Enabled: value ? 1 : 0 }))} trackColor={{ false: palette.border, true: palette.roseSoft }} thumbColor={notificationDraft.budgetAlert100Enabled ? palette.rose : palette.muted} />
+      </View>
       <Text style={styles.personalizationLabel}>通知金額門檻（NT$）</Text>
 <TextInput value={String(notificationDraft.minimumAmount)} onChangeText={value => setNotificationDraft(current => ({ ...current, minimumAmount: Number(value.replace(/\D/g, "")) || 0 }))} keyboardType="number-pad" maxLength={9} placeholder="0 代表所有金額都提醒" placeholderTextColor={palette.muted} style={styles.input} />
       <Pressable onPress={() => void onSaveNotificationPreferences(notificationDraft)} style={({ pressed }) => [styles.smallButton, pressed && styles.pressed]}>
 <MaterialCommunityIcons name="bell-check-outline" size={17} color="#FFFFFF" />
 <Text style={styles.smallButtonText}>儲存提醒設定</Text>
 </Pressable>
+
+      <View style={[styles.updateEmptyPanel, { marginTop: 14 }]}>
+        <View style={styles.preferenceCopy}>
+          <Text style={styles.rowTitle}>通知狀態</Text>
+          <Text style={styles.rowSubtitle}>檢查手機權限、裝置註冊與最近一次投遞結果；收入與支出通知未到達時可先重新註冊。</Text>
+          {notificationStatusLoading ? <Text style={styles.rowSubtitle}>正在讀取裝置狀態…</Text> : notificationStatus?.devices.length ? notificationStatus.devices.map(device => (
+            <Text key={device.id} style={styles.rowSubtitle}>
+              {device.platform === "android" ? "Android" : "iOS"}：{device.isActive ? "已註冊" : "已停用"} · {device.lastDeliveryStatus === "delivered" ? "最近投遞成功" : device.lastDeliveryError ? `失敗：${device.lastDeliveryError}` : "尚無投遞紀錄"}
+            </Text>
+          )) : <Text style={styles.rowSubtitle}>尚未發現已註冊裝置。</Text>}
+          {!!notificationStatusError && <Text style={styles.globalError}>{notificationStatusError}</Text>}
+          {!!notificationStatusMessage && <Text style={styles.successText}>{notificationStatusMessage}</Text>}
+        </View>
+        <View style={styles.transactionActions}>
+          <Pressable onPress={() => void refreshNotificationStatus()} disabled={notificationStatusLoading} style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]} accessibilityLabel="重新整理通知狀態">
+            <MaterialCommunityIcons name="refresh" size={20} color={palette.rose} />
+          </Pressable>
+          <Pressable onPress={() => void reRegisterNotificationDevice()} disabled={notificationStatusActionLoading} style={({ pressed }) => [styles.smallButton, pressed && styles.pressed, notificationStatusActionLoading && styles.disabledButton]}>
+            <MaterialCommunityIcons name="cellphone-arrow-down" size={17} color="#FFFFFF" />
+            <Text style={styles.smallButtonText}>{notificationStatusActionLoading ? "註冊中…" : "重新註冊通知"}</Text>
+          </Pressable>
+        </View>
+      </View>
 	      </View>
 	      <View style={styles.settingsGroupCard}>
 	      <View style={styles.cardHeading}>
@@ -4766,14 +4859,15 @@ function LedgerManageModal({
   error: string;
   busy: boolean;
   onClose: () => void;
-  onRename: (name: string) => void;
+  onRename: (input: { name: string; icon: string | null }) => void;
   onTransfer: (targetUserId: number) => void;
 }) {
   const { palette } = useAppearance();
   const [draftName, setDraftName] = useState(ledger.name);
+  const [draftIcon, setDraftIcon] = useState<string | null>(ledger.icon || null);
   useEffect(() => {
-    if (visible) setDraftName(ledger.name);
-  }, [visible, ledger.name]);
+    if (visible) { setDraftName(ledger.name); setDraftIcon(ledger.icon || null); }
+  }, [visible, ledger.name, ledger.icon]);
   const others = members.filter(item => item.user.id !== user.id);
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -4788,12 +4882,20 @@ function LedgerManageModal({
         >
           <View style={styles.modalCard}>
           <View style={styles.modalHandle} />
-          <Text style={styles.modalTitle}>{mode === "rename" ? "修改帳本名稱" : "直接轉讓所有權"}</Text>
+          <Text style={styles.modalTitle}>{mode === "rename" ? "修改帳本設定" : "直接轉讓所有權"}</Text>
           <Text style={styles.modalDescription}>
-            {mode === "rename" ? "名稱會同步更新到所有成員的帳本列表。" : "轉讓後你仍會留在帳本中，但會成為一般成員。"}
+            {mode === "rename" ? "名稱與圖示會同步更新到所有成員的帳本列表。" : "轉讓後你仍會留在帳本中，但會成為一般成員。"}
           </Text>
           {mode === "rename" ? (
             <>
+              <Text style={styles.fieldLabel}>帳本圖示</Text>
+              <View style={styles.iconPicker}>
+                {[null, "❤", "💖", "🩷", "💘", "🌷", "🌹", "🏠", "👫", "👨‍👩‍👧", "🐾", "🚗", "📱", "💳", "💵", "🛍️", "📑", "🗓️", "📒", "📕", "📖", "📝", "✈️", "🎯", "🍽️", "☕", "🎮", "🎬", "🎵", "🎓", "💼", "🏥", "🏋️", "🎂", "🏖️", "🌙", "✨"].map(item => (
+                  <Pressable key={item ?? "none"} onPress={() => setDraftIcon(item)} style={[styles.iconPickerItem, draftIcon === item && styles.iconPickerItemActive]} accessibilityRole="button" accessibilityState={{ selected: draftIcon === item }}>
+                    <Text style={styles.iconPickerText}>{item ?? "無"}</Text>
+                  </Pressable>
+                ))}
+              </View>
               <TextInput
                 value={draftName}
                 onChangeText={setDraftName}
@@ -4804,8 +4906,8 @@ function LedgerManageModal({
                 autoFocus
               />
               {!!error && <Text style={styles.errorText}>{error}</Text>}
-              <Pressable disabled={busy} onPress={() => onRename(draftName)} style={[styles.primaryButton, busy && styles.disabled]}>
-                <Text style={styles.primaryButtonText}>{busy ? "儲存中…" : "儲存名稱"}</Text>
+              <Pressable disabled={busy} onPress={() => onRename({ name: draftName, icon: draftIcon })} style={[styles.primaryButton, busy && styles.disabled]}>
+                <Text style={styles.primaryButtonText}>{busy ? "儲存中…" : "儲存帳本設定"}</Text>
                 {busy && <ActivityIndicator color="#FFFFFF" />}
               </Pressable>
             </>

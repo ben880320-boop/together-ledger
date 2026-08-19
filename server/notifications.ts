@@ -2,15 +2,17 @@ import {
   createAppNotification,
   disablePushDevice,
   getActivePushTokens,
+  getBudgetUsage,
   getLedgerMembers,
   getNotificationPreferences,
   getNotificationPreferencesByScheduleTaskUid,
   getSettlementSummary,
   listLedgersForUser,
   listMonthlyReminderPreferences,
+  updatePushDeliveryStatus,
 } from "./db";
 
-type NotificationKind = "income" | "expense" | "settlement";
+type NotificationKind = "income" | "expense" | "settlement" | "budget";
 
 type NotificationPreferenceFlags = {
   incomeEnabled: number;
@@ -53,17 +55,29 @@ export async function dispatchExpoPush(userId: number, title: string, body: stri
       body: JSON.stringify(messages),
     });
     if (!response.ok) {
+      const error = `Expo HTTP ${response.status}`;
+      await Promise.all(devices.map(device => updatePushDeliveryStatus({ id: device.id, status: "failed", error })));
       console.warn("[Notifications] Expo push request failed", response.status);
       return { delivered: 0 };
     }
     const result = (await response.json()) as { data?: Array<{ status?: string; details?: { error?: string } }> };
     await Promise.all(result.data?.map(async (receipt, index) => {
+      const device = devices[index];
+      if (!device) return;
       if (receipt.status === "error" && receipt.details?.error === "DeviceNotRegistered") {
-        await disablePushDevice(devices[index].token);
+        await disablePushDevice(device.token);
+        return;
       }
+      await updatePushDeliveryStatus({
+        id: device.id,
+        status: receipt.status === "ok" ? "delivered" : "failed",
+        error: receipt.status === "ok" ? null : (receipt.details?.error ?? "Expo rejected the notification"),
+      });
     }) ?? []);
     return { delivered: result.data?.filter(receipt => receipt.status === "ok").length ?? 0 };
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Expo transport error";
+    await Promise.all(devices.map(device => updatePushDeliveryStatus({ id: device.id, status: "failed", error: message })));
     console.warn("[Notifications] Expo push transport error", error);
     return { delivered: 0 };
   }
@@ -74,6 +88,39 @@ async function createAndSend(input: { userId: number; ledgerId?: number; kind: N
   if (!saved.created) return { created: false, delivered: 0 };
   const sent = await dispatchExpoPush(input.userId, input.title, input.body, input.data);
   return { created: true, ...sent };
+}
+
+function taipeiMonth(date: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit" }).formatToParts(date);
+  const value = (type: Intl.DateTimeFormatPartTypes) => parts.find(part => part.type === type)?.value ?? "";
+  return `${value("year")}-${value("month")}`;
+}
+
+export async function notifyBudgetThresholds(input: { ledgerId: number; ledgerName: string; actorUserId: number; transactionId: number; transactionDate: Date }) {
+  const month = taipeiMonth(input.transactionDate);
+  const [members, usages] = await Promise.all([getLedgerMembers(input.ledgerId), getBudgetUsage(input.ledgerId, month)]);
+  if (usages.length === 0) return;
+  await Promise.all((members ?? []).map(async member => {
+    const preference = await getNotificationPreferences(member.user.id);
+    const thresholds = [
+      { ratio: 0.8, enabled: preference.budgetAlert80Enabled === 1, label: "80%" },
+      { ratio: 1, enabled: preference.budgetAlert100Enabled === 1, label: "100%" },
+    ];
+    await Promise.all(usages.flatMap(usage => thresholds
+      .filter(threshold => threshold.enabled && usage.spent >= Math.ceil(usage.amount * threshold.ratio))
+      .map(threshold => {
+        const budgetLabel = usage.categoryId === 0 ? "月總預算" : "分類預算";
+        return createAndSend({
+          userId: member.user.id,
+          ledgerId: input.ledgerId,
+          kind: "budget",
+          title: `預算已達 ${threshold.label}`,
+          body: `${input.ledgerName}・${budgetLabel}已使用 ${currency(usage.spent)}／${currency(usage.amount)}`,
+          dedupeKey: `budget:${input.ledgerId}:${usage.budgetId}:${usage.month}:${threshold.label}:user:${member.user.id}`,
+          data: { ledgerId: input.ledgerId, transactionId: input.transactionId, categoryId: usage.categoryId, month: usage.month, kind: "budget", actionPath: `/ledger/${input.ledgerId}/records?month=${usage.month}&categoryId=${usage.categoryId}` },
+        });
+      })));
+  }));
 }
 
 export async function notifyLedgerMembersAboutTransaction(input: {

@@ -52,6 +52,7 @@ import {
   createTravelPlan,
   deleteTravelPlan,
   getNotificationPreferences,
+  getPushDeviceStatus,
   updateNotificationPreferences,
   updateNotificationScheduleTaskUid,
   upsertPushDevice,
@@ -61,7 +62,7 @@ import {
 } from "./db";
 import { TRPCError } from "@trpc/server";
 import { invokeLLM } from "./_core/llm";
-import { notifyLedgerMembersAboutTransaction } from "./notifications";
+import { notifyBudgetThresholds, notifyLedgerMembersAboutTransaction } from "./notifications";
 import { createHeartbeatJob, listHeartbeatJobs, updateHeartbeatJob } from "./_core/heartbeat";
 import { sdk } from "./_core/sdk";
 
@@ -169,6 +170,10 @@ export const appRouter = router({
   system: systemRouter,
   notifications: router({
     preferences: protectedProcedure.query(({ ctx }) => getNotificationPreferences(ctx.user.id)),
+    status: protectedProcedure.query(async ({ ctx }) => ({
+      preferences: await getNotificationPreferences(ctx.user.id),
+      devices: await getPushDeviceStatus(ctx.user.id),
+    })),
     updatePreferences: protectedProcedure
       .input(z.object({
         incomeEnabled: z.boolean(),
@@ -176,6 +181,8 @@ export const appRouter = router({
         minimumAmount: z.number().int().min(0).max(100_000_000),
         monthlySettlementEnabled: z.boolean(),
         monthlyReminderDay: z.number().int().min(1).max(28),
+        budgetAlert80Enabled: z.boolean().default(true),
+        budgetAlert100Enabled: z.boolean().default(true),
       }))
       .mutation(async ({ ctx, input }) => {
         const authorization = ctx.req.headers.authorization;
@@ -197,6 +204,8 @@ export const appRouter = router({
           minimumAmount: input.minimumAmount,
           monthlySettlementEnabled: input.monthlySettlementEnabled ? 1 : 0,
           monthlyReminderDay: input.monthlyReminderDay,
+          budgetAlert80Enabled: input.budgetAlert80Enabled ? 1 : 0,
+          budgetAlert100Enabled: input.budgetAlert100Enabled ? 1 : 0,
         });
         try {
           await syncMonthlySettlementReminderSchedule({
@@ -358,7 +367,7 @@ export const appRouter = router({
         return leaveLedger({ ...input, userId: ctx.user.id });
       }),
     rename: protectedProcedure
-      .input(z.object({ ledgerId: z.number().int().positive(), name: z.string().trim().min(1).max(128) }))
+      .input(z.object({ ledgerId: z.number().int().positive(), name: z.string().trim().min(1).max(128), icon: z.string().trim().max(16).nullable().optional() }))
       .mutation(({ ctx, input }) => renameLedger({ ...input, userId: ctx.user.id })),
     transferOwnership: protectedProcedure
       .input(z.object({ ledgerId: z.number().int().positive(), targetUserId: z.number().int().positive() }))
@@ -511,6 +520,10 @@ export const appRouter = router({
           amount: input.amount,
           note: input.note,
         }).catch(error => console.warn("[Notifications] Transaction dispatch failed", error));
+        if (input.type === "expense") {
+          void notifyBudgetThresholds({ ledgerId: input.ledgerId, ledgerName: access.ledger.name, actorUserId: ctx.user.id, transactionId: id, transactionDate: input.date })
+            .catch(error => console.warn("[Notifications] Budget threshold dispatch failed", error));
+        }
         return id;
       }),
     updateTransaction: protectedProcedure
@@ -528,12 +541,16 @@ export const appRouter = router({
         splits: z.array(memberInput).default([]),
       }))
       .mutation(async ({ ctx, input }) => {
-        await requireLedger(input.ledgerId, ctx.user.id);
+        const access = await requireLedger(input.ledgerId, ctx.user.id);
         if (input.type === "expense" && input.splitType !== "none" && input.splits.reduce((sum, split) => sum + split.shareAmount, 0) !== input.amount) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "分攤金額必須剛好等於交易金額" });
         }
         const id = await updateTransaction({ ...input, id: input.transactionId });
         await logActivity({ ledgerId: input.ledgerId, userId: ctx.user.id, action: "update", entityType: "transaction", entityId: id, summary: `編輯${input.type === "income" ? "收入" : "支出"} ${input.amount}` });
+        if (input.type === "expense") {
+          void notifyBudgetThresholds({ ledgerId: input.ledgerId, ledgerName: access.ledger.name, actorUserId: ctx.user.id, transactionId: id, transactionDate: input.date })
+            .catch(error => console.warn("[Notifications] Budget threshold dispatch failed", error));
+        }
         return id;
       }),
     deleteTransaction: protectedProcedure

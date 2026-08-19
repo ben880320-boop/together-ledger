@@ -58,6 +58,8 @@ export type NotificationPreferenceInput = {
   minimumAmount: number;
   monthlySettlementEnabled: number;
   monthlyReminderDay: number;
+  budgetAlert80Enabled: number;
+  budgetAlert100Enabled: number;
 };
 
 const defaultNotificationPreferences: NotificationPreferenceInput = {
@@ -68,6 +70,8 @@ const defaultNotificationPreferences: NotificationPreferenceInput = {
   minimumAmount: 0,
   monthlySettlementEnabled: 0,
   monthlyReminderDay: 28,
+  budgetAlert80Enabled: 1,
+  budgetAlert100Enabled: 1,
 };
 
 export function normalizeNotificationPreferences(input: Partial<NotificationPreferenceInput>): NotificationPreferenceInput {
@@ -79,6 +83,8 @@ export function normalizeNotificationPreferences(input: Partial<NotificationPref
     minimumAmount,
     monthlySettlementEnabled: input.monthlySettlementEnabled ? 1 : 0,
     monthlyReminderDay,
+    budgetAlert80Enabled: input.budgetAlert80Enabled === undefined ? 1 : (input.budgetAlert80Enabled ? 1 : 0),
+    budgetAlert100Enabled: input.budgetAlert100Enabled === undefined ? 1 : (input.budgetAlert100Enabled ? 1 : 0),
   };
 }
 
@@ -141,22 +147,45 @@ export async function upsertPushDevice(input: { userId: number; expoPushToken: s
   const db = requireDb();
   const existing = await db.select({ id: pushDevices.id, isActive: pushDevices.isActive }).from(pushDevices).where(eq(pushDevices.expoPushToken, input.expoPushToken)).limit(1);
   return reconcilePushDeviceRegistration(input, existing[0], {
-    update: () => db.update(pushDevices).set({ userId: input.userId, platform: input.platform, isActive: 1 }).where(eq(pushDevices.id, existing[0]!.id)),
-    create: () => db.insert(pushDevices).values({ ...input, isActive: 1 }),
+    update: () => db.update(pushDevices).set({ userId: input.userId, platform: input.platform, isActive: 1, lastRegisteredAt: new Date(), lastDeliveryStatus: null, lastDeliveryError: null }).where(eq(pushDevices.id, existing[0]!.id)),
+    create: () => db.insert(pushDevices).values({ ...input, isActive: 1, lastRegisteredAt: new Date(), lastDeliveryStatus: null, lastDeliveryError: null }),
   });
 }
 
 export async function getActivePushTokens(userId: number) {
   const db = requireDb();
-  return db.select({ token: pushDevices.expoPushToken, platform: pushDevices.platform }).from(pushDevices).where(and(eq(pushDevices.userId, userId), eq(pushDevices.isActive, 1)));
+  return db.select({ id: pushDevices.id, token: pushDevices.expoPushToken, platform: pushDevices.platform }).from(pushDevices).where(and(eq(pushDevices.userId, userId), eq(pushDevices.isActive, 1)));
+}
+
+export async function updatePushDeliveryStatus(input: { id: number; status: "delivered" | "failed" | "disabled"; error?: string | null }) {
+  const db = requireDb();
+  await db.update(pushDevices).set({
+    lastDeliveryAt: new Date(),
+    lastDeliveryStatus: input.status,
+    lastDeliveryError: input.error?.slice(0, 255) ?? null,
+    ...(input.status === "disabled" ? { isActive: 0 } : {}),
+  }).where(eq(pushDevices.id, input.id));
+}
+
+export async function getPushDeviceStatus(userId: number) {
+  const db = requireDb();
+  return db.select({
+    id: pushDevices.id,
+    platform: pushDevices.platform,
+    isActive: pushDevices.isActive,
+    lastRegisteredAt: pushDevices.lastRegisteredAt,
+    lastDeliveryAt: pushDevices.lastDeliveryAt,
+    lastDeliveryStatus: pushDevices.lastDeliveryStatus,
+    lastDeliveryError: pushDevices.lastDeliveryError,
+  }).from(pushDevices).where(eq(pushDevices.userId, userId)).orderBy(desc(pushDevices.lastRegisteredAt));
 }
 
 export async function disablePushDevice(expoPushToken: string) {
   const db = requireDb();
-  await db.update(pushDevices).set({ isActive: 0 }).where(eq(pushDevices.expoPushToken, expoPushToken));
+  await db.update(pushDevices).set({ isActive: 0, lastDeliveryAt: new Date(), lastDeliveryStatus: "disabled", lastDeliveryError: "Expo DeviceNotRegistered" }).where(eq(pushDevices.expoPushToken, expoPushToken));
 }
 
-export async function createAppNotification(input: { userId: number; ledgerId?: number; kind: "income" | "expense" | "settlement"; title: string; body: string; dedupeKey: string }) {
+export async function createAppNotification(input: { userId: number; ledgerId?: number; kind: "income" | "expense" | "settlement" | "budget"; title: string; body: string; dedupeKey: string; actionPath?: string }) {
   const db = requireDb();
   const existing = await db.select({ id: appNotifications.id }).from(appNotifications).where(eq(appNotifications.dedupeKey, input.dedupeKey)).limit(1);
   if (existing[0]) return { created: false as const, id: existing[0].id };
@@ -459,7 +488,7 @@ export async function deleteUserAccount(userId: number) {
   return { scheduleCronTaskUid: preferences?.scheduleCronTaskUid ?? null };
 }
 
-export async function renameLedger(input: { ledgerId: number; userId: number; name: string }) {
+export async function renameLedger(input: { ledgerId: number; userId: number; name: string; icon?: string | null }) {
   const db = requireDb();
   const name = input.name.trim();
   if (!name) throw new Error("帳本名稱不能是空白。");
@@ -468,7 +497,8 @@ export async function renameLedger(input: { ledgerId: number; userId: number; na
   if (!access || access.ledger.createdBy !== input.userId || access.member.role !== "admin") {
     throw new Error("只有帳本持有者可以修改帳本名稱。");
   }
-  await db.update(ledgers).set({ name }).where(eq(ledgers.id, input.ledgerId));
+  const icon = input.icon === undefined ? undefined : input.icon?.trim().slice(0, 16) || null;
+  await db.update(ledgers).set({ name, ...(icon === undefined ? {} : { icon }) }).where(eq(ledgers.id, input.ledgerId));
   return (await getLedgerAccess(input.ledgerId, input.userId))?.ledger;
 }
 
@@ -847,6 +877,38 @@ export async function listBudgets(ledgerId: number, month: string) {
   const db = await getDb();
   if (!db) return [];
   return db.select().from(budgets).where(and(eq(budgets.ledgerId, ledgerId), eq(budgets.month, month))).orderBy(asc(budgets.categoryId));
+}
+
+export async function getBudgetUsage(ledgerId: number, month: string) {
+  const db = await getDb();
+  if (!db) return [];
+  const [year, monthNumber] = month.split("-").map(Number);
+  if (!Number.isInteger(year) || !Number.isInteger(monthNumber) || monthNumber < 1 || monthNumber > 12) return [];
+  const start = new Date(Date.UTC(year, monthNumber - 1, 1));
+  const end = new Date(Date.UTC(year, monthNumber, 1));
+  const [configuredBudgets, expenseRows] = await Promise.all([
+    listBudgets(ledgerId, month),
+    db.select({ categoryId: transactions.categoryId, amount: transactions.amount })
+      .from(transactions)
+      .where(and(
+        eq(transactions.ledgerId, ledgerId),
+        eq(transactions.type, "expense"),
+        gte(transactions.date, start),
+        lt(transactions.date, end),
+      )),
+  ]);
+  const totalSpent = expenseRows.reduce((total, row) => total + Number(row.amount), 0);
+  const spentByCategory = new Map<number, number>();
+  expenseRows.forEach(row => spentByCategory.set(row.categoryId, (spentByCategory.get(row.categoryId) ?? 0) + Number(row.amount)));
+  return configuredBudgets
+    .filter(budget => Number(budget.amount) > 0)
+    .map(budget => ({
+      budgetId: budget.id,
+      categoryId: budget.categoryId,
+      amount: Number(budget.amount),
+      spent: budget.categoryId === 0 ? totalSpent : (spentByCategory.get(budget.categoryId) ?? 0),
+      month,
+    }));
 }
 
 export async function upsertBudget(input: { ledgerId: number; categoryId: number; amount: number; month: string }) {
