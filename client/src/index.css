@@ -116,8 +116,42 @@ button { cursor: pointer; }
   .font-serif { letter-spacing: -0.02em; }
 }
 
-.dark { color-scheme: light; }
-.dark body { background: #fbf7f3; color: #3a2f2b; }
+.dark {
+  color-scheme: dark;
+  --background: #11171c;
+  --foreground: #f4f7f9;
+  --card: #1b242b;
+  --card-foreground: #f4f7f9;
+  --popover: #1b242b;
+  --popover-foreground: #f4f7f9;
+  --secondary: #26373e;
+  --secondary-foreground: #d8e4e9;
+  --muted: #26373e;
+  --muted-foreground: #b1c0c9;
+  --accent: #26373e;
+  --accent-foreground: #edf6f8;
+  --border: #3a4952;
+  --input: #3a4952;
+  --ring: #9ccbd5;
+}
+.dark html, .dark body { background: var(--background); color: var(--foreground); }
+
+:root[data-scene="cherry"] { --background: #fff3f7; --foreground: #50313d; --primary: #ce6d91; }
+:root[data-scene="graphite"] { --background: #f4f5f7; --foreground: #252a31; --primary: #58677a; }
+:root[data-scene="latte"] { --background: #f8f1e8; --foreground: #4a392e; --primary: #b87955; }
+:root[data-scene="mint"] { --background: #f0f7f4; --foreground: #29443d; --primary: #4d9381; }
+:root[data-scene="ocean"] { --background: #062638; --foreground: #f2fbff; --primary: #62c4d8; }
+:root[data-scene="sunset"] { --background: #fff7ef; --foreground: #4b3029; --primary: #d17b61; }
+:root[data-scene="starry"] { --background: #060a1d; --foreground: #f4f6ff; --primary: #afa4ff; }
+:root[data-scene="forest"] { --background: #f1f7f0; --foreground: #294233; --primary: #5a956f; }
+:root[data-scene="meadow"] { --background: #f4f7e8; --foreground: #39452a; --primary: #7b9b43; }
+:root[data-scene="snow"] { --background: #e9f2f8; --foreground: #29404f; --primary: #5a8ba5; }
+:root[data-scene="lavender"] { --background: #f7f1fb; --foreground: #43354e; --primary: #9c6bb3; }
+.web-ledger-shell { background-image: radial-gradient(circle at 12% 8%, color-mix(in srgb, var(--primary) 14%, transparent), transparent 27rem), radial-gradient(circle at 86% 20%, color-mix(in srgb, var(--primary) 10%, transparent), transparent 25rem); }
+:root[data-scene="ocean"] .web-ledger-shell { background-image: radial-gradient(ellipse at 15% 0%, #1d6d88 0%, transparent 42%), radial-gradient(ellipse at 86% 65%, #0d405b 0%, transparent 48%), linear-gradient(160deg, #062638, #0b4f67 55%, #031a2b); }
+:root[data-scene="starry"] .web-ledger-shell { background-image: radial-gradient(circle at 12% 18%, #fff 0 1px, transparent 2px), radial-gradient(circle at 80% 10%, #c9ccff 0 1px, transparent 2px), radial-gradient(circle at 62% 48%, #fff 0 1px, transparent 2px), radial-gradient(ellipse at 50% 100%, #242553 0%, transparent 55%), linear-gradient(145deg, #060a1d, #121a3b); background-size: 97px 91px, 131px 109px, 159px 143px, auto, auto; }
+:root[data-scene="forest"] .web-ledger-shell { background-image: radial-gradient(ellipse at 12% 0%, #bfdab9 0%, transparent 45%), radial-gradient(ellipse at 85% 90%, #9fc8ad 0%, transparent 42%), linear-gradient(155deg, #f1f7f0, #dfeee1); }
+:root[data-scene="cherry"] .web-ledger-shell { background-image: radial-gradient(circle at 10% 9%, #f4b7cc 0 2px, transparent 3px), radial-gradient(circle at 78% 18%, #f7c4d7 0 2px, transparent 3px), radial-gradient(ellipse at 50% 0%, #ffe1ec, transparent 58%), linear-gradient(145deg, #fff3f7, #fceaf1); background-size: 79px 101px, 113px 127px, auto, auto; }
 
 @keyframes soft-rise {
   from { opacity: 0; transform: translateY(8px); }

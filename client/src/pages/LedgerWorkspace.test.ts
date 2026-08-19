@@ -23,6 +23,18 @@ describe("Together Ledger 真實網頁帳本入口", () => {
     expect(auth).toContain("登入並開啟帳本");
   });
 
+  it("讓手機版也能切換所有帳本功能，不將設定與個人頁面截斷在四個入口之外", () => {
+    expect(workspace).toContain('aria-label="帳本行動版完整功能導覽"');
+    expect(workspace).toContain("navigation.map(([key, label, Icon])");
+    expect(workspace).not.toContain("navigation.slice(0, 4)");
+  });
+
+  it("提供固定收支的新增、編輯、刪除與到期同步操作", () => {
+    expect(workspace).toContain("trpc.ledger.updateRecurring.useMutation");
+    expect(workspace).toContain("編輯固定收支");
+    expect(workspace).toContain("同步到期項目");
+  });
+
   it("提供可辨識的發布資訊與重新取得最新版本操作", () => {
     expect(footer).toContain('WEB_RELEASE_VERSION = "1.2.8.7"');
     expect(footer).toContain("DEFAULT_WEB_RELEASED_AT");
