@@ -81,10 +81,10 @@ export default function WebAuth() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F7F4F1] text-[#332925]">
+    <div className="web-auth-shell min-h-screen bg-[#F7F4F1] text-[#332925]">
       <main className="mx-auto flex min-h-[calc(100vh-104px)] w-full max-w-6xl items-center px-5 py-10 md:px-8">
-        <div className="grid w-full overflow-hidden rounded-[32px] border border-white bg-white/85 shadow-[0_24px_70px_rgba(86,58,50,0.13)] lg:grid-cols-[1.03fr_0.97fr]">
-          <section className="relative overflow-hidden bg-[#5B4142] px-7 py-10 text-white sm:px-10 lg:py-16">
+        <div className="web-auth-panel grid w-full overflow-hidden rounded-[32px] border border-white bg-white/85 shadow-[0_24px_70px_rgba(86,58,50,0.13)] lg:grid-cols-[1.03fr_0.97fr]">
+          <section className="web-auth-hero relative overflow-hidden bg-[#5B4142] px-7 py-10 text-white sm:px-10 lg:py-16">
             <div className="absolute -left-16 -top-24 h-64 w-64 rounded-full border-[30px] border-white/5" />
             <div className="absolute -bottom-20 right-0 h-56 w-56 rounded-full bg-[#D99199]/20 blur-2xl" />
             <div className="relative">
@@ -95,14 +95,14 @@ export default function WebAuth() {
               <p className="mt-16 max-w-md text-xs font-semibold tracking-[0.2em] text-[#E7C9CB]">共用帳本，安心同步</p>
               <h1 className="mt-4 max-w-md font-serif text-4xl leading-tight sm:text-5xl">用同一個帳號，<br />接續你們的每一筆日常。</h1>
               <p className="mt-6 max-w-md text-sm leading-7 text-[#EADADA]">Android App 與網頁版會使用相同帳本資料。登入後即可建立共同帳本、以邀請碼加入，並查看真實的收支與結算資訊。</p>
-              <div className="mt-12 grid max-w-md grid-cols-3 gap-3 text-center text-xs text-[#F0DCDC]">
+              <div className="web-auth-features mt-12 grid max-w-md grid-cols-3 gap-3 text-center text-xs text-[#F0DCDC]">
                 <div className="rounded-2xl border border-white/10 bg-white/8 p-3">共同帳本</div>
                 <div className="rounded-2xl border border-white/10 bg-white/8 p-3">即時收支</div>
                 <div className="rounded-2xl border border-white/10 bg-white/8 p-3">安全登入</div>
               </div>
             </div>
           </section>
-          <section className="px-6 py-9 sm:px-10 sm:py-12">
+          <section className="web-auth-form px-6 py-9 sm:px-10 sm:py-12">
             <div className="mx-auto max-w-sm">
               <div className="flex rounded-xl bg-[#F8F1EE] p-1">
                 <button type="button" onClick={() => { setMode("login"); setFormError(""); }} className={`flex-1 rounded-lg px-3 py-2 text-sm font-semibold transition ${mode === "login" ? "bg-white text-[#9B5966] shadow-sm" : "text-[#9C857D]"}`}>登入</button>

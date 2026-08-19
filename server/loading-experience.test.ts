@@ -37,4 +37,13 @@ describe("跨平台載入體驗", () => {
     expect(workspace).toContain("window.scrollTo");
     expect(styles).toContain("table thead { display: none; }");
   });
+
+  it("讓手機網頁登入與帳本外層採用 App 式安全區、卡片與操作層級", () => {
+    expect(webAuth).toContain('className="web-auth-shell');
+    expect(webAuth).toContain('className="web-auth-panel');
+    expect(workspace).toContain('className="web-ledger-shell');
+    expect(styles).toContain(".web-auth-shell");
+    expect(styles).toContain(".web-ledger-shell");
+    expect(styles).toContain("env(safe-area-inset-bottom)");
+  });
 });
