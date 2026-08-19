@@ -178,6 +178,28 @@ button { cursor: pointer; }
 .ledger-member-row + .ledger-member-row { border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent); }
 .ledger-avatar { background: color-mix(in srgb, var(--primary) 16%, var(--card)); color: var(--primary); }
 .ledger-activity-icon { background: color-mix(in srgb, var(--primary) 16%, var(--card)); color: var(--primary); }
+.ledger-home-shell { background: linear-gradient(168deg, #f7fbfd 0%, #e8f4fa 62%, #d8ebf3 100%); }
+.ledger-home-safe { min-height: 100vh; }
+.ledger-home-mark { background: linear-gradient(145deg, #e6f2f8, #f8edeb); color: #bd7781; box-shadow: inset 0 1px 0 rgba(255,255,255,0.78); }
+.ledger-home-profile { background: linear-gradient(145deg, #f6eeee, #fffdfb); box-shadow: 0 8px 24px rgba(85, 119, 136, 0.1); }
+.ledger-home-sync { background: rgba(255,255,255,0.25); }
+.ledger-home-search { border: 1px solid rgba(113, 149, 165, 0.24); background: rgba(255,255,255,0.76); box-shadow: 0 8px 20px rgba(77, 116, 133, 0.08); }
+.ledger-home-card, .ledger-home-empty { border: 1px solid rgba(108, 145, 161, 0.2); background: rgba(255,255,255,0.77); box-shadow: 0 11px 26px rgba(77, 116, 133, 0.08); }
+.ledger-home-card-icon { background: linear-gradient(145deg, #e3f1f7, #eff7fb); }
+.ledger-home-primary { background: #6297af; color: #fff; box-shadow: 0 10px 22px rgba(70, 126, 150, 0.18); }
+.ledger-home-primary:hover { background: #538aa3; }
+.ledger-home-secondary { background: rgba(255,255,255,0.78); color: #5d8ea4; box-shadow: 0 10px 22px rgba(70, 126, 150, 0.08); }
+.app-calendar-intro, .app-calendar-card { border: 1px solid rgba(110, 148, 163, 0.18); background: rgba(255,255,255,0.78); box-shadow: 0 11px 26px rgba(77, 116, 133, 0.08); }
+.app-calendar-arrow { display: inline-flex; height: 2.75rem; width: 2.75rem; flex: 0 0 auto; align-items: center; justify-content: center; border-radius: 0.95rem; background: #e9f3f7; color: #5e91a9; transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1), background 160ms cubic-bezier(0.23, 1, 0.32, 1); }
+.app-calendar-arrow:active { transform: scale(0.95); }
+.app-calendar-day { position: relative; display: flex; aspect-ratio: 1; min-width: 0; align-items: center; justify-content: center; border-radius: 0.9rem; color: #3f5966; font-size: 0.875rem; font-weight: 650; transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1), background 160ms cubic-bezier(0.23, 1, 0.32, 1); }
+.app-calendar-day:active { transform: scale(0.93); }
+.app-calendar-day-selected { background: #6095ad; color: #fff; box-shadow: 0 6px 14px rgba(72, 129, 153, 0.24); }
+.app-calendar-blank { pointer-events: none; }
+.app-calendar-dot { position: absolute; bottom: 0.34rem; height: 0.3rem; width: 0.3rem; border-radius: 999px; }
+.app-calendar-dot-expense { background: #d17b84; }
+.app-calendar-dot-income { background: #73a88a; }
+.app-calendar-day-selected .app-calendar-dot { background: #fff; }
 :root[data-scene="ocean"] .web-ledger-shell { background-image: radial-gradient(ellipse at 15% 0%, #1d6d88 0%, transparent 42%), radial-gradient(ellipse at 86% 65%, #0d405b 0%, transparent 48%), linear-gradient(160deg, #062638, #0b4f67 55%, #031a2b); }
 :root[data-scene="starry"] .web-ledger-shell { background-image: radial-gradient(circle at 12% 18%, #fff 0 1px, transparent 2px), radial-gradient(circle at 80% 10%, #c9ccff 0 1px, transparent 2px), radial-gradient(circle at 62% 48%, #fff 0 1px, transparent 2px), radial-gradient(ellipse at 50% 100%, #242553 0%, transparent 55%), linear-gradient(145deg, #060a1d, #121a3b); background-size: 97px 91px, 131px 109px, 159px 143px, auto, auto; }
 :root[data-scene="forest"] .web-ledger-shell { background-image: radial-gradient(ellipse at 12% 0%, #bfdab9 0%, transparent 45%), radial-gradient(ellipse at 85% 90%, #9fc8ad 0%, transparent 42%), linear-gradient(155deg, #f1f7f0, #dfeee1); }
@@ -218,6 +240,16 @@ button { cursor: pointer; }
   .web-ledger-shell footer { overflow: hidden; }
   .web-ledger-shell footer > div > * { max-width: 100%; }
   .web-ledger-shell footer .flex { overflow-wrap: anywhere; }
+  .ledger-home-safe { padding-top: max(1.75rem, env(safe-area-inset-top)); padding-bottom: max(3rem, env(safe-area-inset-bottom)); }
+  .ledger-home-header h1 { font-size: 1.9rem; }
+  .ledger-home-search { min-height: 4.4rem; }
+  .ledger-home-card { min-height: 6.9rem; }
+  .ledger-home-card b { overflow-wrap: anywhere; }
+  .ledger-home-primary, .ledger-home-secondary { font-size: 0.95rem; }
+  .ledger-home-primary svg, .ledger-home-secondary svg { margin-right: 0.35rem; }
+  .app-calendar-page { margin-inline: -0.125rem; }
+  .app-calendar-day { border-radius: 0.72rem; font-size: 0.8rem; }
+  .app-calendar-dot { bottom: 0.24rem; height: 0.25rem; width: 0.25rem; }
   .web-ledger-shell .ledger-mobile-nav { position: fixed; z-index: 20; bottom: max(0.55rem, env(safe-area-inset-bottom)); left: 50%; width: calc(100% - 1rem); transform: translateX(-50%); border-radius: 1.45rem; padding: 0.45rem; }
   .web-ledger-shell .ledger-mobile-nav button { min-height: 3.25rem; border-radius: 1rem; font-size: 0.68rem; }
   .web-ledger-shell table { min-width: 0; }

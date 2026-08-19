@@ -68,4 +68,24 @@ describe("Together Ledger 真實網頁帳本入口", () => {
     expect(workspace).toContain("formatActivityTimestamp");
     expect(workspace).not.toContain('category?.icon || "◌"');
   });
+
+  it("登入後先顯示與 Android App 相同的我的帳本入口，並提供搜尋、建立與加入流程", () => {
+    expect(workspace).toContain("function LedgerHomePage");
+    expect(workspace).toContain("我的帳本");
+    expect(workspace).toContain("選擇共同帳本");
+    expect(workspace).toContain("搜尋帳本名稱");
+    expect(workspace).toContain("建立帳本");
+    expect(workspace).toContain("加入帳本");
+    expect(workspace).toContain("setLedgerHome(false)");
+  });
+
+  it("以 App 式月曆月份網格、日期收支標記與單日明細取代交易清單月曆", () => {
+    expect(workspace).toContain("function AppCalendar");
+    expect(workspace).toContain("app-calendar-day");
+    expect(workspace).toContain("app-calendar-dot-expense");
+    expect(workspace).toContain("app-calendar-dot-income");
+    expect(workspace).toContain("明細");
+    expect(workspace).toContain("changeMonth(-1)");
+    expect(workspace).toContain("changeMonth(1)");
+  });
 });
