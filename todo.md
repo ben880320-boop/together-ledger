@@ -384,7 +384,7 @@
 
 ## Android 更新發布修正
 
-- [ ] 盤點目前 Android APK 版本、官方 GitHub Release 與 App 內更新檢查來源，確認未顯示更新的原因
-- [ ] 將最新載入與操作體驗優化納入遞增的 Android 版本與 GitHub Actions 發布設定
-- [ ] 建置、驗證並發布新版 APK、更新內容與安全性摘要，使 App 內可偵測官方新版
-- [ ] 驗證 App 內更新檢查可辨識新版 Release，保存發布檢查點並交付安裝入口
+- [x] 盤點目前 Android APK 版本、官方 GitHub Release 與 App 內更新檢查來源，確認未顯示更新的原因
+- [x] 將最新載入與操作體驗優化納入遞增的 Android 版本與 GitHub Actions 發布設定
+- [x] 建置、驗證並發布新版 APK、更新內容與安全性摘要，使 App 內可偵測官方新版
+- [x] 驗證 App 內更新檢查可辨識新版 Release，保存發布檢查點並交付安裝入口
