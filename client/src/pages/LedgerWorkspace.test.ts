@@ -46,7 +46,7 @@ describe("Together Ledger 真實網頁帳本入口", () => {
   });
 
   it("提供可辨識的發布資訊與重新取得最新版本操作", () => {
-    expect(footer).toContain('WEB_RELEASE_VERSION = "1.2.8.7"');
+    expect(footer).toContain('WEB_RELEASE_VERSION = "1.2.8.9"');
     expect(footer).toContain("DEFAULT_WEB_RELEASED_AT");
     expect(footer).toContain("/__manus__/version.json");
     expect(footer).toContain('cache: "no-store"');

@@ -29,6 +29,7 @@ import {
   Modal,
   Platform,
   Pressable,
+  RefreshControl,
   ScrollView,
   Share,
   StyleSheet,
@@ -123,7 +124,7 @@ const appearanceDefaults: AppearancePreferences = {
   colorMode: "system",
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.2.8.8";
+const APP_VERSION = "1.2.8.9";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 const GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/ben880320-boop/together-ledger/releases/latest";
@@ -131,6 +132,7 @@ const GITHUB_RELEASE_HISTORY_API = "https://api.github.com/repos/ben880320-boop/
 const OFFICIAL_APK_URL_PREFIX = "https://github.com/ben880320-boop/together-ledger/releases/download/";
 const APK_MIME_TYPE = "application/vnd.android.package-archive";
 const updateResumeStorageKey = "together-ledger-update-resume-v1";
+const ledgerHomeSnapshotStorageKey = "together-ledger-ledger-home-snapshot-v1";
 
 type AppUpdateStatus = "idle" | "checking" | "downloading" | "installing";
 type GitHubReleaseAsset = { name?: string; browser_download_url?: string };
@@ -142,6 +144,7 @@ type SavedUpdateResume = FileSystem.DownloadPauseState & {
   notes: string;
   savedAt: number;
 };
+type LedgerHomeSnapshot = { ledgers: Ledger[]; syncedAt: number };
 
 const getUpdateNotesPreview = (release: AppUpdateRelease) => {
   const notes = release.notes.length > 420 ? `${release.notes.slice(0, 420)}…` : release.notes;
@@ -927,11 +930,14 @@ function AppContent() {
   const [busy, setBusy] = useState(false);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [error, setError] = useState("");
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
+  const [usingOfflineSnapshot, setUsingOfflineSnapshot] = useState(false);
   const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [appUpdateStatus, setAppUpdateStatus] = useState<AppUpdateStatus>("idle");
   const [appUpdateProgress, setAppUpdateProgress] = useState(0);
   const [latestRelease, setLatestRelease] = useState<AppUpdateRelease | null>(null);
+  const [updateCheckError, setUpdateCheckError] = useState("");
   const [savedUpdateResume, setSavedUpdateResume] = useState<SavedUpdateResume | null>(null);
   const [accountDeletionVisible, setAccountDeletionVisible] = useState(false);
   const ledgerRequestRef = useRef(0);
@@ -1047,6 +1053,7 @@ function AppContent() {
   const checkForAppUpdate = useCallback(async (manual = false) => {
     if (appUpdateStatus !== "idle") return;
     setAppUpdateStatus("checking");
+    setUpdateCheckError("");
     try {
       const release = await fetchLatestAndroidRelease();
       setLatestRelease(release);
@@ -1081,8 +1088,9 @@ function AppContent() {
         onConfirm: () => installAndroidUpdate(release),
       });
     } catch (updateError) {
+      const message = updateError instanceof Error ? updateError.message : "無法檢查更新，請確認網路後再試一次。";
+      setUpdateCheckError(message);
       if (manual) {
-        const message = updateError instanceof Error ? updateError.message : "無法檢查更新，請稍後再試。";
         showToast(message);
       }
     } finally {
@@ -1136,6 +1144,10 @@ function AppContent() {
       ]);
       const nextLedgers = rows.map(row => row.ledger);
       setLedgers(nextLedgers);
+      const syncedAt = Date.now();
+      setLastSyncedAt(syncedAt);
+      setUsingOfflineSnapshot(false);
+      void AsyncStorage.setItem(ledgerHomeSnapshotStorageKey, JSON.stringify({ ledgers: nextLedgers, syncedAt } satisfies LedgerHomeSnapshot));
       if (notificationRequestId === notificationRequestRef.current) {
         setNotificationPreferences(normalizeNotificationPreferences(preferences));
       }
@@ -1162,6 +1174,20 @@ function AppContent() {
       const message =
         loadError instanceof Error ? loadError.message : "無法載入帳本資料。";
       setError(message);
+      try {
+        const cached = await AsyncStorage.getItem(ledgerHomeSnapshotStorageKey);
+        const snapshot = cached ? JSON.parse(cached) as LedgerHomeSnapshot : null;
+        if (snapshot?.ledgers?.length) {
+          setLedgers(snapshot.ledgers);
+          setLastSyncedAt(snapshot.syncedAt);
+          setUsingOfflineSnapshot(true);
+          setLedgerHome(true);
+          setHomePage("ledgers");
+          showToast("目前使用最近一次同步的帳本資料；恢復網路後可下拉重新整理。");
+        }
+      } catch {
+        // 快照不可用時維持原本錯誤畫面，避免覆蓋真實載入錯誤。
+      }
       if (
         String(message).includes("UNAUTHORIZED") ||
         String(message).includes("Unauthorized")
@@ -1644,7 +1670,7 @@ function AppContent() {
               });
               setTransactions(current => current.filter(item => item.id !== transaction.id));
               setCalendarTransactions(current => current.filter(item => item.id !== transaction.id));
-              void refresh();
+              void reloadLedger(activeLedger!.id).catch(() => undefined);
               showToast("收支已刪除。");
             } catch (removeError) {
               setError(removeError instanceof Error ? removeError.message : "移除收支失敗。");
@@ -1754,8 +1780,8 @@ function AppContent() {
     setRecurringModal(false);
     setEditingRecurring(null);
     setSettingsModal(null);
-    await refresh();
     showToast(successMessage);
+    if (activeLedger) void reloadLedger(activeLedger.id).catch(() => undefined);
   };
 
   if (!ready) return <AppBootstrapSkeleton />;
@@ -1784,7 +1810,7 @@ function AppContent() {
         />
         <AccountDeletionModal visible={accountDeletionVisible} busy={busy} error={error} onClose={() => setAccountDeletionVisible(false)} onSubmit={deleteAccount} />
         {homePage === "profile" ? (
-          <PersonalSettingsPage user={user} error={error} notificationPreferences={notificationPreferences} onSaveNotificationPreferences={saveNotificationPreferences} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
+          <PersonalSettingsPage user={user} error={error} notificationPreferences={notificationPreferences} onSaveNotificationPreferences={saveNotificationPreferences} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} updateCheckError={updateCheckError} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
         ) : (
           <EmptyLedger
             error={error}
@@ -1830,11 +1856,17 @@ function AppContent() {
         />
         <AccountDeletionModal visible={accountDeletionVisible} busy={busy} error={error} onClose={() => setAccountDeletionVisible(false)} onSubmit={deleteAccount} />
         {homePage === "profile" ? (
-          <PersonalSettingsPage user={user} error={error} notificationPreferences={notificationPreferences} onSaveNotificationPreferences={saveNotificationPreferences} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
+          <PersonalSettingsPage user={user} error={error} notificationPreferences={notificationPreferences} onSaveNotificationPreferences={saveNotificationPreferences} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} updateCheckError={updateCheckError} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
         ) : (
           <LedgerHome
             ledgers={ledgers}
             onSelect={selectLedger}
+            refreshing={busy}
+            lastSyncedAt={lastSyncedAt}
+            usingOfflineSnapshot={usingOfflineSnapshot}
+            latestRelease={latestRelease}
+            onRefresh={() => void loadWorkspace()}
+            onOpenUpdates={() => setHomePage("profile")}
             onCreate={() => {
               setError("");
               setLedgerModal("create");
@@ -2464,11 +2496,23 @@ function LedgerSelector({
 function LedgerHome({
   ledgers,
   onSelect,
+  refreshing,
+  lastSyncedAt,
+  usingOfflineSnapshot,
+  latestRelease,
+  onRefresh,
+  onOpenUpdates,
   onCreate,
   onJoin,
 }: {
   ledgers: Ledger[];
   onSelect: (ledger: Ledger) => void;
+  refreshing: boolean;
+  lastSyncedAt: number | null;
+  usingOfflineSnapshot: boolean;
+  latestRelease: AppUpdateRelease | null;
+  onRefresh: () => void;
+  onOpenUpdates: () => void;
   onCreate: () => void;
   onJoin: () => void;
 }) {
@@ -2480,12 +2524,25 @@ function LedgerHome({
     return ledgers.filter(ledger => ledger.name.toLocaleLowerCase().includes(query));
   }, [ledgerQuery, ledgers]);
   return (
-    <ScrollView contentContainerStyle={styles.ledgerHomeContent}>
+    <ScrollView contentContainerStyle={styles.ledgerHomeContent} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={palette.rose} colors={[palette.rose]} />}>
       <SectionIntro
         eyebrow="MY LEDGERS"
         title="選擇共同帳本"
         body="先選擇要進入的空間，也可以建立新的帳本或使用邀請碼加入。"
       />
+      <View style={styles.updateEmptyPanel}>
+        <MaterialCommunityIcons name={usingOfflineSnapshot ? "cloud-alert-outline" : "cloud-check-outline"} size={18} color={usingOfflineSnapshot ? palette.orange : palette.sage} />
+        <View style={styles.preferenceCopy}>
+          <Text style={styles.updateDetailTitle}>{usingOfflineSnapshot ? "離線快照" : "資料同步完成"}</Text>
+          <Text style={styles.updateEmptyText}>{lastSyncedAt ? `最後同步：${new Date(lastSyncedAt).toLocaleString("zh-TW", { hour: "2-digit", minute: "2-digit" })}，下拉即可重新整理。` : "下拉即可重新整理帳本資料。"}</Text>
+        </View>
+      </View>
+      {latestRelease && isVersionNewer(latestRelease.version, APP_VERSION) && (
+        <Pressable onPress={onOpenUpdates} style={({ pressed }) => [styles.updatePrimaryButton, pressed && styles.pressed]}>
+          <MaterialCommunityIcons name="arrow-up-bold-circle-outline" size={18} color="#FFFFFF" />
+          <Text style={styles.updatePrimaryButtonText}>新版 v{latestRelease.version} 已可更新</Text>
+        </Pressable>
+      )}
       <TextInput
         value={ledgerQuery}
         onChangeText={setLedgerQuery}
@@ -3409,6 +3466,7 @@ function PersonalSettingsPage({
   onRestartUpdate,
   appUpdateStatus,
   appUpdateProgress,
+  updateCheckError,
   onLogout,
   onDeleteAccount,
   onBack,
@@ -3425,6 +3483,7 @@ function PersonalSettingsPage({
   onRestartUpdate: () => void;
   appUpdateStatus: AppUpdateStatus;
   appUpdateProgress: number;
+  updateCheckError: string;
   onLogout: () => void;
   onDeleteAccount: () => void;
   onBack: () => void;
@@ -3584,6 +3643,13 @@ style={styles.input}
 		          <MaterialCommunityIcons name="information-outline" size={18} color={palette.muted} />
 		          <Text style={styles.updateEmptyText}>點選下方按鈕即可取得官方 GitHub Release 的版本內容與安全性摘要。</Text>
 		        </View>}
+		        {!!updateCheckError && <View style={styles.updateEmptyPanel}>
+		          <MaterialCommunityIcons name="wifi-alert" size={18} color={palette.orange} />
+		          <View style={styles.preferenceCopy}>
+		            <Text style={styles.updateDetailTitle}>更新檢查暫時失敗</Text>
+		            <Text style={styles.updateEmptyText}>{updateCheckError}</Text>
+		          </View>
+		        </View>}
 		        <View style={styles.updatePreferenceRow}>
 		          <View style={styles.preferenceCopy}>
 		            <Text style={styles.rowTitle}>僅 Wi‑Fi 自動下載</Text>
@@ -3605,6 +3671,7 @@ style={styles.input}
 		          {appUpdateStatus === "idle" ? <MaterialCommunityIcons name="refresh" size={18} color="#FFFFFF" /> : <ActivityIndicator size="small" color="#FFFFFF" />}
 		          <Text style={styles.updatePrimaryButtonText}>{appUpdateStatus === "checking" ? "正在檢查更新…" : appUpdateStatus === "downloading" ? `正在下載更新 ${appUpdateProgress}%` : appUpdateStatus === "installing" ? "正在開啟安裝確認…" : hasNewRelease ? "查看並下載更新" : "檢查版本與更新內容"}</Text>
 		        </Pressable>
+		        <Text style={styles.updateEmptyText}>下載完成後，App 會自動開啟 Android 系統安裝畫面；首次安裝請依系統提示允許此來源安裝更新。</Text>
 	        {savedUpdateResume && latestRelease && <Pressable disabled={appUpdateStatus !== "idle"} onPress={onRestartUpdate} style={({ pressed }) => [styles.updateRestartButton, pressed && styles.pressed, appUpdateStatus !== "idle" && styles.disabled]}>
 	          <Text style={styles.updateRestartButtonText}>捨棄已下載部分，重新開始</Text>
 	        </Pressable>}

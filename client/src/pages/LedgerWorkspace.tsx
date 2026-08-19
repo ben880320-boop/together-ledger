@@ -8,14 +8,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
-import { BarChart3, Bell, CalendarDays, Check, Clipboard, Download, Heart, LayoutDashboard, ListChecks, LoaderCircle, LogOut, Pencil, Plus, Receipt, Settings2, Sparkles, Trash2, Users, WalletCards } from "lucide-react";
+import { BarChart3, Bell, CalendarDays, Check, Clipboard, Download, Heart, LayoutDashboard, ListChecks, LoaderCircle, LogOut, Pencil, Plus, Receipt, Settings2, Sparkles, Trash2, Users, WalletCards, WifiOff } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
 type Page = "overview" | "records" | "calendar" | "analysis" | "planning" | "settings" | "profile";
 type Sheet = "ledger" | "join" | "transaction" | "budget" | "recurring" | "travel" | "category" | "payment" | "manage" | null;
-const APP_VERSION = "1.2.8.7";
+const APP_VERSION = "1.2.8.9";
+const workspaceSnapshotKey = (ledgerId: number) => `together-ledger-web-workspace-v1:${ledgerId}`;
 const money = (value: unknown) => `NT$ ${Math.round(Number(value) || 0).toLocaleString("zh-TW")}`;
 const currentMonth = () => new Date().toISOString().slice(0, 7);
 const day = (value: unknown) => new Date(value as string).toLocaleDateString("zh-TW", { month: "numeric", day: "numeric", weekday: "short" });
@@ -32,21 +33,33 @@ export default function LedgerWorkspace() {
   const [month, setMonth] = useState(currentMonth);
   const [editing, setEditing] = useState<any>(null);
   const [confirm, setConfirm] = useState<{ title: string; text: string; run: () => void } | null>(null);
+  const [cachedWorkspace, setCachedWorkspace] = useState<any>(null);
+  const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
+  const [syncError, setSyncError] = useState("");
+  const [online, setOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
   const ledgerList = trpc.ledger.list.useQuery(undefined, { enabled: Boolean(user), refetchOnWindowFocus: false });
   const workspaceQuery = trpc.ledger.workspace.useQuery({ ledgerId: ledgerId ?? 0, month }, { enabled: Boolean(ledgerId), refetchOnWindowFocus: false });
   const ledgers = (ledgerList.data ?? []) as any[];
-  const workspace = workspaceQuery.data as any;
+  const workspace = (workspaceQuery.data ?? cachedWorkspace) as any;
   const ledger = ledgers.find(item => item.ledger.id === ledgerId)?.ledger as any;
   const isWorkspaceRefreshing = Boolean(workspace) && workspaceQuery.isFetching && !workspaceQuery.isLoading;
 
   const refresh = async () => {
-    await Promise.all([
-      utils.ledger.list.invalidate(), utils.ledger.workspace.invalidate(), utils.ledger.transactions.invalidate(),
-      utils.ledger.calendar.invalidate(), utils.ledger.analytics.invalidate(), utils.ledger.budgets.invalidate(),
-      utils.ledger.recurring.invalidate(), utils.ledger.travelPlans.invalidate(), utils.notifications.preferences.invalidate(),
-    ]);
+    setSyncError("");
+    try {
+      await Promise.all([
+        ledgerList.refetch(),
+        ledgerId ? workspaceQuery.refetch() : Promise.resolve(),
+      ]);
+    } catch (error) {
+      setSyncError(!online ? "目前離線，正在顯示最近一次同步的帳本資料。" : "資料同步暫時失敗，可在網路恢復後重試。");
+      throw error;
+    }
   };
-  const done = (message: string) => async () => { await refresh(); setSheet(null); setEditing(null); toast.success(message); };
+  const done = (message: string) => async () => {
+    setSheet(null); setEditing(null); toast.success(message);
+    void refresh().catch(() => undefined);
+  };
 
   const createLedger = trpc.ledger.create.useMutation({ onSuccess: async (item: any) => { await refresh(); setLedgerId(item.id); setSheet(null); toast.success("已建立空白帳本。"); }, onError: fail });
   const joinLedger = trpc.ledger.join.useMutation({ onSuccess: async (item: any) => { await refresh(); setLedgerId(item.id); setSheet(null); toast.success("已加入共同帳本。"); }, onError: fail });
@@ -83,6 +96,33 @@ export default function LedgerWorkspace() {
     if (!first) setLedgerId(null);
   }, [ledgerId, ledgers]);
 
+  useEffect(() => {
+    const markOnline = () => setOnline(true);
+    const markOffline = () => setOnline(false);
+    window.addEventListener("online", markOnline);
+    window.addEventListener("offline", markOffline);
+    return () => { window.removeEventListener("online", markOnline); window.removeEventListener("offline", markOffline); };
+  }, []);
+
+  useEffect(() => {
+    if (!ledgerId) { setCachedWorkspace(null); setLastSyncedAt(null); return; }
+    const key = workspaceSnapshotKey(ledgerId);
+    if (workspaceQuery.data) {
+      const savedAt = Date.now();
+      setCachedWorkspace(workspaceQuery.data);
+      setLastSyncedAt(savedAt);
+      try { localStorage.setItem(key, JSON.stringify({ savedAt, workspace: workspaceQuery.data })); } catch {}
+      return;
+    }
+    try {
+      const saved = localStorage.getItem(key);
+      if (saved) {
+        const snapshot = JSON.parse(saved);
+        if (snapshot?.workspace) { setCachedWorkspace(snapshot.workspace); setLastSyncedAt(Number(snapshot.savedAt) || null); }
+      }
+    } catch {}
+  }, [ledgerId, workspaceQuery.data, workspaceQuery.dataUpdatedAt]);
+
   if (loading) return <AuthLoadingSkeleton />;
   if (!user) return <AccessGate onLogin={() => navigate("/login")} />;
 
@@ -103,8 +143,9 @@ export default function LedgerWorkspace() {
           <div className="mt-auto rounded-2xl border border-[#EFDCD6] bg-[#FEF7F4] p-4"><div className="flex items-center gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#F4DDE0] text-[#A95F70]"><Users size={16} /></span><span className="min-w-0"><b className="block truncate text-sm">{user.name || "共帳使用者"}</b><small className="block truncate text-[11px] text-[#A18B83]">{user.email}</small></span></div><Button type="button" variant="ghost" onClick={() => void logout()} className="mt-3 h-8 w-full justify-start px-1 text-xs"><LogOut size={14} className="mr-2" />登出</Button></div>
         </aside>
         <main className="ledger-main min-w-0 flex-1 px-4 py-5 sm:px-7 sm:py-7">
-          <header className="flex flex-col gap-4 border-b border-[#E9DED8] pb-5 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-xs font-semibold tracking-[0.15em] text-[#B37882]">WEB LEDGER · SHARED DATA</p><div className="mt-1 flex items-center gap-2"><h1 className="text-2xl font-bold sm:text-3xl">{ledger?.name || "我的共同帳本"}</h1>{isWorkspaceRefreshing && <span className="inline-flex items-center gap-1 rounded-full bg-[#F9EEE9] px-2 py-1 text-[11px] font-semibold text-[#9A6870]" role="status"><LoaderCircle size={12} className="animate-spin" />同步中</span>}</div></div><div className="flex flex-wrap gap-2"><Button type="button" variant="outline" onClick={() => setSheet("join")} className="rounded-xl border-[#DDC7C0] bg-white text-[#875A61]"><Users size={16} className="mr-2" />加入帳本</Button>{ledger && <Button type="button" onClick={() => openTransaction()} className="rounded-xl bg-[#B56C78] text-white hover:bg-[#A35B68]"><Plus size={16} className="mr-2" />新增收支</Button>}</div></header>
-          {!ledgerList.isLoading && !ledger ? <EmptyLedger onCreate={() => setSheet("ledger")} onJoin={() => setSheet("join")} /> : workspaceQuery.isLoading ? <Loading /> : workspace ? <section key={`${ledgerId}-${active}`} className="ledger-content-enter py-6">
+          <header className="flex flex-col gap-4 border-b border-[#E9DED8] pb-5 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-xs font-semibold tracking-[0.15em] text-[#B37882]">WEB LEDGER · SHARED DATA</p><div className="mt-1 flex flex-wrap items-center gap-2"><h1 className="text-2xl font-bold sm:text-3xl">{ledger?.name || "我的共同帳本"}</h1>{isWorkspaceRefreshing && <span className="inline-flex items-center gap-1 rounded-full bg-[#F9EEE9] px-2 py-1 text-[11px] font-semibold text-[#9A6870]" role="status"><LoaderCircle size={12} className="animate-spin" />同步中</span>}</div>{ledger && <p className="mt-1 text-xs text-[#9A857D]">{lastSyncedAt ? `上次同步：${new Date(lastSyncedAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}` : "尚未完成同步"}</p>}</div><div className="flex flex-wrap gap-2"><Button type="button" variant="outline" onClick={() => void refresh().catch(() => undefined)} disabled={isWorkspaceRefreshing} className="rounded-xl border-[#DDC7C0] bg-white text-[#875A61]"><LoaderCircle size={16} className={`mr-2 ${isWorkspaceRefreshing ? "animate-spin" : ""}`} />重新整理</Button><Button type="button" variant="outline" onClick={() => setSheet("join")} className="rounded-xl border-[#DDC7C0] bg-white text-[#875A61]"><Users size={16} className="mr-2" />加入帳本</Button>{ledger && <Button type="button" onClick={() => openTransaction()} className="rounded-xl bg-[#B56C78] text-white hover:bg-[#A35B68]"><Plus size={16} className="mr-2" />新增收支</Button>}</div></header>
+          {(syncError || !online) && <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-[#ECD6CC] bg-[#FFF7F2] px-4 py-3 text-sm text-[#815D53]" role="alert"><WifiOff size={18} className="shrink-0 text-[#B56C78]" /><span className="min-w-0 flex-1">{syncError || "目前離線，顯示最近一次同步的資料。"}</span><Button type="button" size="sm" variant="outline" onClick={() => void refresh().catch(() => undefined)} className="rounded-lg border-[#DDBDB2] bg-white">重試同步</Button></div>}
+          {!ledgerList.isLoading && !ledger ? <EmptyLedger onCreate={() => setSheet("ledger")} onJoin={() => setSheet("join")} /> : workspaceQuery.isLoading && !workspace ? <Loading /> : workspace ? <section key={`${ledgerId}-${active}`} className="ledger-content-enter py-6">
             {active === "overview" && <Overview workspace={workspace} ledger={ledger} month={month} setMonth={setMonth} memberName={memberName} getCategory={category} onAdd={() => openTransaction()} onEdit={openTransaction} onDelete={(item: any) => setConfirm({ title: "刪除這筆收支？", text: "刪除後會同步移除所有成員看到的資料。", run: () => deleteTransaction.mutate({ ledgerId: ledgerId!, transactionId: item.id } as any) })} onSettle={() => setConfirm({ title: "確認本月結算？", text: "此操作會建立結算紀錄，請確認款項已交付。", run: () => settle.mutate({ ledgerId: ledgerId!, month } as any) })} />}
             {active === "records" && <Records workspace={workspace} getCategory={category} getPayment={payment} memberName={memberName} onEdit={openTransaction} onDelete={(item: any) => setConfirm({ title: "刪除這筆收支？", text: "刪除後不可復原。", run: () => deleteTransaction.mutate({ ledgerId: ledgerId!, transactionId: item.id } as any) })} />}
             {active === "calendar" && <Calendar workspace={workspace} getCategory={category} memberName={memberName} onEdit={openTransaction} />}
