@@ -20,7 +20,13 @@ function formatTaipeiTimestamp(timestamp?: number) {
   }).format(new Date(timestamp))}（台北時間）`;
 }
 
-async function reloadLatestVersion() {
+export function buildLatestVersionUrl(currentHref: string, refreshAt: number) {
+  const url = new URL(currentHref);
+  url.searchParams.set("refresh", refreshAt.toString());
+  return url.toString();
+}
+
+export async function reloadLatestVersion() {
   try {
     if ("caches" in window) {
       const cacheNames = await window.caches.keys();
@@ -31,9 +37,10 @@ async function reloadLatestVersion() {
     // below still causes the document to be requested again.
   }
 
-  const url = new URL(window.location.href);
-  url.searchParams.set("refresh", Date.now().toString());
-  window.location.replace(url.toString());
+  const latestUrl = buildLatestVersionUrl(window.location.href, Date.now());
+  // assign() retains the current browser history entry and works reliably in
+  // embedded/iOS browsers, where replace() can occasionally resolve to blank.
+  window.location.assign(latestUrl);
 }
 
 export function ReleaseFooter({ compact = false }: { compact?: boolean }) {
