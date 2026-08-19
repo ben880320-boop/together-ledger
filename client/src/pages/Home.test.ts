@@ -10,7 +10,7 @@ describe("Together Ledger 網頁產品入口", () => {
     expect(homePage).toContain("更新歷程");
     expect(homePage).toContain("iOS");
     expect(homePage).toContain("Android");
-    expect(homePage).toContain("GitHub");
+    expect(homePage).toContain("github.com/ben880320-boop/together-ledger/releases/latest");
     expect(homePage).toContain("ReleaseFooter");
     expect(homePage).toContain('setLocation("/login")');
   });

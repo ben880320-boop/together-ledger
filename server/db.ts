@@ -745,12 +745,16 @@ export async function logActivity(input: {
 export async function getActivityLogs(ledgerId: number, limit = 100) {
   const db = await getDb();
   if (!db) return [];
-  return db.select({ log: activityLogs, user: users })
+  const rows = await db.select({ log: activityLogs, user: users })
     .from(activityLogs)
     .innerJoin(users, eq(activityLogs.userId, users.id))
     .where(eq(activityLogs.ledgerId, ledgerId))
     .orderBy(desc(activityLogs.createdAt))
     .limit(limit);
+  // Retain the Android App's { log, user } entry while exposing the log
+  // fields directly for the web client.  Older web builds expected a flat
+  // object and otherwise attempted to format an undefined createdAt value.
+  return rows.map(({ log, user }) => ({ ...log, log, user }));
 }
 
 export async function getCalendarTransactions(ledgerId: number, start: Date, end: Date) {

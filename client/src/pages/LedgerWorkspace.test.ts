@@ -13,7 +13,7 @@ describe("Together Ledger 真實網頁帳本入口", () => {
     expect(workspace).toContain("trpc.ledger.create.useMutation");
     expect(workspace).toContain("trpc.ledger.join.useMutation");
     expect(workspace).toContain("trpc.ledger.createTransaction.useMutation");
-    expect(workspace).toContain("收支已加入帳本");
+    expect(workspace).toContain("收支已新增，Android App 會同步顯示。");
   });
 
   it("讓網頁版帳密登入沿用 Android App 的電子信箱帳號資料", () => {
@@ -49,11 +49,23 @@ describe("Together Ledger 真實網頁帳本入口", () => {
 
   it("提供可辨識的發布資訊與重新取得最新版本操作", () => {
     expect(footer).toContain('WEB_RELEASE_VERSION = "1.2.8.9"');
-    expect(footer).toContain("DEFAULT_WEB_RELEASED_AT");
-    expect(footer).toContain("/__manus__/version.json");
-    expect(footer).toContain('cache: "no-store"');
+    expect(footer).toContain("WEB_BUILD_TIMESTAMP");
+    expect(footer).toContain("formatTaipeiTimestamp");
     expect(footer).toContain("重新載入最新版本");
     expect(footer).toContain("window.caches");
     expect(footer).toContain("url.searchParams.set(\"refresh\"");
+  });
+
+  it("以 Android App 的首頁資訊層級呈現成員支付、近期收支與結算資訊", () => {
+    expect(workspace).toContain("雙方支付總覽");
+    expect(workspace).toContain("共同財務摘要");
+    expect(workspace).toContain("目前結算狀態");
+    expect(workspace).toContain("完整檢視");
+  });
+
+  it("對操作日誌日期與舊版圖示採用安全的跨平台呈現規則", () => {
+    expect(workspace).toContain("normalizeLedgerWorkspace");
+    expect(workspace).toContain("formatActivityTimestamp");
+    expect(workspace).not.toContain('category?.icon || "◌"');
   });
 });
