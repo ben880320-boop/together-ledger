@@ -150,7 +150,7 @@ jobs:
           }
           if retry_gh release view "$TAG_NAME" >/dev/null 2>&1; then
             echo "GitHub Release $TAG_NAME already exists."
-          elif retry_gh release create "$TAG_NAME" --title "Together Ledger $TAG_NAME" --notes "Standalone Android APK with embedded JavaScript bundle. SHA-256 is provided in together-ledger.apk.sha256."; then
+          elif retry_gh release create "$TAG_NAME" --title "Together Ledger $TAG_NAME" --notes-file mobile/RELEASE_NOTES.md; then
             echo "Created GitHub Release $TAG_NAME."
           else
             retry_gh release view "$TAG_NAME" >/dev/null

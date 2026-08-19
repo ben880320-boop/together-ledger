@@ -1,6 +1,6 @@
 {
   "name": "together-ledger-android",
-  "version": "1.2.8.7",
+  "version": "1.2.8.8",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
