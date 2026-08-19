@@ -61,6 +61,7 @@ const checks = [
   ["更新專區具備非 JSON 保護、Wi‑Fi 開關、內容／安全摘要、安全續傳與更新歷程", app.includes('autoDownloadUpdatesOnWifi') && app.includes('Network.getNetworkStateAsync') && app.includes('formatUpdateMessage') && app.includes('更新與下載') && app.includes('僅 Wi‑Fi 自動下載') && app.includes('getUpdateNotesPreview') && app.includes('getUpdateSecuritySummary') && app.includes('readSavedUpdateResume') && app.includes('download.pauseAsync') && app.includes('resumeAndroidUpdate') && app.includes('GITHUB_RELEASE_HISTORY_API') && app.includes('更新歷程') && app.includes('取得更新歷程') && app.includes('安全性摘要') && readFileSync(resolve(projectRoot, "lib/api.ts"), "utf8").includes('伺服器暫時回傳了非預期內容')],
   ["個人設定提供跟隨系統、淺色、深色模式及不溢出的更新狀態", app.includes('colorMode') && app.includes('跟隨系統') && app.includes('淺色模式') && app.includes('深色模式') && app.includes('updateStatusBadge') && app.includes('flexShrink: 1')],
   ["固定收支僅採用可用的分類與支付方式", app.includes('const availablePayments = paymentMethods.filter(item => item.isActive !== 0)') && app.includes('請先在帳本設定新增或恢復一個可用的支付方式')],
+  ["登入與帳本載入提供低負載骨架與安全工作階段解包", app.includes('function AppBootstrapSkeleton(') && app.includes('function LedgerContentSkeleton(') && app.includes('function ContentTransition(') && app.includes('preferences.reduceMotion') && app.includes('const nextUser = authState?.user ?? null') && app.includes('正在安全登入…')],
   ["Android 交付版本為 1.2.8.7", appConfig.includes('"version": "1.2.8.7"') && appConfig.includes('"versionCode": 17')],
 ];
 

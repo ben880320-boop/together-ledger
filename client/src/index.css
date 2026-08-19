@@ -191,3 +191,16 @@ button { cursor: pointer; }
 
 main > div { animation: soft-rise 360ms cubic-bezier(0.23, 1, 0.32, 1); }
 @media (prefers-reduced-motion: reduce) { main > div { animation: none; } }
+
+.ledger-content-enter {
+  animation: ledger-content-enter 220ms cubic-bezier(0.23, 1, 0.32, 1) both;
+}
+
+@keyframes ledger-content-enter {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ledger-content-enter { animation: none; }
+}

@@ -925,6 +925,7 @@ function AppContent() {
   const [ledgerHome, setLedgerHome] = useState(false);
   const [homePage, setHomePage] = useState<"ledgers" | "profile">("ledgers");
   const [busy, setBusy] = useState(false);
+  const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [error, setError] = useState("");
   const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
@@ -1118,7 +1119,8 @@ function AppContent() {
   const loadWorkspace = useCallback(async () => {
     setBusy(true);
     try {
-      const nextUser = await api.auth.me.query();
+      const authState = await api.auth.me.query();
+      const nextUser = authState?.user ?? null;
       if (!nextUser) {
         await clearSessionToken();
         setUser(null);
@@ -1218,6 +1220,7 @@ function AppContent() {
     setLedgerHome(false);
     setActiveLedger(ledger);
     setBusy(true);
+    setWorkspaceLoading(true);
     try {
       await reloadLedger(ledger.id);
     } catch (selectionError) {
@@ -1228,6 +1231,7 @@ function AppContent() {
       );
     } finally {
       if (selectionId === ledgerSelectionRef.current) setBusy(false);
+      if (selectionId === ledgerSelectionRef.current) setWorkspaceLoading(false);
     }
   };
 
@@ -1235,6 +1239,7 @@ function AppContent() {
     ledgerRequestRef.current += 1;
     ledgerSelectionRef.current += 1;
     setActiveLedger(null);
+    setWorkspaceLoading(false);
     setMembers([]);
     setCategories([]);
     setPaymentMethods([]);
@@ -1753,13 +1758,7 @@ function AppContent() {
     showToast(successMessage);
   };
 
-  if (!ready)
-    return (
-      <View style={styles.loadingScreen}>
-        <ActivityIndicator color={colors.rose} />
-        <Text style={styles.loadingText}>正在準備共帳…</Text>
-      </View>
-    );
+  if (!ready) return <AppBootstrapSkeleton />;
   if (!user)
     return <LoginScreen error={error} busy={busy} onLogin={handleLogin} />;
     const homeHeaderAction = (
@@ -2001,7 +2000,7 @@ function AppContent() {
           onSelect={selectLedger}
         />
         {!!error && <Text style={styles.globalError}>{error}</Text>}
-        {content}
+        {workspaceLoading ? <LedgerContentSkeleton /> : <ContentTransition transitionKey={`${activeLedger!.id}-${activeAction}`}>{content}</ContentTransition>}
       </ScrollView>
       <QuickNav active={activeAction} onSelect={setActiveAction} />
       <TransactionModal
@@ -2234,6 +2233,58 @@ function SuccessToast({
   );
 }
 
+function ContentTransition({ children, transitionKey }: { children: ReactNode; transitionKey: string }) {
+  const { preferences } = useAppearance();
+  const opacity = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    opacity.setValue(preferences.reduceMotion ? 1 : 0);
+    Animated.timing(opacity, {
+      toValue: 1,
+      duration: preferences.reduceMotion ? 0 : 180,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [opacity, preferences.reduceMotion, transitionKey]);
+  return <Animated.View style={{ opacity }}>{children}</Animated.View>;
+}
+
+function AppBootstrapSkeleton() {
+  const { palette } = useAppearance();
+  return (
+    <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "bottom"]}>
+      <ThemeAtmosphere />
+      <View style={styles.bootstrapSkeleton} accessibilityRole="progressbar" accessibilityLabel="正在安全準備共帳">
+        <View style={[styles.skeletonMark, { backgroundColor: palette.roseSoft }]} />
+        <View style={[styles.skeletonLine, styles.skeletonTitle, { backgroundColor: palette.roseSoft }]} />
+        <View style={[styles.skeletonLine, styles.skeletonSubtitle, { backgroundColor: palette.roseSoft }]} />
+        <View style={[styles.skeletonCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+          <View style={[styles.skeletonLine, styles.skeletonBody, { backgroundColor: palette.roseSoft }]} />
+          <View style={[styles.skeletonLine, styles.skeletonBodyShort, { backgroundColor: palette.roseSoft }]} />
+          <View style={[styles.skeletonField, { backgroundColor: palette.roseSoft }]} />
+          <View style={[styles.skeletonField, { backgroundColor: palette.roseSoft }]} />
+        </View>
+        <Text style={[styles.loadingText, { color: palette.muted }]}>正在安全準備共帳…</Text>
+      </View>
+    </SafeAreaView>
+  );
+}
+
+function LedgerContentSkeleton() {
+  const { palette } = useAppearance();
+  return (
+    <View style={styles.ledgerContentSkeleton} accessibilityRole="progressbar" accessibilityLabel="正在同步帳本資料">
+      <View style={[styles.skeletonHero, { backgroundColor: palette.roseSoft }]} />
+      <View style={styles.skeletonMetricRow}>
+        {[0, 1, 2].map(index => <View key={index} style={[styles.skeletonMetric, { backgroundColor: palette.surface, borderColor: palette.border }]} />)}
+      </View>
+      <View style={[styles.skeletonPanel, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+        {[0, 1, 2, 3].map(index => <View key={index} style={[styles.skeletonRow, { borderBottomColor: palette.border }]}><View style={[styles.skeletonDot, { backgroundColor: palette.roseSoft }]} /><View style={[styles.skeletonLine, styles.skeletonRowLine, { backgroundColor: palette.roseSoft }]} /></View>)}
+      </View>
+      <Text style={[styles.ledgerLoadingText, { color: palette.muted }]}>正在同步最新帳本資料…</Text>
+    </View>
+  );
+}
+
 function LoginScreen({
   error,
   busy,
@@ -2319,9 +2370,10 @@ function LoginScreen({
               onPress={submit}
               style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed, busy && styles.disabled]}
             >
-              <Text style={styles.primaryButtonText}>{busy ? "處理中…" : isSignUp ? "建立帳號" : "登入"}</Text>
+              <Text style={styles.primaryButtonText}>{busy ? "正在安全登入…" : isSignUp ? "建立帳號" : "登入"}</Text>
               {busy ? <ActivityIndicator color="#FFFFFF" /> : <MaterialCommunityIcons name="arrow-right" size={19} color="#FFFFFF" />}
             </Pressable>
+            {busy && <Text style={[styles.loginProgressText, { color: palette.muted }]} accessibilityLiveRegion="polite">登入完成後正在同步你的共同帳本，請稍候。</Text>}
             <Pressable
               disabled={busy}
               onPress={() => setMode(current => current === "signIn" ? "signUp" : "signIn")}
@@ -5993,6 +6045,29 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     backgroundColor: palette.background,
   },
   loadingText: { marginTop: 12, color: palette.muted, fontSize: 13 },
+  bootstrapSkeleton: {
+    flex: 1,
+    justifyContent: "center",
+    paddingHorizontal: 28,
+  },
+  skeletonMark: { width: 56, height: 56, borderRadius: 20 },
+  skeletonLine: { height: 12, borderRadius: 8 },
+  skeletonTitle: { width: "74%", height: 28, marginTop: 24 },
+  skeletonSubtitle: { width: "48%", marginTop: 12 },
+  skeletonCard: { marginTop: 34, padding: 20, borderRadius: 22, borderWidth: 1 },
+  skeletonBody: { width: "86%", marginBottom: 10 },
+  skeletonBodyShort: { width: "62%", marginBottom: 22 },
+  skeletonField: { height: 48, borderRadius: 14, marginTop: 12 },
+  ledgerContentSkeleton: { gap: 14, paddingTop: 4 },
+  skeletonHero: { height: 144, borderRadius: 24 },
+  skeletonMetricRow: { flexDirection: "row", gap: 10 },
+  skeletonMetric: { flex: 1, height: 88, borderRadius: 18, borderWidth: 1 },
+  skeletonPanel: { borderRadius: 20, borderWidth: 1, overflow: "hidden" },
+  skeletonRow: { flexDirection: "row", alignItems: "center", gap: 12, padding: 15, borderBottomWidth: 1 },
+  skeletonDot: { width: 34, height: 34, borderRadius: 12 },
+  skeletonRowLine: { flex: 1, height: 13 },
+  ledgerLoadingText: { textAlign: "center", fontSize: 12, marginTop: 2 },
+  loginProgressText: { marginTop: 14, textAlign: "center", fontSize: 12, lineHeight: 18 },
   loginContent: {
     flexGrow: 1,
     paddingHorizontal: 28,

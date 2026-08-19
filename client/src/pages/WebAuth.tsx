@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { COOKIE_NAME } from "@/const";
 import { trpc } from "@/lib/trpc";
-import { Heart, KeyRound, Mail, UserRound } from "lucide-react";
+import { Heart, KeyRound, LoaderCircle, Mail, UserRound } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { useLocation } from "wouter";
 
@@ -24,12 +24,14 @@ export default function WebAuth() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [formError, setFormError] = useState("");
+  const [checkingSession, setCheckingSession] = useState(false);
 
   useEffect(() => {
     if (!loading && user) setLocation("/app");
   }, [loading, setLocation, user]);
 
   const establishSession = async (token: string) => {
+    setCheckingSession(true);
     try {
       // The server response also sets an HTTP-only Cookie. Retain this header
       // fallback only for embedded browsers that do not return that Cookie.
@@ -49,6 +51,8 @@ export default function WebAuth() {
       setLocation("/app");
     } catch {
       setFormError("登入狀態確認失敗，請稍後再試一次。");
+    } finally {
+      setCheckingSession(false);
     }
   };
 
@@ -113,7 +117,8 @@ export default function WebAuth() {
                 <div className="space-y-2"><Label htmlFor="web-auth-email">電子信箱</Label><div className="relative"><Mail className="absolute left-3 top-3 h-4 w-4 text-[#AD9289]" /><Input id="web-auth-email" value={email} onChange={event => setEmail(event.target.value)} className="h-10 border-[#E3D3CC] pl-9" type="email" autoComplete="email" required /></div></div>
                 <div className="space-y-2"><Label htmlFor="web-auth-password">密碼</Label><div className="relative"><KeyRound className="absolute left-3 top-3 h-4 w-4 text-[#AD9289]" /><Input id="web-auth-password" value={password} onChange={event => setPassword(event.target.value)} className="h-10 border-[#E3D3CC] pl-9" type="password" minLength={8} maxLength={128} autoComplete={mode === "login" ? "current-password" : "new-password"} required /></div><p className="text-xs text-[#A0877E]">密碼長度至少 8 個字元。</p></div>
                 {formError && <p role="alert" className="rounded-xl bg-[#FDF0EE] px-3 py-2.5 text-sm leading-6 text-[#A05355]">{formError}</p>}
-                <Button type="submit" disabled={pending} className="h-11 w-full rounded-xl bg-[#B56C78] font-semibold text-white shadow-[0_12px_24px_rgba(181,108,120,0.22)] hover:bg-[#A45C69]">{pending ? "正在處理…" : mode === "login" ? "登入並開啟帳本" : "註冊並建立帳本"}</Button>
+                <Button type="submit" disabled={pending} aria-busy={pending} className="h-11 w-full rounded-xl bg-[#B56C78] font-semibold text-white shadow-[0_12px_24px_rgba(181,108,120,0.22)] hover:bg-[#A45C69]">{pending && <LoaderCircle size={16} className="mr-2 animate-spin" />}{pending ? checkingSession ? "正在安全開啟帳本…" : "正在驗證帳號…" : mode === "login" ? "登入並開啟帳本" : "註冊並建立帳本"}</Button>
+                {pending && <p className="text-center text-xs text-[#9C857D]" role="status">登入完成後會同步你的共同帳本，請勿關閉此頁。</p>}
               </form>
             </div>
           </section>

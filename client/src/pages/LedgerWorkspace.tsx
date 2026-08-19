@@ -2,12 +2,13 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { ReleaseFooter } from "@/components/ReleaseFooter";
 import { WebAppearancePanel } from "@/components/WebAppearancePanel";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
-import { BarChart3, Bell, CalendarDays, Check, Clipboard, Download, Heart, LayoutDashboard, ListChecks, LogOut, Pencil, Plus, Receipt, Settings2, Sparkles, Trash2, Users, WalletCards } from "lucide-react";
+import { BarChart3, Bell, CalendarDays, Check, Clipboard, Download, Heart, LayoutDashboard, ListChecks, LoaderCircle, LogOut, Pencil, Plus, Receipt, Settings2, Sparkles, Trash2, Users, WalletCards } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -36,6 +37,7 @@ export default function LedgerWorkspace() {
   const ledgers = (ledgerList.data ?? []) as any[];
   const workspace = workspaceQuery.data as any;
   const ledger = ledgers.find(item => item.ledger.id === ledgerId)?.ledger as any;
+  const isWorkspaceRefreshing = Boolean(workspace) && workspaceQuery.isFetching && !workspaceQuery.isLoading;
 
   const refresh = async () => {
     await Promise.all([
@@ -81,7 +83,7 @@ export default function LedgerWorkspace() {
     if (!first) setLedgerId(null);
   }, [ledgerId, ledgers]);
 
-  if (loading) return <div className="flex min-h-screen items-center justify-center bg-[var(--background)] text-sm text-[var(--muted-foreground)]">正在確認登入狀態…</div>;
+  if (loading) return <AuthLoadingSkeleton />;
   if (!user) return <AccessGate onLogin={() => navigate("/login")} />;
 
   const memberName = (userId: number) => workspace?.members?.find((item: any) => item.member.userId === userId)?.user?.name || "帳本成員";
@@ -101,8 +103,8 @@ export default function LedgerWorkspace() {
           <div className="mt-auto rounded-2xl border border-[#EFDCD6] bg-[#FEF7F4] p-4"><div className="flex items-center gap-3"><span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#F4DDE0] text-[#A95F70]"><Users size={16} /></span><span className="min-w-0"><b className="block truncate text-sm">{user.name || "共帳使用者"}</b><small className="block truncate text-[11px] text-[#A18B83]">{user.email}</small></span></div><Button type="button" variant="ghost" onClick={() => void logout()} className="mt-3 h-8 w-full justify-start px-1 text-xs"><LogOut size={14} className="mr-2" />登出</Button></div>
         </aside>
         <main className="ledger-main min-w-0 flex-1 px-4 py-5 sm:px-7 sm:py-7">
-          <header className="flex flex-col gap-4 border-b border-[#E9DED8] pb-5 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-xs font-semibold tracking-[0.15em] text-[#B37882]">WEB LEDGER · SHARED DATA</p><h1 className="mt-1 text-2xl font-bold sm:text-3xl">{ledger?.name || "我的共同帳本"}</h1></div><div className="flex flex-wrap gap-2"><Button type="button" variant="outline" onClick={() => setSheet("join")} className="rounded-xl border-[#DDC7C0] bg-white text-[#875A61]"><Users size={16} className="mr-2" />加入帳本</Button>{ledger && <Button type="button" onClick={() => openTransaction()} className="rounded-xl bg-[#B56C78] text-white hover:bg-[#A35B68]"><Plus size={16} className="mr-2" />新增收支</Button>}</div></header>
-          {!ledgerList.isLoading && !ledger ? <EmptyLedger onCreate={() => setSheet("ledger")} onJoin={() => setSheet("join")} /> : workspaceQuery.isLoading ? <Loading /> : workspace ? <section className="py-6">
+          <header className="flex flex-col gap-4 border-b border-[#E9DED8] pb-5 sm:flex-row sm:items-center sm:justify-between"><div><p className="text-xs font-semibold tracking-[0.15em] text-[#B37882]">WEB LEDGER · SHARED DATA</p><div className="mt-1 flex items-center gap-2"><h1 className="text-2xl font-bold sm:text-3xl">{ledger?.name || "我的共同帳本"}</h1>{isWorkspaceRefreshing && <span className="inline-flex items-center gap-1 rounded-full bg-[#F9EEE9] px-2 py-1 text-[11px] font-semibold text-[#9A6870]" role="status"><LoaderCircle size={12} className="animate-spin" />同步中</span>}</div></div><div className="flex flex-wrap gap-2"><Button type="button" variant="outline" onClick={() => setSheet("join")} className="rounded-xl border-[#DDC7C0] bg-white text-[#875A61]"><Users size={16} className="mr-2" />加入帳本</Button>{ledger && <Button type="button" onClick={() => openTransaction()} className="rounded-xl bg-[#B56C78] text-white hover:bg-[#A35B68]"><Plus size={16} className="mr-2" />新增收支</Button>}</div></header>
+          {!ledgerList.isLoading && !ledger ? <EmptyLedger onCreate={() => setSheet("ledger")} onJoin={() => setSheet("join")} /> : workspaceQuery.isLoading ? <Loading /> : workspace ? <section key={`${ledgerId}-${active}`} className="ledger-content-enter py-6">
             {active === "overview" && <Overview workspace={workspace} ledger={ledger} month={month} setMonth={setMonth} memberName={memberName} getCategory={category} onAdd={() => openTransaction()} onEdit={openTransaction} onDelete={(item: any) => setConfirm({ title: "刪除這筆收支？", text: "刪除後會同步移除所有成員看到的資料。", run: () => deleteTransaction.mutate({ ledgerId: ledgerId!, transactionId: item.id } as any) })} onSettle={() => setConfirm({ title: "確認本月結算？", text: "此操作會建立結算紀錄，請確認款項已交付。", run: () => settle.mutate({ ledgerId: ledgerId!, month } as any) })} />}
             {active === "records" && <Records workspace={workspace} getCategory={category} getPayment={payment} memberName={memberName} onEdit={openTransaction} onDelete={(item: any) => setConfirm({ title: "刪除這筆收支？", text: "刪除後不可復原。", run: () => deleteTransaction.mutate({ ledgerId: ledgerId!, transactionId: item.id } as any) })} />}
             {active === "calendar" && <Calendar workspace={workspace} getCategory={category} memberName={memberName} onEdit={openTransaction} />}
@@ -130,7 +132,8 @@ export default function LedgerWorkspace() {
 
 function AccessGate({ onLogin }: { onLogin: () => void }) { return <div className="flex min-h-screen items-center justify-center bg-[#F7F4F1] p-5"><div className="w-full max-w-md rounded-[28px] border border-[#EBDDD7] bg-[#FFFDFC] p-8 text-center"><span className="mx-auto flex h-16 w-16 items-center justify-center rounded-3xl bg-[#F6E3E4] text-[#B06070]"><Heart size={29} fill="currentColor" /></span><h1 className="mt-5 text-2xl font-bold">先登入，再開啟共同帳本</h1><p className="mt-3 text-sm leading-7 text-[#8D7770]">請使用 Android App 相同的電子信箱與密碼。兩端使用同一個帳號、帳本及收支資料。</p><Button type="button" onClick={onLogin} className="mt-6 w-full rounded-xl bg-[#B56C78]">前往登入／註冊</Button></div></div> }
 function EmptyLedger({ onCreate, onJoin }: { onCreate: () => void; onJoin: () => void }) { return <section className="mx-auto flex max-w-2xl flex-col items-center px-4 py-20 text-center"><span className="flex h-20 w-20 items-center justify-center rounded-3xl bg-[#F6E4E4] text-[#B06070]"><Heart size={34} fill="currentColor" /></span><h2 className="mt-6 text-2xl font-bold">從一個空白帳本開始</h2><p className="mt-3 max-w-lg text-sm leading-7 text-[#8D7770]">建立帳本或使用邀請碼加入。網頁與 Android App 的帳本資料會即時共用。</p><div className="mt-7 flex gap-3"><Button type="button" onClick={onCreate} className="rounded-xl bg-[#B56C78]"><Plus size={16} className="mr-2" />建立帳本</Button><Button type="button" onClick={onJoin} variant="outline" className="rounded-xl">使用邀請碼加入</Button></div></section> }
-function Loading() { return <section className="grid gap-4 py-7 md:grid-cols-3"><div className="h-36 animate-pulse rounded-3xl bg-[#EFE4DF] md:col-span-2" /><div className="h-36 animate-pulse rounded-3xl bg-[#EFE4DF]" /><div className="h-72 animate-pulse rounded-3xl bg-[#F2EAE6] md:col-span-3" /></section> }
+function AuthLoadingSkeleton() { return <div className="flex min-h-screen items-center justify-center bg-[var(--background)] p-5"><div className="w-full max-w-5xl overflow-hidden rounded-[32px] border border-[var(--border)] bg-[var(--card)] shadow-[0_24px_70px_rgba(86,58,50,0.1)]"><div className="grid lg:grid-cols-[1.03fr_0.97fr]"><div className="min-h-72 bg-[#5B4142] p-8 sm:p-10"><Skeleton className="h-11 w-40 bg-white/15" /><Skeleton className="mt-14 h-11 w-4/5 bg-white/15" /><Skeleton className="mt-3 h-11 w-3/5 bg-white/15" /><Skeleton className="mt-8 h-4 w-full bg-white/10" /><Skeleton className="mt-3 h-4 w-4/5 bg-white/10" /></div><div className="p-8 sm:p-10"><Skeleton className="h-10 w-full" /><Skeleton className="mt-9 h-7 w-40" /><Skeleton className="mt-3 h-4 w-4/5" /><Skeleton className="mt-8 h-11 w-full" /><Skeleton className="mt-4 h-11 w-full" /><Skeleton className="mt-6 h-11 w-full bg-[#EBCFD2]" /><p className="mt-5 text-center text-xs text-[var(--muted-foreground)]" role="status">正在安全確認登入狀態…</p></div></div></div></div> }
+function Loading() { return <section className="grid gap-4 py-7 md:grid-cols-3" aria-label="正在載入帳本資料" role="status"><Skeleton className="h-36 rounded-3xl bg-[#EFE4DF] md:col-span-2" /><Skeleton className="h-36 rounded-3xl bg-[#EFE4DF]" /><Skeleton className="h-72 rounded-3xl bg-[#F2EAE6] md:col-span-3" /><span className="sr-only">正在同步共同帳本資料</span></section> }
 function EmptyText({ text }: { text: string }) { return <p className="py-8 text-center text-sm text-[#9A847B]">{text}</p> }
 function Card({ title, text, children }: { title: string; text?: string; children: React.ReactNode }) { return <section className="ledger-card rounded-3xl p-4 shadow-[0_10px_28px_rgba(88,59,51,0.04)] sm:p-6"><h2 className="text-lg font-bold">{title}</h2>{text && <p className="mt-1 text-sm text-[#937D74]">{text}</p>}<div className="mt-5">{children}</div></section> }
 function Metric({ label, value, tone }: { label: string; value: string; tone: string }) { return <article className="ledger-card rounded-3xl p-4 sm:p-5"><p className="text-sm text-[#947E75]">{label}</p><b className={`mt-2 block text-2xl ${tone}`}>{value}</b></article> }
