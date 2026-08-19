@@ -89,4 +89,29 @@ describe("Together Ledger 真實網頁帳本入口", () => {
     expect(workspace).toContain("changeMonth(-1)");
     expect(workspace).toContain("changeMonth(1)");
   });
+
+  it("依影片對照補齊帳本類型與無帳本個人設定的完整流程", () => {
+    expect(workspace).toContain("function CreateLedgerDialog");
+    expect(workspace).toContain('value: "couple"');
+    expect(workspace).toContain('value: "roommate"');
+    expect(workspace).toContain('value: "family"');
+    expect(workspace).toContain("<CreateLedgerDialog");
+    expect(workspace).toContain("<Profile workspace={null}");
+    expect(workspace).toContain("<WebAppearancePanel /></div></div></div>");
+  });
+
+  it("在完整收支、分析、規劃與設定頁保留 Android App 同等的行動重點互動", () => {
+    expect(workspace).toContain('useState<"week" | "month" | "previous">("month")');
+    expect(workspace).toContain("本週");
+    expect(workspace).toContain("本月");
+    expect(workspace).toContain("上月");
+    expect(workspace).toContain("md:hidden");
+    expect(workspace).toContain("分類圓環");
+    expect(workspace).toContain("conic-gradient");
+    expect(workspace).toContain("與上月比較");
+    expect(workspace).toContain("月總預算");
+    expect(workspace).toContain('setSheet("total-budget")');
+    expect(workspace).toContain('useState<"all" | "transaction" | "settings" | "member">("all")');
+    expect(workspace).toContain("此類型尚無操作日誌。");
+  });
 });
