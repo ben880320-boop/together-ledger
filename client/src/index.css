@@ -80,10 +80,13 @@
 }
 
 * { box-sizing: border-box; }
-html { min-width: 320px; background: #fbf7f3; }
+html { min-width: 320px; width: 100%; max-width: 100%; overflow-x: hidden; background: #fbf7f3; }
 body {
   margin: 0;
   min-width: 320px;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
   background: #fbf7f3;
   color: #3a2f2b;
   font-family: 'DM Sans', 'Noto Sans TC', system-ui, sans-serif;
@@ -147,11 +150,29 @@ button { cursor: pointer; }
 :root[data-scene="meadow"] { --background: #f4f7e8; --foreground: #39452a; --primary: #7b9b43; }
 :root[data-scene="snow"] { --background: #e9f2f8; --foreground: #29404f; --primary: #5a8ba5; }
 :root[data-scene="lavender"] { --background: #f7f1fb; --foreground: #43354e; --primary: #9c6bb3; }
-.web-ledger-shell { background-image: radial-gradient(circle at 12% 8%, color-mix(in srgb, var(--primary) 14%, transparent), transparent 27rem), radial-gradient(circle at 86% 20%, color-mix(in srgb, var(--primary) 10%, transparent), transparent 25rem); }
+:root[data-scene="ocean"], :root[data-scene="starry"] {
+  --card: #102d3d;
+  --card-foreground: #f2fbff;
+  --popover: #102d3d;
+  --popover-foreground: #f2fbff;
+  --muted: #1b4254;
+  --muted-foreground: #c6dce5;
+  --border: #3c6576;
+  --input: #3c6576;
+}
+:root[data-scene="starry"] { --card: #161d42; --popover: #161d42; --muted: #292c5c; --border: #565a91; --input: #565a91; --muted-foreground: #d1d4f4; }
+.web-ledger-shell { width: 100%; max-width: 100%; overflow-x: clip; background-image: radial-gradient(circle at 12% 8%, color-mix(in srgb, var(--primary) 14%, transparent), transparent 27rem), radial-gradient(circle at 86% 20%, color-mix(in srgb, var(--primary) 10%, transparent), transparent 25rem); }
 :root[data-scene="ocean"] .web-ledger-shell { background-image: radial-gradient(ellipse at 15% 0%, #1d6d88 0%, transparent 42%), radial-gradient(ellipse at 86% 65%, #0d405b 0%, transparent 48%), linear-gradient(160deg, #062638, #0b4f67 55%, #031a2b); }
 :root[data-scene="starry"] .web-ledger-shell { background-image: radial-gradient(circle at 12% 18%, #fff 0 1px, transparent 2px), radial-gradient(circle at 80% 10%, #c9ccff 0 1px, transparent 2px), radial-gradient(circle at 62% 48%, #fff 0 1px, transparent 2px), radial-gradient(ellipse at 50% 100%, #242553 0%, transparent 55%), linear-gradient(145deg, #060a1d, #121a3b); background-size: 97px 91px, 131px 109px, 159px 143px, auto, auto; }
 :root[data-scene="forest"] .web-ledger-shell { background-image: radial-gradient(ellipse at 12% 0%, #bfdab9 0%, transparent 45%), radial-gradient(ellipse at 85% 90%, #9fc8ad 0%, transparent 42%), linear-gradient(155deg, #f1f7f0, #dfeee1); }
 :root[data-scene="cherry"] .web-ledger-shell { background-image: radial-gradient(circle at 10% 9%, #f4b7cc 0 2px, transparent 3px), radial-gradient(circle at 78% 18%, #f7c4d7 0 2px, transparent 3px), radial-gradient(ellipse at 50% 0%, #ffe1ec, transparent 58%), linear-gradient(145deg, #fff3f7, #fceaf1); background-size: 79px 101px, 113px 127px, auto, auto; }
+
+@media (max-width: 639px) {
+  #root, .web-ledger-shell { width: 100%; max-width: 100%; overflow-x: clip; }
+  .web-ledger-shell main { width: 100%; max-width: 100%; padding: 1rem 0.875rem 5.75rem; }
+  .web-ledger-shell header > div:last-child { width: 100%; }
+  .web-ledger-shell header > div:last-child > button { flex: 1 1 0; justify-content: center; }
+}
 
 @keyframes soft-rise {
   from { opacity: 0; transform: translateY(8px); }

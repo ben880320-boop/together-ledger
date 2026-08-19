@@ -27,6 +27,16 @@ describe("Together Ledger 真實網頁帳本入口", () => {
     expect(workspace).toContain('aria-label="帳本行動版完整功能導覽"');
     expect(workspace).toContain("navigation.map(([key, label, Icon])");
     expect(workspace).not.toContain("navigation.slice(0, 4)");
+    expect(workspace).toContain("grid grid-cols-4");
+    expect(workspace).not.toContain("overflow-x-auto rounded-2xl border border-[#E9DED8] bg-white p-2 lg:hidden");
+  });
+
+  it("在個人設定保留單一外觀模式入口，並提供登出與 Android App 下載操作", () => {
+    expect(workspace).toContain("<WebAppearancePanel />");
+    expect(workspace).not.toContain('Card title="外觀模式"');
+    expect(workspace).toContain("確定要登出此裝置嗎？");
+    expect(workspace).toContain("下載 Together Ledger App");
+    expect(workspace).toContain("releases/latest");
   });
 
   it("提供固定收支的新增、編輯、刪除與到期同步操作", () => {
