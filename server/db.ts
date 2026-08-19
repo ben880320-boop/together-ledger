@@ -148,7 +148,7 @@ export async function upsertPushDevice(input: { userId: number; expoPushToken: s
 
 export async function getActivePushTokens(userId: number) {
   const db = requireDb();
-  return db.select({ token: pushDevices.expoPushToken }).from(pushDevices).where(and(eq(pushDevices.userId, userId), eq(pushDevices.isActive, 1)));
+  return db.select({ token: pushDevices.expoPushToken, platform: pushDevices.platform }).from(pushDevices).where(and(eq(pushDevices.userId, userId), eq(pushDevices.isActive, 1)));
 }
 
 export async function disablePushDevice(expoPushToken: string) {
@@ -286,6 +286,7 @@ export async function getLedgerAccess(ledgerId: number, userId: number) {
 export async function createLedger(input: {
   name: string;
   type: "couple" | "roommate" | "family" | "travel" | "custom";
+  icon?: string | null;
   createdBy: number;
   inviteCode: string;
 }) {

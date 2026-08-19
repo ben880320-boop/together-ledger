@@ -37,7 +37,15 @@ export async function dispatchExpoPush(userId: number, title: string, body: stri
   const devices = await getActivePushTokens(userId);
   if (devices.length === 0) return { delivered: 0 };
 
-  const messages = devices.map(device => ({ to: device.token, sound: "default", title, body, data }));
+  const messages = devices.map(device => ({
+    to: device.token,
+    sound: "default",
+    priority: "high" as const,
+    title,
+    body,
+    data,
+    ...(device.platform === "android" ? { channelId: "ledger-updates" } : {}),
+  }));
   try {
     const response = await fetch(expoPushEndpoint, {
       method: "POST",

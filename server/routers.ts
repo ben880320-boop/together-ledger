@@ -333,7 +333,7 @@ export const appRouter = router({
         };
       }),
     create: protectedProcedure
-      .input(z.object({ name: z.string().trim().min(1).max(128), type: ledgerType.default("couple") }))
+      .input(z.object({ name: z.string().trim().min(1).max(128), type: ledgerType.default("couple"), icon: z.string().trim().max(16).nullable().optional() }))
       .mutation(({ ctx, input }) => createLedger({ ...input, createdBy: ctx.user.id, inviteCode: generateInviteCode() })),
     join: protectedProcedure
       .input(z.object({ inviteCode: z.string().trim().min(4).max(16) }))

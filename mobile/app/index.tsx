@@ -104,8 +104,8 @@ type NotificationPreferences = {
 };
 
 const notificationDefaults: NotificationPreferences = {
-  incomeEnabled: 0,
-  expenseEnabled: 0,
+  incomeEnabled: 1,
+  expenseEnabled: 1,
   minimumAmount: 0,
   monthlySettlementEnabled: 0,
   monthlyReminderDay: 28,
@@ -124,7 +124,7 @@ const appearanceDefaults: AppearancePreferences = {
   colorMode: "system",
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.2.8.9";
+const APP_VERSION = "1.2.9";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 const GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/ben880320-boop/together-ledger/releases/latest";
@@ -698,7 +698,7 @@ type ConfirmRequest = {
   options?: ConfirmOption[];
 };
 type User = { id: number; name: string | null; email: string | null };
-type Ledger = { id: number; name: string; type: string; inviteCode: string };
+type Ledger = { id: number; name: string; type: string; icon?: string | null; inviteCode: string };
 type LedgerMember = {
   member: { userId: number; role: "admin" | "member" | "viewer" };
   user: { id: number; name: string | null; email: string | null };
@@ -923,7 +923,7 @@ function AppContent() {
   const [ledgerName, setLedgerName] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [pendingInviteCode, setPendingInviteCode] = useState("");
-  const [ledgerType, setLedgerType] = useState<"couple" | "roommate" | "family">("couple");
+  const [ledgerIcon, setLedgerIcon] = useState<string | null>(null);
   const [activeAction, setActiveAction] = useState<DrawerAction>("overview");
   const [ledgerHome, setLedgerHome] = useState(false);
   const [homePage, setHomePage] = useState<"ledgers" | "profile">("ledgers");
@@ -1449,6 +1449,22 @@ function AppContent() {
       setBusy(false);
     }
   };
+  useEffect(() => {
+    const requiresPush = notificationPreferences.incomeEnabled === 1 || notificationPreferences.expenseEnabled === 1 || notificationPreferences.monthlySettlementEnabled === 1;
+    if (!user || !requiresPush) return;
+    let cancelled = false;
+    const registerPushDevice = async () => {
+      try {
+        const expoPushToken = await requestExpoPushToken();
+        if (!expoPushToken || cancelled) return;
+        await api.notifications.registerDevice.mutate({ expoPushToken, platform: Platform.OS === "ios" ? "ios" : "android" });
+      } catch {
+        // 不讓暫時性網路或系統服務問題阻塞帳本載入；下次開啟或儲存設定時會重試。
+      }
+    };
+    void registerPushDevice();
+    return () => { cancelled = true; };
+  }, [user?.id, notificationPreferences.expenseEnabled, notificationPreferences.incomeEnabled, notificationPreferences.monthlySettlementEnabled]);
   const confirmDeleteLedger = () => {
     if (!activeLedger) return;
     setConfirmRequest({
@@ -1570,7 +1586,8 @@ function AppContent() {
       if (ledgerAction === "create")
         await api.ledger.create.mutate({
           name: ledgerName.trim(),
-          type: ledgerType,
+          type: "couple",
+          ...(ledgerIcon ? { icon: ledgerIcon } : {}),
         });
       else {
         const joined = await api.ledger.join.mutate({
@@ -1581,7 +1598,7 @@ function AppContent() {
       setLedgerModal(null);
       setLedgerName("");
       setInviteCode("");
-      setLedgerType("couple");
+      setLedgerIcon(null);
       await loadWorkspace();
       showToast(ledgerAction === "create" ? "帳本已建立。" : "已加入帳本。");
     } catch (actionError) {
@@ -1828,12 +1845,12 @@ function AppContent() {
           mode={ledgerModal}
           ledgerName={ledgerName}
           inviteCode={inviteCode}
-          ledgerType={ledgerType}
+          ledgerIcon={ledgerIcon}
           error={error}
           busy={busy}
           setLedgerName={setLedgerName}
           setInviteCode={setInviteCode}
-          setLedgerType={setLedgerType}
+          setLedgerIcon={setLedgerIcon}
           onClose={() => {
             setError("");
             setLedgerModal(null);
@@ -1881,12 +1898,12 @@ function AppContent() {
           mode={ledgerModal}
           ledgerName={ledgerName}
           inviteCode={inviteCode}
-          ledgerType={ledgerType}
+          ledgerIcon={ledgerIcon}
           error={error}
           busy={busy}
           setLedgerName={setLedgerName}
           setInviteCode={setInviteCode}
-          setLedgerType={setLedgerType}
+          setLedgerIcon={setLedgerIcon}
           onClose={() => {
             setError("");
             setLedgerModal(null);
@@ -2472,11 +2489,7 @@ function LedgerSelector({
               ledger.id === activeLedgerId && styles.ledgerChipActive,
             ]}
           >
-            <MaterialCommunityIcons
-              name={ledger.type === "couple" ? "heart-outline" : "account-group-outline"}
-              size={15}
-              color={ledger.id === activeLedgerId ? palette.rose : palette.muted}
-            />
+            {ledger.icon ? <Text style={{ fontSize: 15 }}>{ledger.icon}</Text> : <MaterialCommunityIcons name={ledger.type === "couple" ? "heart-outline" : "account-group-outline"} size={15} color={ledger.id === activeLedgerId ? palette.rose : palette.muted} />}
             <Text
               numberOfLines={1}
               style={[
@@ -2562,11 +2575,7 @@ function LedgerHome({
           style={({ pressed }) => [styles.ledgerHomeCard, pressed && styles.pressed]}
         >
           <View style={styles.ledgerHomeIcon}>
-            <MaterialCommunityIcons
-              name={ledger.type === "couple" ? "heart-outline" : "account-group-outline"}
-              size={23}
-              color={palette.rose}
-            />
+            {ledger.icon ? <Text style={{ fontSize: 23 }}>{ledger.icon}</Text> : <MaterialCommunityIcons name={ledger.type === "couple" ? "heart-outline" : "account-group-outline"} size={23} color={palette.rose} />}
           </View>
           <View style={styles.memberPaymentName}>
             <Text style={styles.cardTitle}>{ledger.name}</Text>
@@ -4624,24 +4633,24 @@ function LedgerModal({
   mode,
   ledgerName,
   inviteCode,
-  ledgerType,
+  ledgerIcon,
   error,
   busy,
   setLedgerName,
   setInviteCode,
-  setLedgerType,
+  setLedgerIcon,
   onClose,
   onSubmit,
 }: {
   mode: "create" | "join" | null;
   ledgerName: string;
   inviteCode: string;
-  ledgerType: "couple" | "roommate" | "family";
+  ledgerIcon: string | null;
   error: string;
   busy: boolean;
   setLedgerName: (value: string) => void;
   setInviteCode: (value: string) => void;
-  setLedgerType: (value: "couple" | "roommate" | "family") => void;
+  setLedgerIcon: (value: string | null) => void;
   onClose: () => void;
   onSubmit: () => void;
 }) {
@@ -4678,16 +4687,11 @@ function LedgerModal({
           </Text>
           {mode === "create" ? (
             <>
-              <View style={styles.segmentRow}>
-                {(["couple", "roommate", "family"] as const).map(item => (
-                  <Pressable
-                    key={item}
-                    onPress={() => setLedgerType(item)}
-                    style={[styles.segment, ledgerType === item && styles.segmentActive]}
-                  >
-                    <Text style={[styles.segmentText, ledgerType === item && styles.segmentTextActive]}>
-                      {item === "couple" ? "情侶" : item === "roommate" ? "室友" : "家庭"}
-                    </Text>
+              <Text style={styles.fieldLabel}>帳本圖示（可選）</Text>
+              <View style={styles.iconPicker}>
+                {[null, "❤", "💖", "🩷", "💘", "🌷", "🌹", "🚗", "📱", "💳", "💵", "🛍️", "📑", "🗓️", "📒", "📕", "📖", "📝", "🏠", "✈️", "🎯", "🐾", "🍽️", "🎮", "🎬", "✨"].map(item => (
+                  <Pressable key={item ?? "none"} onPress={() => setLedgerIcon(item)} style={[styles.iconPickerItem, ledgerIcon === item && styles.iconPickerItemActive]} accessibilityRole="button" accessibilityState={{ selected: ledgerIcon === item }}>
+                    <Text style={styles.iconPickerText}>{item ?? "無"}</Text>
                   </Pressable>
                 ))}
               </View>
@@ -7338,6 +7342,10 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
   },
   emojiChoiceActive: { borderColor: palette.rose, backgroundColor: palette.roseSoft },
   emojiChoiceText: { fontSize: 20 },
+  iconPicker: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 14 },
+  iconPickerItem: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: palette.border, borderRadius: 12, backgroundColor: palette.surface },
+  iconPickerItemActive: { borderColor: palette.rose, backgroundColor: palette.roseSoft },
+  iconPickerText: { color: palette.ink, fontSize: 18, fontWeight: "600" },
   segmentRow: { flexDirection: "row", gap: 8, marginBottom: 14 },
   segment: {
     flex: 1,

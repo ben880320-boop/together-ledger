@@ -33,6 +33,7 @@ export const ledgers = mysqlTable("ledgers", {
   id: int("id").autoincrement().primaryKey(),
   name: varchar("name", { length: 128 }).notNull(),
   type: mysqlEnum("type", ["couple", "roommate", "family", "travel", "custom"]).default("couple").notNull(),
+  icon: varchar("icon", { length: 16 }),
   currency: varchar("currency", { length: 8 }).default("NT$").notNull(),
   inviteCode: varchar("inviteCode", { length: 16 }).notNull().unique(),
   createdBy: int("createdBy").notNull(),

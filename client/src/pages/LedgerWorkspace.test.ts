@@ -13,7 +13,7 @@ describe("Together Ledger 真實網頁帳本入口", () => {
     expect(workspace).toContain("trpc.ledger.create.useMutation");
     expect(workspace).toContain("trpc.ledger.join.useMutation");
     expect(workspace).toContain("trpc.ledger.createTransaction.useMutation");
-    expect(workspace).toContain("收支已新增，Android App 會同步顯示。");
+    expect(workspace).toContain("收支已新增。");
   });
 
   it("讓網頁版帳密登入沿用 Android App 的電子信箱帳號資料", () => {
@@ -49,7 +49,7 @@ describe("Together Ledger 真實網頁帳本入口", () => {
   });
 
   it("提供可辨識的發布資訊與重新取得最新版本操作", () => {
-    expect(footer).toContain('WEB_RELEASE_VERSION = "1.2.8.9"');
+    expect(footer).toContain('WEB_RELEASE_VERSION = "1.2.9"');
     expect(footer).toContain("WEB_BUILD_TIMESTAMP");
     expect(footer).toContain("formatTaipeiTimestamp");
     expect(footer).toContain("重新載入最新版本");
@@ -90,11 +90,11 @@ describe("Together Ledger 真實網頁帳本入口", () => {
     expect(workspace).toContain("changeMonth(1)");
   });
 
-  it("依影片對照補齊帳本類型與無帳本個人設定的完整流程", () => {
+  it("以可選帳本圖示及無圖示選項取代帳本類型，並保留無帳本個人設定流程", () => {
     expect(workspace).toContain("function CreateLedgerDialog");
-    expect(workspace).toContain('value: "couple"');
-    expect(workspace).toContain('value: "roommate"');
-    expect(workspace).toContain('value: "family"');
+    expect(workspace).toContain("帳本圖示（可選）");
+    expect(workspace).toContain("aria-pressed={icon === null}");
+    expect(workspace).toContain("item.ledger.icon ||");
     expect(workspace).toContain("<CreateLedgerDialog");
     expect(workspace).toContain("<Profile workspace={null}");
     expect(workspace).toContain("<WebAppearancePanel /></div></div></div>");
