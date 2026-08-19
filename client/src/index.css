@@ -162,6 +162,10 @@ button { cursor: pointer; }
 }
 :root[data-scene="starry"] { --card: #161d42; --popover: #161d42; --muted: #292c5c; --border: #565a91; --input: #565a91; --muted-foreground: #d1d4f4; }
 .web-ledger-shell { width: 100%; max-width: 100%; overflow-x: clip; background-image: radial-gradient(circle at 12% 8%, color-mix(in srgb, var(--primary) 14%, transparent), transparent 27rem), radial-gradient(circle at 86% 20%, color-mix(in srgb, var(--primary) 10%, transparent), transparent 25rem); }
+.ledger-sidebar { border-right: 1px solid var(--border); background: color-mix(in srgb, var(--card) 94%, transparent); color: var(--card-foreground); }
+.ledger-main { min-width: 0; }
+.ledger-card { border: 1px solid var(--border); background: var(--card); color: var(--card-foreground); }
+.ledger-mobile-nav { border: 1px solid var(--border); background: color-mix(in srgb, var(--card) 94%, transparent); color: var(--card-foreground); box-shadow: 0 12px 30px color-mix(in srgb, var(--foreground) 14%, transparent); }
 :root[data-scene="ocean"] .web-ledger-shell { background-image: radial-gradient(ellipse at 15% 0%, #1d6d88 0%, transparent 42%), radial-gradient(ellipse at 86% 65%, #0d405b 0%, transparent 48%), linear-gradient(160deg, #062638, #0b4f67 55%, #031a2b); }
 :root[data-scene="starry"] .web-ledger-shell { background-image: radial-gradient(circle at 12% 18%, #fff 0 1px, transparent 2px), radial-gradient(circle at 80% 10%, #c9ccff 0 1px, transparent 2px), radial-gradient(circle at 62% 48%, #fff 0 1px, transparent 2px), radial-gradient(ellipse at 50% 100%, #242553 0%, transparent 55%), linear-gradient(145deg, #060a1d, #121a3b); background-size: 97px 91px, 131px 109px, 159px 143px, auto, auto; }
 :root[data-scene="forest"] .web-ledger-shell { background-image: radial-gradient(ellipse at 12% 0%, #bfdab9 0%, transparent 45%), radial-gradient(ellipse at 85% 90%, #9fc8ad 0%, transparent 42%), linear-gradient(155deg, #f1f7f0, #dfeee1); }
@@ -169,9 +173,15 @@ button { cursor: pointer; }
 
 @media (max-width: 639px) {
   #root, .web-ledger-shell { width: 100%; max-width: 100%; overflow-x: clip; }
-  .web-ledger-shell main { width: 100%; max-width: 100%; padding: 1rem 0.875rem 5.75rem; }
+  .web-ledger-shell main { width: 100%; max-width: 100%; padding: 1rem 0.875rem 9.25rem; }
   .web-ledger-shell header > div:last-child { width: 100%; }
   .web-ledger-shell header > div:last-child > button { flex: 1 1 0; justify-content: center; }
+  .web-ledger-shell .ledger-mobile-nav { position: fixed; z-index: 20; bottom: max(0.6rem, env(safe-area-inset-bottom)); left: 50%; width: calc(100% - 1.5rem); transform: translateX(-50%); }
+}
+
+@media (min-width: 640px) and (max-width: 1023px) {
+  .web-ledger-shell main { padding: 1.5rem 1.5rem 5.75rem; }
+  .web-ledger-shell .ledger-mobile-nav { position: fixed; z-index: 20; bottom: max(0.75rem, env(safe-area-inset-bottom)); left: 50%; width: min(calc(100% - 3rem), 780px); transform: translateX(-50%); grid-template-columns: repeat(7, minmax(0, 1fr)); }
 }
 
 @keyframes soft-rise {

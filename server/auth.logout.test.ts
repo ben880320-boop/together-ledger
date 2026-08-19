@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { appRouter } from "./routers";
+import { persistLocalSessionCookie } from "./routers";
 import { COOKIE_NAME } from "../shared/const";
 import type { TrpcContext } from "./_core/context";
 
@@ -58,5 +59,34 @@ describe("auth.logout", () => {
       httpOnly: true,
       path: "/",
     });
+  });
+});
+
+describe("persistLocalSessionCookie", () => {
+  it("writes the same secure session cookie used by authenticated requests", () => {
+    const writtenCookies: Array<{ name: string; value: string; options: Record<string, unknown> }> = [];
+    const ctx = {
+      req: { protocol: "https", headers: {} } as TrpcContext["req"],
+      res: {
+        cookie: (name: string, value: string, options: Record<string, unknown>) => {
+          writtenCookies.push({ name, value, options });
+        },
+      } as TrpcContext["res"],
+    };
+
+    persistLocalSessionCookie(ctx, "session-token");
+
+    expect(writtenCookies).toEqual([
+      {
+        name: COOKIE_NAME,
+        value: "session-token",
+        options: expect.objectContaining({
+          secure: true,
+          sameSite: "none",
+          httpOnly: true,
+          path: "/",
+        }),
+      },
+    ]);
   });
 });

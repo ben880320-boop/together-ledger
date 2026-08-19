@@ -3,6 +3,7 @@ import { customAlphabet } from "nanoid";
 import { parse as parseCookieHeader } from "cookie";
 import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
+import type { TrpcContext } from "./_core/context";
 import { systemRouter } from "./_core/systemRouter";
 import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
@@ -148,6 +149,13 @@ function previousMonthKey(month: string) {
   return `${current.getUTCFullYear()}-${String(current.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
+export function persistLocalSessionCookie(
+  ctx: Pick<TrpcContext, "req" | "res">,
+  token: string
+) {
+  ctx.res.cookie(COOKIE_NAME, token, getSessionCookieOptions(ctx.req));
+}
+
 async function requireLedger(ledgerId: number, userId: number) {
   const access = await getLedgerAccess(ledgerId, userId);
   if (!access) throw new TRPCError({ code: "FORBIDDEN", message: "你不是此帳本的成員" });
@@ -215,10 +223,11 @@ export const appRouter = router({
     me: publicProcedure.query(opts => ({ user: opts.ctx.user ?? null })),
     register: publicProcedure
       .input(localAccountInput.extend({ name: z.string().trim().min(1, "請輸入暱稱").max(64) }))
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         try {
           const user = await createLocalUser(input);
           const token = await sdk.createSessionToken(user.openId, { name: user.name ?? "" });
+          persistLocalSessionCookie(ctx, token);
           return { token, user: { id: user.id, name: user.name, email: user.email, loginMethod: user.loginMethod } };
         } catch (error) {
           if (error instanceof Error && error.message.includes("已註冊")) {
@@ -229,10 +238,11 @@ export const appRouter = router({
       }),
     login: publicProcedure
       .input(localAccountInput)
-      .mutation(async ({ input }) => {
+      .mutation(async ({ ctx, input }) => {
         const user = await verifyLocalPassword(input.email, input.password);
         if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "電子信箱或密碼錯誤" });
         const token = await sdk.createSessionToken(user.openId, { name: user.name ?? "" });
+        persistLocalSessionCookie(ctx, token);
         return { token, user: { id: user.id, name: user.name, email: user.email, loginMethod: user.loginMethod } };
       }),
     deleteAccount: protectedProcedure

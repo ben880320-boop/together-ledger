@@ -30,17 +30,34 @@ export default function WebAuth() {
   }, [loading, setLocation, user]);
 
   const establishSession = async (token: string) => {
-    sessionStorage.setItem("manus-cookie", `${COOKIE_NAME}=${token}`);
-    await utils.auth.me.invalidate();
-    setLocation("/app");
+    try {
+      // The server response also sets an HTTP-only Cookie. Retain this header
+      // fallback only for embedded browsers that do not return that Cookie.
+      sessionStorage.setItem("manus-cookie", `${COOKIE_NAME}=${token}`);
+    } catch {
+      // Private/mobile contexts can restrict Web Storage. Cookie authentication
+      // remains available without this compatibility fallback.
+    }
+
+    try {
+      await utils.auth.me.invalidate();
+      const session = await utils.auth.me.fetch();
+      if (!session?.user) {
+        setFormError("登入狀態尚未建立，請確認瀏覽器允許本站的 Cookie 後再試一次。");
+        return;
+      }
+      setLocation("/app");
+    } catch {
+      setFormError("登入狀態確認失敗，請稍後再試一次。");
+    }
   };
 
   const login = trpc.auth.login.useMutation({
-    onSuccess: result => void establishSession(result.token),
+    onSuccess: result => establishSession(result.token),
     onError: error => setFormError(messageOf(error)),
   });
   const register = trpc.auth.register.useMutation({
-    onSuccess: result => void establishSession(result.token),
+    onSuccess: result => establishSession(result.token),
     onError: error => setFormError(messageOf(error)),
   });
 
