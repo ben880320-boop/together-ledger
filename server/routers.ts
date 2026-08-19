@@ -209,7 +209,10 @@ export const appRouter = router({
       .mutation(({ ctx, input }) => upsertPushDevice({ ...input, userId: ctx.user.id }).then(() => ({ success: true as const }))),
   }),
   auth: router({
-    me: publicProcedure.query(opts => opts.ctx.user),
+    // tRPC can omit a top-level null query result from the response stream.
+    // Always wrap the optional account in an object so logged-out web sessions
+    // receive a complete JSON response instead of waiting on an empty body.
+    me: publicProcedure.query(opts => ({ user: opts.ctx.user ?? null })),
     register: publicProcedure
       .input(localAccountInput.extend({ name: z.string().trim().min(1, "請輸入暱稱").max(64) }))
       .mutation(async ({ input }) => {
