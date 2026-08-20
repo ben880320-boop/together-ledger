@@ -550,6 +550,6 @@
 
 ## Android v1.3.2 更新可用性調查
 
-- [ ] 核對 Android 版本碼、GitHub Release／APK 產物與 App 內更新檢查來源是否已發布 v1.3.2
-- [ ] 修正已確認的 Android 發布、版本資訊或更新提示流程缺口
-- [ ] 驗證 Android 可取得新版的完整流程，並更新使用說明與發布紀錄
+- [x] 核對 Android 版本碼、GitHub Release／APK 產物與 App 內更新檢查來源是否已發布 v1.3.2
+- [x] 修正已確認的 Android 發布、版本資訊或更新提示流程缺口
+- [x] 驗證 Android 可取得新版的完整流程，並更新使用說明與發布紀錄
