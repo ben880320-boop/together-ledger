@@ -3,8 +3,8 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
-import { CalendarDays, History, LoaderCircle, PauseCircle, Pencil, PiggyBank, Plus, WalletCards } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { CalendarDays, GripVertical, History, LoaderCircle, PauseCircle, Pencil, PiggyBank, Plus, WalletCards } from "lucide-react";
+import { DragEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 type PaymentMethod = { id: number; name: string; icon?: string; isActive?: number | boolean };
@@ -47,6 +47,7 @@ export function SavingsBucketsPanel({ ledgerId, paymentMethods }: { ledgerId: nu
   const [editor, setEditor] = useState<SavingsBucket | null | "new">(null);
   const [historyBucket, setHistoryBucket] = useState<SavingsBucket | null>(null);
   const [pendingStop, setPendingStop] = useState<SavingsBucket | null>(null);
+  const [draggingBucketId, setDraggingBucketId] = useState<number | null>(null);
   const bucketsQuery = trpc.ledger.savings.buckets.useQuery({ ledgerId }, { refetchOnWindowFocus: true, refetchInterval: 15_000, refetchIntervalInBackground: false });
   const allocationsQuery = trpc.ledger.savings.allocations.useQuery(
     { ledgerId, ...(historyBucket ? { bucketId: historyBucket.id } : {}) },
@@ -65,7 +66,7 @@ export function SavingsBucketsPanel({ ledgerId, paymentMethods }: { ledgerId: nu
     onError: savingsError,
   });
   const updateBucket = trpc.ledger.savings.update.useMutation({
-    onSuccess: async () => { setEditor(null); toast.success("儲蓄桶已更新。"); await refreshSavings(); },
+    onSuccess: async () => { if (editor !== null) { setEditor(null); toast.success("儲蓄桶已更新。"); } await refreshSavings(); },
     onError: savingsError,
   });
   const stopBucket = trpc.ledger.savings.stop.useMutation({
@@ -73,8 +74,31 @@ export function SavingsBucketsPanel({ ledgerId, paymentMethods }: { ledgerId: nu
     onError: savingsError,
   });
   const buckets = (bucketsQuery.data ?? []) as SavingsBucket[];
+  const orderedBuckets = useMemo(() => [...buckets].sort((a, b) => a.priority - b.priority || a.id - b.id), [buckets]);
   const activePaymentMethods = useMemo(() => paymentMethods.filter(item => Boolean(item.isActive)), [paymentMethods]);
   const isSaving = createBucket.isPending || updateBucket.isPending || stopBucket.isPending;
+  const reorderBuckets = async (sourceId: number, targetId: number) => {
+    if (sourceId === targetId || isSaving) return;
+    const nextOrder = [...orderedBuckets];
+    const sourceIndex = nextOrder.findIndex(bucket => bucket.id === sourceId);
+    const targetIndex = nextOrder.findIndex(bucket => bucket.id === targetId);
+    if (sourceIndex < 0 || targetIndex < 0) return;
+    const [moving] = nextOrder.splice(sourceIndex, 1);
+    nextOrder.splice(targetIndex, 0, moving);
+    const changed = nextOrder.map((bucket, index) => ({ bucket, priority: index + 1 })).filter(({ bucket, priority }) => bucket.priority !== priority);
+    if (!changed.length) return;
+    try {
+      await Promise.all(changed.map(({ bucket, priority }) => updateBucket.mutateAsync({
+        ledgerId, bucketId: bucket.id, expectedVersion: bucket.version, paymentMethodId: bucket.paymentMethodId,
+        name: bucket.name, icon: bucket.icon, targetAmount: toAmount(bucket.targetAmount), monthlyAmount: toAmount(bucket.monthlyAmount),
+        dayOfMonth: bucket.dayOfMonth, priority, isActive: Boolean(bucket.isActive),
+      })));
+      toast.success("儲蓄桶優先順序已更新。", { duration: 5000 });
+    } catch (error) {
+      savingsError(error);
+      await refreshSavings();
+    }
+  };
 
   return <>
     <section className="xl:col-span-2 rounded-[28px] border border-[#EADDD7] bg-[var(--card)] p-5 shadow-sm sm:p-6">
@@ -83,16 +107,16 @@ export function SavingsBucketsPanel({ ledgerId, paymentMethods }: { ledgerId: nu
         <Button type="button" onClick={() => setEditor("new")} disabled={!activePaymentMethods.length || isSaving} className="shrink-0 rounded-xl bg-[#B56C78] text-white hover:bg-[#A35B68]"><Plus size={16} className="mr-1" />新增儲蓄桶</Button>
       </div>
       {!activePaymentMethods.length && <div className="mt-4 flex gap-3 rounded-2xl border border-[#E8D7C9] bg-[#FFF7F2] p-4 text-sm text-[#856154]"><WalletCards size={18} className="mt-0.5 shrink-0 text-[#B56C78]" /><span>請先在「帳本設定」新增並啟用一個支付方式，才能設定每月自動轉存的扣款來源。</span></div>}
-      {bucketsQuery.isLoading ? <div className="mt-5 flex min-h-32 items-center justify-center gap-2 text-sm text-[#927C74]"><LoaderCircle size={17} className="animate-spin" />載入儲蓄桶中…</div> : bucketsQuery.error ? <div className="mt-5 rounded-2xl border border-[#E8D7C9] bg-[#FFF7F2] p-4 text-sm text-[#856154]"><p>儲蓄桶資料暫時無法讀取。</p><Button type="button" variant="outline" size="sm" onClick={() => void bucketsQuery.refetch()} className="mt-3 rounded-lg border-[#DDBDB2] bg-white">重試</Button></div> : buckets.length ? <div className="mt-5 grid gap-4 md:grid-cols-2">{buckets.map(bucket => {
+      {bucketsQuery.isLoading ? <div className="mt-5 flex min-h-32 items-center justify-center gap-2 text-sm text-[#927C74]"><LoaderCircle size={17} className="animate-spin" />載入儲蓄桶中…</div> : bucketsQuery.error ? <div className="mt-5 rounded-2xl border border-[#E8D7C9] bg-[#FFF7F2] p-4 text-sm text-[#856154]"><p>儲蓄桶資料暫時無法讀取。</p><Button type="button" variant="outline" size="sm" onClick={() => void bucketsQuery.refetch()} className="mt-3 rounded-lg border-[#DDBDB2] bg-white">重試</Button></div> : buckets.length ? <><p className="mt-4 text-xs text-[#927C74]">可拖曳儲蓄桶卡片調整優先順序；數字越小，資金不足時越先分配。</p><div className="mt-3 grid gap-4 md:grid-cols-2">{orderedBuckets.map(bucket => {
         const saved = toAmount(bucket.savedAmount); const target = toAmount(bucket.targetAmount); const progress = target ? Math.min(100, Math.round(saved / target * 100)) : 0;
         const payment = paymentMethods.find(item => item.id === bucket.paymentMethodId);
-        return <article key={bucket.id} className={`rounded-2xl border p-4 ${bucket.isActive ? "border-[#E9DDD4] bg-[#FFFCFA]" : "border-[#E7DFDB] bg-[#F8F5F3] opacity-80"}`}>
-          <div className="flex min-w-0 items-start gap-3"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#F8EAD9] text-xl">{bucket.icon || "🎯"}</span><div className="min-w-0 flex-1"><div className="flex min-w-0 items-center justify-between gap-2"><h3 className="truncate font-bold">{bucket.name}</h3><span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold ${bucket.isActive ? "bg-[#ECF4EC] text-[#54795B]" : "bg-[#EFE8E9] text-[#80636B]"}`}>{bucket.isActive ? "自動分配中" : "已暫停"}</span></div><p className="mt-1 text-xs text-[#927C74]">優先順序 {bucket.priority} · 每月 {bucket.dayOfMonth} 日</p></div></div>
+        return <article key={bucket.id} draggable={!isSaving} onDragStart={(event: DragEvent<HTMLElement>) => { setDraggingBucketId(bucket.id); event.dataTransfer.effectAllowed = "move"; }} onDragEnd={() => setDraggingBucketId(null)} onDragOver={(event: DragEvent<HTMLElement>) => event.preventDefault()} onDrop={(event: DragEvent<HTMLElement>) => { event.preventDefault(); const sourceId = draggingBucketId; setDraggingBucketId(null); if (sourceId) void reorderBuckets(sourceId, bucket.id); }} aria-label={`拖曳調整 ${bucket.name} 的優先順序`} className={`rounded-2xl border p-4 transition-opacity ${draggingBucketId === bucket.id ? "opacity-50" : ""} ${bucket.isActive ? "border-[#E9DDD4] bg-[#FFFCFA]" : "border-[#E7DFDB] bg-[#F8F5F3] opacity-80"}`}>
+          <div className="flex min-w-0 items-start gap-3"><span className="mt-1 cursor-grab text-[#B49C92] active:cursor-grabbing" aria-hidden="true"><GripVertical size={17} /></span><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-[#F8EAD9] text-xl">{bucket.icon || "🎯"}</span><div className="min-w-0 flex-1"><div className="flex min-w-0 items-center justify-between gap-2"><h3 className="truncate font-bold">{bucket.name}</h3><span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold ${bucket.isActive ? "bg-[#ECF4EC] text-[#54795B]" : "bg-[#EFE8E9] text-[#80636B]"}`}>{bucket.isActive ? "自動分配中" : "已暫停"}</span></div><p className="mt-1 text-xs text-[#927C74]">優先順序 {bucket.priority} · 每月 {bucket.dayOfMonth} 日</p></div></div>
           <div className="mt-4"><div className="flex items-end justify-between gap-3"><div><p className="text-xs text-[#927C74]">已存入／目標</p><b className="mt-1 block text-lg text-[#A65F6B]">{money(saved)}</b></div><span className="shrink-0 text-sm font-bold text-[#756057]">{progress}%</span></div><div className="mt-3 h-2.5 overflow-hidden rounded-full bg-[#F0E5DF]"><div className="h-full rounded-full bg-[#B56C78] transition-[width] duration-200" style={{ width: `${progress}%` }} /></div><p className="mt-2 text-xs text-[#927C74]">還差 {money(bucket.remainingAmount)} · 每月 {money(bucket.monthlyAmount)}</p></div>
           <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 border-t border-[#F0E7E2] pt-3 text-xs text-[#806D65]"><span className="inline-flex items-center gap-1"><CalendarDays size={13} />每月 {bucket.dayOfMonth} 日</span><span className="inline-flex min-w-0 items-center gap-1"><WalletCards size={13} />{payment?.icon || "💳"} {payment?.name || "扣款方式待確認"}</span></div>
           <div className="mt-4 flex flex-wrap gap-2"><Button type="button" size="sm" variant="outline" onClick={() => setEditor(bucket)} disabled={isSaving} className="rounded-lg border-[#DDC7C0] bg-white"><Pencil size={14} className="mr-1" />編輯</Button><Button type="button" size="sm" variant="outline" onClick={() => setHistoryBucket(bucket)} className="rounded-lg border-[#DDC7C0] bg-white"><History size={14} className="mr-1" />分配紀錄</Button>{bucket.isActive && <Button type="button" size="sm" variant="ghost" onClick={() => setPendingStop(bucket)} disabled={isSaving} className="rounded-lg text-[#9A5D67]"><PauseCircle size={14} className="mr-1" />暫停</Button>}</div>
         </article>;
-      })}</div> : <div className="mt-5 rounded-2xl bg-[#FBF5F1] px-4 py-8 text-center"><PiggyBank size={28} className="mx-auto text-[#BE8B68]" /><p className="mt-3 font-semibold text-[#725D54]">尚未建立儲蓄桶</p><p className="mt-1 text-sm text-[#927C74]">例如買車基金、日本旅遊、房屋頭期款或電腦基金。</p></div>}
+      })}</div></> : <div className="mt-5 rounded-2xl bg-[#FBF5F1] px-4 py-8 text-center"><PiggyBank size={28} className="mx-auto text-[#BE8B68]" /><p className="mt-3 font-semibold text-[#725D54]">尚未建立儲蓄桶</p><p className="mt-1 text-sm text-[#927C74]">例如買車基金、日本旅遊、房屋頭期款或電腦基金。</p></div>}
     </section>
     <SavingsBucketDialog open={editor !== null} bucket={editor === "new" ? null : editor} ledgerId={ledgerId} paymentMethods={activePaymentMethods} saving={isSaving} onClose={() => setEditor(null)} onSave={input => editor && editor !== "new" ? updateBucket.mutate({ ...input, bucketId: editor.id, expectedVersion: editor.version }) : createBucket.mutate(input)} />
     <SavingsAllocationHistory open={Boolean(historyBucket)} bucket={historyBucket} loading={allocationsQuery.isLoading} error={Boolean(allocationsQuery.error)} rows={(allocationsQuery.data ?? []) as SavingsAllocation[]} onClose={() => setHistoryBucket(null)} onRetry={() => void allocationsQuery.refetch()} />

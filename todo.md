@@ -505,14 +505,14 @@
 - [x] 確認儲蓄桶的帳務歸屬、每月分配規則、不足額處理與成員權限規格
 - [x] 將轉入儲蓄桶建模為可出現在收支、月曆與日誌的獨立資金轉存交易，但排除於消費分類與支出分析
 - [x] 在每個儲蓄桶建立／編輯流程中要求選擇一個既有扣款支付方式，並以其建立每月轉存交易
-- [ ] 實作每桶自訂每月分配日期、可隨時調整固定存入額度與拖曳調整分配優先順序
+- [x] 實作每桶自訂每月分配日期、可隨時調整固定存入額度與拖曳調整分配優先順序
 - [x] 在可用餘額不足時依優先順序部分分配，留下可追溯的原定額、實際額與不足差額紀錄
 - [x] 建立可不限數量的儲蓄桶、目標金額、圖示、分配設定與分配紀錄資料模型，附非破壞性 migration 與 rollback 腳本
 - [x] 建立帳本權限檢查、樂觀鎖與可追溯日誌的儲蓄桶 tRPC procedures
 - [x] 建立冪等的每月自動分配排程、重試安全處理與排程狀態介面
 - [x] 完成 Android、網頁與 PWA 的儲蓄桶清單、建立／編輯、進度與分配紀錄介面
 - [x] 新增跨平台與排程回歸測試，驗證金額餘數、衝突、權限、同步與核心流程
-- [ ] 更新 README／Wiki，建立 feature branch、Pull Request 與發布版本
+- [x] 更新 README／Wiki，建立 feature branch、Pull Request 與發布版本
 
 ## 儲蓄桶跨平台介面交付細項
 
@@ -520,4 +520,4 @@
 - [x] Android：以既有 API 契約完成儲蓄桶載入、清單、建立／編輯／暫停及分配紀錄介面
 - [x] 網頁與 Android：遇到儲蓄桶樂觀鎖衝突時，明確提示重新整理後再編輯，且不靜默覆寫他人異動
 - [x] 新增與更新跨平台回歸測試，執行 TypeScript、Vitest、Android 核心流程及正式建置驗收
-- [ ] 同步 README／Wiki 與版本歷程；建立 feature branch、Conventional Commit 與 Pull Request，不直接推送 main/master
+- [x] 同步 README／Wiki 與版本歷程；建立 feature branch、Conventional Commit 與 Pull Request，不直接推送 main/master
