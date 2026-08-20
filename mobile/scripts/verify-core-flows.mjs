@@ -10,6 +10,9 @@ const eas = readFileSync(resolve(projectRoot, "eas.json"), "utf8");
 const createLedgerStart = db.indexOf("export async function createLedger");
 const createLedgerEnd = db.indexOf("export async function joinLedgerByInviteCode");
 const createLedgerBlock = db.slice(createLedgerStart, createLedgerEnd);
+const clearLedgerWorkspaceStart = app.indexOf("const clearLedgerWorkspace = () => {");
+const clearLedgerWorkspaceEnd = app.indexOf("  const leaveLedger = () => {", clearLedgerWorkspaceStart);
+const clearLedgerWorkspaceBlock = app.slice(clearLedgerWorkspaceStart, clearLedgerWorkspaceEnd);
 
 const checks = [
   ["未登入顯示登入／註冊畫面", app.includes('if (!user)') && app.includes('登入／註冊')],
@@ -68,6 +71,7 @@ const checks = [
   ["儲蓄桶使用樂觀鎖、衝突提示與自動轉存唯讀保護", app.includes('expectedVersion: editingSavingsBucket.version') && app.includes('expectedVersion: bucket.version') && app.includes('savingsBucketErrorMessage') && app.includes('此儲蓄桶已被其他成員修改，請重新整理後再編輯。') && app.includes('function isSavingsTransfer') === false && app.includes('const isSavingsTransfer') && app.includes('系統建立的正式轉存 · 唯讀') && db.includes('savingsBucketId: bucket.id') && db.includes('SAVINGS_BUCKET_CONFLICT')],
   ["儲蓄桶達標提供可減少動態效果的慶祝、封存與重新顯示流程", app.includes('SavingsGoalCelebrationModal') && app.includes('目標達成！') && app.includes('archiveSavingsBucket') && app.includes('restoreSavingsBucket') && app.includes('api.ledger.savings.archive.mutate') && app.includes('api.ledger.savings.restore.mutate') && app.includes('preferences.reduceMotion') && router.includes('archive: protectedProcedure') && router.includes('restore: protectedProcedure')],
   ["所有主要帳本表單只會在開啟或切換目標時初始化，避免背景同步清除草稿", app.includes('}, [visible, user.id, editingTransaction?.id]);') && app.includes('}, [visible, editingBudget?.id]);') && app.includes('}, [visible, editingRecurring?.id]);') && app.includes('}, [editingBucket?.id, visible]);')],
+  ["出遊規劃草稿不會被背景工作區重新載入或帳本清空函式覆寫", app.includes('name={travelPlanName}') && app.includes('setTravelPlanName("");') && !clearLedgerWorkspaceBlock.includes("setTravelPlanName") && !clearLedgerWorkspaceBlock.includes("setTravelPlanBudget") && !clearLedgerWorkspaceBlock.includes("setTravelPlanStartDate") && !clearLedgerWorkspaceBlock.includes("setTravelPlanEndDate") && !clearLedgerWorkspaceBlock.includes("setTravelPlanNotes")],
 ];
 
 const failed = checks.filter(([, passed]) => !passed).map(([label]) => label);

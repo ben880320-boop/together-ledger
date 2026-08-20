@@ -21,29 +21,43 @@ const APP_VERSION = "1.3.0";
 function StableTransactionDialog(props: any) {
   const workspaceSnapshot = useRef<any>(null);
   const activeDraftKey = useRef<string | null>(null);
+  const dialogElement = useRef<any>(null);
   const draftKey = `${props.ledgerId}:${props.editing?.id ?? "new"}`;
 
   if (!props.open) {
     workspaceSnapshot.current = null;
     activeDraftKey.current = null;
+    dialogElement.current = null;
+    return <TransactionDialog {...props} />;
   } else if (!workspaceSnapshot.current || activeDraftKey.current !== draftKey) {
     workspaceSnapshot.current = props.workspace;
     activeDraftKey.current = draftKey;
+    dialogElement.current = <TransactionDialog {...props} workspace={workspaceSnapshot.current} />;
   }
 
-  return <TransactionDialog {...props} workspace={workspaceSnapshot.current} />;
+  // Reuse the exact element while a draft is open. React can then bail out of child
+  // rendering during workspace polling, so an inner initialization effect cannot
+  // overwrite text the user is currently entering.
+  return dialogElement.current;
 }
 function StableFormDialog({ DialogComponent, draftKey, ...props }: any) {
   const propsSnapshot = useRef<any>(null);
   const activeDraftKey = useRef<string | null>(null);
+  const dialogElement = useRef<any>(null);
   if (!props.open) {
     propsSnapshot.current = null;
     activeDraftKey.current = null;
+    dialogElement.current = null;
+    return <DialogComponent {...props} />;
   } else if (!propsSnapshot.current || activeDraftKey.current !== draftKey) {
     propsSnapshot.current = props;
     activeDraftKey.current = draftKey;
+    dialogElement.current = <DialogComponent {...propsSnapshot.current} />;
   }
-  return <DialogComponent {...propsSnapshot.current} />;
+  // Keep both the props and the element identity stable until the sheet closes.
+  // This protects every web/PWA form from poll-driven rerenders, including forms
+  // whose local initialization effect reads workspace data.
+  return dialogElement.current;
 }
 const workspaceSnapshotKey = (ledgerId: number) => `together-ledger-web-workspace-v1:${ledgerId}`;
 const money = (value: unknown) => `NT$ ${Math.round(Number(value) || 0).toLocaleString("zh-TW")}`;

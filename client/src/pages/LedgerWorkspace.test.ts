@@ -27,6 +27,9 @@ describe("Together Ledger 真實網頁帳本入口", () => {
   it("在新增收支對話框開啟期間固定工作區快照，不讓背景同步清除未提交草稿", () => {
     expect(workspace).toContain("function StableTransactionDialog");
     expect(workspace).toContain("workspaceSnapshot.current = props.workspace");
+    expect(workspace).toContain("const dialogElement = useRef<any>(null);");
+    expect(workspace).toContain("dialogElement.current = <TransactionDialog");
+    expect(workspace).toContain("return dialogElement.current;");
     expect(workspace).toContain("<StableTransactionDialog");
     expect(workspace).not.toContain('<TransactionDialog open={sheet === "transaction"} workspace={workspace}');
   });
@@ -84,6 +87,8 @@ describe("Together Ledger 真實網頁帳本入口", () => {
   it("將所有帳本輸入對話框維持在穩定快照中，避免背景同步覆寫未提交文字", () => {
     expect(workspace).toContain("function StableFormDialog");
     expect(workspace).toContain("propsSnapshot.current = props");
+    expect(workspace).toContain("dialogElement.current = <DialogComponent {...propsSnapshot.current} />;");
+    expect(workspace).toContain("Keep both the props and the element identity stable until the sheet closes.");
     expect(workspace).toContain("<StableFormDialog");
     expect(savingsBuckets).toContain("}, [open, bucket?.id]);");
   });
