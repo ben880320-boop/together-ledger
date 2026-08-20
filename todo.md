@@ -558,3 +558,7 @@
 - [ ] 13. 檢查 GitHub v1.3.3 Release 與本地產出物狀態
 - [ ] 14. 執行 Android 本機建置或透過 GitHub Actions 產出 v1.3.3 APK 檔案
 - [ ] 15. 將 APK 上傳至 GitHub v1.3.3 Release 並交付直接下載連結
+
+## v1.3.3 跨平台同步與 APK 發布確認
+- [x] 完成 Android、Web 與 PWA 的 v1.3.3 版本同步，修正內部版本常數與更新來源
+- [x] 核對 GitHub v1.3.3 Release，確認 APK 檔案名稱與交付連結正確無誤
