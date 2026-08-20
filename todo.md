@@ -553,3 +553,8 @@
 - [x] 核對 Android 版本碼、GitHub Release／APK 產物與 App 內更新檢查來源是否已發布 v1.3.2
 - [x] 修正已確認的 Android 發布、版本資訊或更新提示流程缺口
 - [x] 驗證 Android 可取得新版的完整流程，並更新使用說明與發布紀錄
+
+## APK 發布與資產上傳補救
+- [ ] 13. 檢查 GitHub v1.3.3 Release 與本地產出物狀態
+- [ ] 14. 執行 Android 本機建置或透過 GitHub Actions 產出 v1.3.3 APK 檔案
+- [ ] 15. 將 APK 上傳至 GitHub v1.3.3 Release 並交付直接下載連結
