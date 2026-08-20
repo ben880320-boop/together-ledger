@@ -48,7 +48,6 @@ import {
   getSessionToken,
   saveSessionToken,
 } from "../lib/api";
-import { requestExpoPushToken } from "../lib/notifications";
 
 const colors = {
   background: "#FBF7F3",
@@ -95,26 +94,6 @@ type AppearancePreferences = {
   colorMode: AppearanceColorMode;
 };
 
-type NotificationPreferences = {
-  incomeEnabled: number;
-  expenseEnabled: number;
-  minimumAmount: number;
-  monthlySettlementEnabled: number;
-  monthlyReminderDay: number;
-  budgetAlert80Enabled: number;
-  budgetAlert100Enabled: number;
-};
-
-const notificationDefaults: NotificationPreferences = {
-  incomeEnabled: 1,
-  expenseEnabled: 1,
-  minimumAmount: 0,
-  monthlySettlementEnabled: 0,
-  monthlyReminderDay: 28,
-  budgetAlert80Enabled: 1,
-  budgetAlert100Enabled: 1,
-};
-
 const appearanceDefaults: AppearancePreferences = {
   theme: "rose",
   font: "system",
@@ -128,7 +107,7 @@ const appearanceDefaults: AppearancePreferences = {
   colorMode: "system",
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.2.9.1";
+const APP_VERSION = "1.2.9.2";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 const GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/ben880320-boop/together-ledger/releases/latest";
@@ -177,24 +156,6 @@ const formatUpdateMessage = (release: AppUpdateRelease) => {
   const notes = getUpdateNotesPreview(release);
   const securitySummary = getUpdateSecuritySummary(release);
   return `目前版本：v${APP_VERSION}\n可更新至：v${release.version}\n\n更新內容\n${notes}\n\n安全性摘要\n${securitySummary}\n\n更新檔會直接在 App 內下載，完成後由 Android 系統要求你確認安裝。`;
-};
-
-const normalizeNotificationPreferences = (input?: Partial<NotificationPreferences> | Record<string, unknown>): NotificationPreferences => {
-  const raw = (input || {}) as Record<string, unknown>;
-  const enabled = (...keys: string[]) => keys.some(key => raw[key] === true || raw[key] === 1 || raw[key] === "1");
-  const numberAt = (...keys: string[]) => {
-    const value = keys.map(key => raw[key]).find(value => value !== undefined && value !== null);
-    return Number(value) || 0;
-  };
-  return {
-    incomeEnabled: enabled("incomeEnabled", "income_enabled") ? 1 : 0,
-    expenseEnabled: enabled("expenseEnabled", "expense_enabled") ? 1 : 0,
-    minimumAmount: Math.max(0, Math.min(100_000_000, Math.trunc(numberAt("minimumAmount", "minimum_amount")))),
-    monthlySettlementEnabled: enabled("monthlySettlementEnabled", "monthly_settlement_enabled") ? 1 : 0,
-    monthlyReminderDay: Math.max(1, Math.min(28, Math.trunc(numberAt("monthlyReminderDay", "monthly_reminder_day") || 28))),
-    budgetAlert80Enabled: raw.budgetAlert80Enabled === undefined && raw.budget_alert_80_enabled === undefined ? 1 : (enabled("budgetAlert80Enabled", "budget_alert_80_enabled") ? 1 : 0),
-    budgetAlert100Enabled: raw.budgetAlert100Enabled === undefined && raw.budget_alert_100_enabled === undefined ? 1 : (enabled("budgetAlert100Enabled", "budget_alert_100_enabled") ? 1 : 0),
-  };
 };
 
 const isVersionNewer = (remote: string, local: string) => {
@@ -887,7 +848,6 @@ function AppContent() {
   const { palette, preferences } = useAppearance();
   const [ready, setReady] = useState(false);
   const [user, setUser] = useState<User | null>(null);
-  const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>(notificationDefaults);
   const [ledgers, setLedgers] = useState<Ledger[]>([]);
   const [activeLedger, setActiveLedger] = useState<Ledger | null>(null);
   const [members, setMembers] = useState<LedgerMember[]>([]);
@@ -949,7 +909,6 @@ function AppContent() {
   const ledgerRequestRef = useRef(0);
   const ledgerSelectionRef = useRef(0);
   const mutationGuardRef = useRef(new Set<string>());
-  const notificationRequestRef = useRef(0);
   const updateNoticeRef = useRef(false);
   const recurringSyncRef = useRef(new Map<number, number>());
   const toastSequenceRef = useRef(0);
@@ -1143,20 +1102,13 @@ function AppContent() {
         return;
       }
       setUser(nextUser as User);
-      const notificationRequestId = ++notificationRequestRef.current;
-      const [rows, preferences] = await Promise.all([
-        api.ledger.list.query() as Promise<Array<{ ledger: Ledger }>>,
-        api.notifications.preferences.query() as Promise<NotificationPreferences>,
-      ]);
+      const rows = await api.ledger.list.query() as Array<{ ledger: Ledger }>;
       const nextLedgers = rows.map(row => row.ledger);
       setLedgers(nextLedgers);
       const syncedAt = Date.now();
       setLastSyncedAt(syncedAt);
       setUsingOfflineSnapshot(false);
       void AsyncStorage.setItem(ledgerHomeSnapshotStorageKey, JSON.stringify({ ledgers: nextLedgers, syncedAt } satisfies LedgerHomeSnapshot));
-      if (notificationRequestId === notificationRequestRef.current) {
-        setNotificationPreferences(normalizeNotificationPreferences(preferences));
-      }
       // Never restore the last open ledger after a cold start. The app always opens at the ledger home.
       setLedgerHome(true);
       setHomePage("ledgers");
@@ -1400,79 +1352,6 @@ function AppContent() {
       setBusy(false);
     }
   };
-  const saveNotificationPreferences = async (next: NotificationPreferences) => {
-    const normalizedAmount = Math.max(0, Math.min(100_000_000, Math.trunc(next.minimumAmount)));
-    const normalizedReminderDay = Math.max(1, Math.min(28, Math.trunc(next.monthlyReminderDay)));
-    const wasNormalized = normalizedAmount !== next.minimumAmount || normalizedReminderDay !== next.monthlyReminderDay;
-    const requiresPush = next.incomeEnabled === 1 || next.expenseEnabled === 1 || next.monthlySettlementEnabled === 1 || next.budgetAlert80Enabled === 1 || next.budgetAlert100Enabled === 1;
-    let pushPermissionUnavailable = false;
-    let pushRegistrationUnavailable = false;
-    const requestId = ++notificationRequestRef.current;
-    const previous = notificationPreferences;
-    const normalized = normalizeNotificationPreferences({ ...next, minimumAmount: normalizedAmount, monthlyReminderDay: normalizedReminderDay });
-    setNotificationPreferences(normalized);
-    setBusy(true);
-    try {
-      if (requiresPush) {
-        try {
-          const expoPushToken = await requestExpoPushToken();
-          if (expoPushToken) {
-            await api.notifications.registerDevice.mutate({
-              expoPushToken,
-              platform: Platform.OS === "ios" ? "ios" : "android",
-            });
-          } else {
-            pushPermissionUnavailable = true;
-          }
-        } catch {
-          // 裝置註冊不可阻斷偏好保存；可能是 Firebase 初次設定、網路或系統服務暫時不可用。
-          pushRegistrationUnavailable = true;
-        }
-      }
-      const saved = await api.notifications.updatePreferences.mutate({
-        incomeEnabled: normalized.incomeEnabled === 1,
-        expenseEnabled: normalized.expenseEnabled === 1,
-        minimumAmount: normalizedAmount,
-        monthlySettlementEnabled: next.monthlySettlementEnabled === 1,
-        monthlyReminderDay: normalizedReminderDay,
-        budgetAlert80Enabled: normalized.budgetAlert80Enabled === 1,
-        budgetAlert100Enabled: normalized.budgetAlert100Enabled === 1,
-      }) as NotificationPreferences;
-      if (requestId === notificationRequestRef.current) {
-        setNotificationPreferences(normalizeNotificationPreferences(saved));
-        showToast(
-          pushPermissionUnavailable
-            ? "提醒設定已儲存。請在手機系統設定允許通知後，即可收到推播。"
-            : pushRegistrationUnavailable
-              ? "提醒設定已儲存。推播裝置尚未完成註冊，請確認網路與通知權限後再次儲存。"
-            : wasNormalized
-              ? "提醒日期與通知門檻已調整為可支援範圍並儲存。"
-              : "提醒設定已儲存並同步。"
-        );
-      }
-    } catch (notificationError) {
-      if (requestId === notificationRequestRef.current) setNotificationPreferences(previous);
-      setError(notificationError instanceof Error ? notificationError.message : "通知設定儲存失敗。");
-    } finally {
-      setBusy(false);
-    }
-  };
-  useEffect(() => {
-    const requiresPush = notificationPreferences.incomeEnabled === 1 || notificationPreferences.expenseEnabled === 1 || notificationPreferences.monthlySettlementEnabled === 1;
-    if (!user || !requiresPush) return;
-    let cancelled = false;
-    const registerPushDevice = async () => {
-      try {
-        const expoPushToken = await requestExpoPushToken();
-        if (!expoPushToken || cancelled) return;
-        await api.notifications.registerDevice.mutate({ expoPushToken, platform: Platform.OS === "ios" ? "ios" : "android" });
-      } catch {
-        // 不讓暫時性網路或系統服務問題阻塞帳本載入；下次開啟或儲存設定時會重試。
-      }
-    };
-    void registerPushDevice();
-    return () => { cancelled = true; };
-  }, [user?.id, notificationPreferences.expenseEnabled, notificationPreferences.incomeEnabled, notificationPreferences.monthlySettlementEnabled]);
   const confirmDeleteLedger = () => {
     if (!activeLedger) return;
     setConfirmRequest({
@@ -1835,7 +1714,7 @@ function AppContent() {
         />
         <AccountDeletionModal visible={accountDeletionVisible} busy={busy} error={error} onClose={() => setAccountDeletionVisible(false)} onSubmit={deleteAccount} />
         {homePage === "profile" ? (
-          <PersonalSettingsPage user={user} error={error} notificationPreferences={notificationPreferences} onSaveNotificationPreferences={saveNotificationPreferences} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} updateCheckError={updateCheckError} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
+          <PersonalSettingsPage user={user} error={error} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} updateCheckError={updateCheckError} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
         ) : (
           <EmptyLedger
             error={error}
@@ -1881,7 +1760,7 @@ function AppContent() {
         />
         <AccountDeletionModal visible={accountDeletionVisible} busy={busy} error={error} onClose={() => setAccountDeletionVisible(false)} onSubmit={deleteAccount} />
         {homePage === "profile" ? (
-          <PersonalSettingsPage user={user} error={error} notificationPreferences={notificationPreferences} onSaveNotificationPreferences={saveNotificationPreferences} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} updateCheckError={updateCheckError} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
+          <PersonalSettingsPage user={user} error={error} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} updateCheckError={updateCheckError} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
         ) : (
           <LedgerHome
             ledgers={ledgers}
@@ -3473,8 +3352,6 @@ function PlanningSection({
 function PersonalSettingsPage({
   user,
   error,
-  notificationPreferences,
-  onSaveNotificationPreferences,
   onUpdateNickname,
   onCheckForUpdate,
   latestRelease,
@@ -3490,8 +3367,6 @@ function PersonalSettingsPage({
 }: {
   user: User;
   error: string;
-  notificationPreferences: NotificationPreferences;
-  onSaveNotificationPreferences: (preferences: NotificationPreferences) => void | Promise<void>;
   onUpdateNickname: (name: string) => void | Promise<void>;
   onCheckForUpdate: () => void;
   latestRelease: AppUpdateRelease | null;
@@ -3507,67 +3382,10 @@ function PersonalSettingsPage({
 }) {
   const { preferences, palette, updatePreferences } = useAppearance();
   const [nickname, setNickname] = useState(user.name || "");
-  const [notificationDraft, setNotificationDraft] = useState<NotificationPreferences>(() => normalizeNotificationPreferences(notificationPreferences));
-  const [notificationStatus, setNotificationStatus] = useState<{
-    devices: Array<{
-      id: number;
-      platform: "android" | "ios";
-      isActive: boolean;
-      lastRegisteredAt: Date | string | number | null;
-      lastDeliveryAt: Date | string | number | null;
-      lastDeliveryStatus: string | null;
-      lastDeliveryError: string | null;
-    }>;
-  } | null>(null);
-  const [notificationStatusLoading, setNotificationStatusLoading] = useState(false);
-  const [notificationStatusActionLoading, setNotificationStatusActionLoading] = useState(false);
-  const [notificationStatusError, setNotificationStatusError] = useState("");
-  const [notificationStatusMessage, setNotificationStatusMessage] = useState("");
   const [historyVisible, setHistoryVisible] = useState(false);
   const [releaseHistory, setReleaseHistory] = useState<AppUpdateHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState("");
-  const notificationDraftRef = useRef(notificationDraft);
-  useEffect(() => { notificationDraftRef.current = notificationDraft; }, [notificationDraft]);
-  useEffect(() => {
-    const next = normalizeNotificationPreferences(notificationPreferences);
-    const current = notificationDraftRef.current;
-    const differs = current.incomeEnabled !== next.incomeEnabled || current.expenseEnabled !== next.expenseEnabled || current.minimumAmount !== next.minimumAmount || current.monthlySettlementEnabled !== next.monthlySettlementEnabled || current.monthlyReminderDay !== next.monthlyReminderDay;
-    if (differs) setNotificationDraft(next);
-  }, [notificationPreferences]);
-  const refreshNotificationStatus = async () => {
-    setNotificationStatusLoading(true);
-    setNotificationStatusError("");
-    try {
-      setNotificationStatus(await api.notifications.status.query());
-    } catch (statusError) {
-      setNotificationStatusError(statusError instanceof Error ? statusError.message : "暫時無法讀取通知狀態，請稍後重試。");
-    } finally {
-      setNotificationStatusLoading(false);
-    }
-  };
-  const reRegisterNotificationDevice = async () => {
-    setNotificationStatusActionLoading(true);
-    setNotificationStatusError("");
-    setNotificationStatusMessage("");
-    try {
-      const expoPushToken = await requestExpoPushToken();
-      if (!expoPushToken) {
-        setNotificationStatusError("尚未取得推播權限或裝置 Token，請先在系統設定允許通知。");
-        return;
-      }
-      await api.notifications.registerDevice.mutate({ expoPushToken, platform: Platform.OS === "ios" ? "ios" : "android" });
-      await refreshNotificationStatus();
-      setNotificationStatusMessage("裝置已重新註冊。請以另一個帳號新增收支，確認通知是否送達。");
-    } catch (registrationError) {
-      setNotificationStatusError(registrationError instanceof Error ? registrationError.message : "裝置重新註冊失敗，請確認網路後重試。");
-    } finally {
-      setNotificationStatusActionLoading(false);
-    }
-  };
-  useEffect(() => {
-    void refreshNotificationStatus();
-  }, [user.id]);
   const themes: Array<{ key: AppearanceTheme; label: string; color: string }> = [
     { key: "rose", label: "玫瑰", color: "#B56C78" },
     { key: "cherry", label: "櫻花", color: "#CE6D91" },
@@ -3883,89 +3701,6 @@ style={styles.input}
 <Switch value={preferences.autoReceiptNote} onValueChange={value => updatePreferences({ autoReceiptNote: value })} trackColor={{ false: palette.border, true: palette.roseSoft }} thumbColor={preferences.autoReceiptNote ? palette.rose : palette.muted} />
 </View>
 		      </View>
-	      <View style={styles.settingsGroupCard}>
-	      <View style={styles.cardHeading}>
-	        <View style={styles.personalizationHeading}>
-	          <MaterialCommunityIcons name="bell-cog-outline" size={19} color={palette.rose} />
-	          <Text style={styles.cardTitle}>提醒與通知</Text>
-	        </View>
-	      </View>
-      <Text style={styles.cardHint}>可個別關閉收入、支出與月結算提醒；啟用後才會要求手機通知權限。</Text>
-      <View style={styles.preferenceRow}>
-        <View style={styles.preferenceCopy}>
-          <Text style={styles.rowTitle}>每月結算提醒</Text>
-          <Text style={styles.rowSubtitle}>在選定日期提醒你檢查共同帳本結算</Text>
-        </View>
-        <Switch value={notificationDraft.monthlySettlementEnabled === 1} onValueChange={value => setNotificationDraft(current => ({ ...current, monthlySettlementEnabled: value ? 1 : 0 }))} trackColor={{ false: palette.border, true: palette.roseSoft }} thumbColor={notificationDraft.monthlySettlementEnabled ? palette.rose : palette.muted} />
-      </View>
-      <Text style={styles.personalizationLabel}>每月提醒日期（1–28 日）</Text>
-      <Text style={styles.rowSubtitle}>直接點選日期，不需要手動輸入。</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.reminderDayPicker}>
-        {Array.from({ length: 28 }, (_, index) => index + 1).map(day => {
-          const selected = notificationDraft.monthlyReminderDay === day;
-          return <Pressable key={day} accessibilityRole="button" accessibilityLabel={`每月 ${day} 日提醒`} onPress={() => setNotificationDraft(current => ({ ...current, monthlyReminderDay: day }))} style={[styles.reminderDay, selected && styles.reminderDayActive]}>
-            <Text style={[styles.reminderDayText, selected && styles.reminderDayTextActive]}>{day}</Text>
-          </Pressable>;
-        })}
-      </ScrollView>
-      <View style={styles.preferenceRow}>
-        <View style={styles.preferenceCopy}>
-          <Text style={styles.rowTitle}>收入通知</Text>
-          <Text style={styles.rowSubtitle}>帳本成員新增收入時提醒</Text>
-        </View>
-        <Switch value={notificationDraft.incomeEnabled === 1} onValueChange={value => setNotificationDraft(current => ({ ...current, incomeEnabled: value ? 1 : 0 }))} trackColor={{ false: palette.border, true: palette.roseSoft }} thumbColor={notificationDraft.incomeEnabled ? palette.rose : palette.muted} />
-      </View>
-      <View style={styles.preferenceRow}>
-        <View style={styles.preferenceCopy}>
-          <Text style={styles.rowTitle}>支出通知</Text>
-          <Text style={styles.rowSubtitle}>帳本成員新增支出時提醒</Text>
-        </View>
-        <Switch value={notificationDraft.expenseEnabled === 1} onValueChange={value => setNotificationDraft(current => ({ ...current, expenseEnabled: value ? 1 : 0 }))} trackColor={{ false: palette.border, true: palette.roseSoft }} thumbColor={notificationDraft.expenseEnabled ? palette.rose : palette.muted} />
-      </View>
-      <View style={styles.preferenceRow}>
-        <View style={styles.preferenceCopy}>
-          <Text style={styles.rowTitle}>預算 80% 提醒</Text>
-          <Text style={styles.rowSubtitle}>月總或分類預算用量達八成時提醒</Text>
-        </View>
-        <Switch value={notificationDraft.budgetAlert80Enabled === 1} onValueChange={value => setNotificationDraft(current => ({ ...current, budgetAlert80Enabled: value ? 1 : 0 }))} trackColor={{ false: palette.border, true: palette.roseSoft }} thumbColor={notificationDraft.budgetAlert80Enabled ? palette.rose : palette.muted} />
-      </View>
-      <View style={styles.preferenceRow}>
-        <View style={styles.preferenceCopy}>
-          <Text style={styles.rowTitle}>預算 100% 提醒</Text>
-          <Text style={styles.rowSubtitle}>月總或分類預算用量達上限時提醒</Text>
-        </View>
-        <Switch value={notificationDraft.budgetAlert100Enabled === 1} onValueChange={value => setNotificationDraft(current => ({ ...current, budgetAlert100Enabled: value ? 1 : 0 }))} trackColor={{ false: palette.border, true: palette.roseSoft }} thumbColor={notificationDraft.budgetAlert100Enabled ? palette.rose : palette.muted} />
-      </View>
-      <Text style={styles.personalizationLabel}>通知金額門檻（NT$）</Text>
-<TextInput value={String(notificationDraft.minimumAmount)} onChangeText={value => setNotificationDraft(current => ({ ...current, minimumAmount: Number(value.replace(/\D/g, "")) || 0 }))} keyboardType="number-pad" maxLength={9} placeholder="0 代表所有金額都提醒" placeholderTextColor={palette.muted} style={styles.input} />
-      <Pressable onPress={() => void onSaveNotificationPreferences(notificationDraft)} style={({ pressed }) => [styles.smallButton, pressed && styles.pressed]}>
-<MaterialCommunityIcons name="bell-check-outline" size={17} color="#FFFFFF" />
-<Text style={styles.smallButtonText}>儲存提醒設定</Text>
-</Pressable>
-
-      <View style={[styles.updateEmptyPanel, { marginTop: 14 }]}>
-        <View style={styles.preferenceCopy}>
-          <Text style={styles.rowTitle}>通知狀態</Text>
-          <Text style={styles.rowSubtitle}>檢查手機權限、裝置註冊與最近一次投遞結果；收入與支出通知未到達時可先重新註冊。</Text>
-          {notificationStatusLoading ? <Text style={styles.rowSubtitle}>正在讀取裝置狀態…</Text> : notificationStatus?.devices.length ? notificationStatus.devices.map(device => (
-            <Text key={device.id} style={styles.rowSubtitle}>
-              {device.platform === "android" ? "Android" : "iOS"}：{device.isActive ? "已註冊" : "已停用"} · {device.lastDeliveryStatus === "delivered" ? "最近投遞成功" : device.lastDeliveryError ? `失敗：${device.lastDeliveryError}` : "尚無投遞紀錄"}
-            </Text>
-          )) : <Text style={styles.rowSubtitle}>尚未發現已註冊裝置。</Text>}
-          {!!notificationStatusError && <Text style={styles.globalError}>{notificationStatusError}</Text>}
-          {!!notificationStatusMessage && <Text style={styles.successText}>{notificationStatusMessage}</Text>}
-        </View>
-        <View style={styles.transactionActions}>
-          <Pressable onPress={() => void refreshNotificationStatus()} disabled={notificationStatusLoading} style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]} accessibilityLabel="重新整理通知狀態">
-            <MaterialCommunityIcons name="refresh" size={20} color={palette.rose} />
-          </Pressable>
-          <Pressable onPress={() => void reRegisterNotificationDevice()} disabled={notificationStatusActionLoading} style={({ pressed }) => [styles.smallButton, pressed && styles.pressed, notificationStatusActionLoading && styles.disabledButton]}>
-            <MaterialCommunityIcons name="cellphone-arrow-down" size={17} color="#FFFFFF" />
-            <Text style={styles.smallButtonText}>{notificationStatusActionLoading ? "註冊中…" : "重新註冊通知"}</Text>
-          </Pressable>
-        </View>
-      </View>
-	      </View>
 	      <View style={styles.settingsGroupCard}>
 	      <View style={styles.cardHeading}>
 	        <View style={styles.personalizationHeading}>
@@ -6366,6 +6101,12 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     backgroundColor: "#FBE9E7",
     fontSize: 12,
   },
+  successText: {
+    marginTop: 8,
+    color: palette.rose,
+    fontSize: 12,
+    lineHeight: 18,
+  },
   headerSafe: { backgroundColor: palette.surface },
   headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
   appHeader: {
@@ -7005,6 +6746,7 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     borderRadius: 11,
     backgroundColor: palette.rose,
   },
+  disabledButton: { opacity: 0.55 },
   smallButtonText: { color: "#FFFFFF", fontSize: 11, fontWeight: "700" },
   globalToastLayer: {
     position: "absolute",

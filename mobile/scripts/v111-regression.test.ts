@@ -6,7 +6,7 @@ const mobileRoot = resolve(process.cwd(), "mobile");
 const readMobile = (relativePath: string) =>
   readFileSync(resolve(mobileRoot, relativePath), "utf8");
 
-describe("Together Ledger v1.2.9.1 Android wiring", () => {
+describe("Together Ledger v1.2.9.2 Android wiring", () => {
   it("uses email/password authentication without a Manus OAuth redirect", () => {
     const app = readMobile("app/index.tsx");
     const router = readFileSync(resolve(process.cwd(), "server/routers.ts"), "utf8");
@@ -93,25 +93,22 @@ describe("Together Ledger v1.2.9.1 Android wiring", () => {
     expect(app).toContain("主題、字體與版型會立即套用並保存在這台裝置");
     expect(app).toContain("搜尋帳本名稱");
     expect(app).toContain("ledgerQuery");
-    expect(app).toContain("每月結算提醒");
-    expect(app).toContain("通知金額門檻（NT$）");
-    expect(app).toContain("saveNotificationPreferences");
-    expect(app).toContain("requestExpoPushToken");
-    expect(app).toContain("pushRegistrationUnavailable");
-    expect(app).toContain("推播裝置尚未完成註冊");
-    expect(app).toContain("Math.min(100_000_000");
-    expect(app).toContain("Math.min(28");
-    expect(app).toContain("normalizeNotificationPreferences");
-    expect(app).toContain("notificationRequestRef");
+    expect(app).not.toContain("每月結算提醒");
+    expect(app).not.toContain("通知金額門檻（NT$）");
+    expect(app).not.toContain("saveNotificationPreferences");
+    expect(app).not.toContain("requestExpoPushToken");
+    expect(app).not.toContain("pushRegistrationUnavailable");
+    expect(app).not.toContain("推播裝置尚未完成註冊");
+    expect(app).not.toContain("normalizeNotificationPreferences");
+    expect(app).not.toContain("notificationRequestRef");
     expect(app).toContain("function SuccessToast(");
     expect(app).toContain("showToast");
     expect(app).toContain("5_000");
-    expect(app).toContain("提醒設定已儲存");
+    expect(app).not.toContain("提醒設定已儲存");
     expect(app).toContain("目前版本 v{APP_VERSION}");
     expect(app).toContain("SettingsSection");
     expect(app).toContain("KeyboardAvoidingView");
-    expect(app).toContain("Array.from({ length: 28 }");
-    expect(app).toContain("每月提醒日期（1–28 日）");
+    expect(app).not.toContain("每月提醒日期（1–28 日）");
     expect(app).toContain("ThemeAtmosphere");
     expect(app).toContain('preferences.theme === "cherry"');
     expect(app).toContain('preferences.theme === "meadow"');
@@ -176,16 +173,16 @@ describe("Together Ledger v1.2.9.1 Android wiring", () => {
     expect(app).toContain('maxHeight: "88%"');
   });
 
-  it("keeps a verified per-user monthly reminder schedule lifecycle", () => {
+  it("keeps all notification delivery and reminder scheduling disabled", () => {
     const router = readFileSync(resolve(process.cwd(), "server/routers.ts"), "utf8");
-    const server = readFileSync(resolve(process.cwd(), "server/_core/index.ts"), "utf8");
+    const notifications = readFileSync(resolve(process.cwd(), "server/notifications.ts"), "utf8");
     expect(router).toContain("syncMonthlySettlementReminderSchedule");
-    expect(router).toContain("createHeartbeatJob");
-    expect(router).toContain("updateHeartbeatJob");
-    expect(router).toContain("updateNotificationScheduleTaskUid");
-    expect(server).toContain("monthly-settlement-reminders");
-    expect(server).toContain("sdk.authenticateRequest(req)");
-    expect(server).toContain("user.isCron");
+    expect(router).toContain("disabled: true as const");
+    expect(router).not.toContain("createHeartbeatJob");
+    expect(router).not.toContain("updateHeartbeatJob");
+    expect(router).not.toContain("updateNotificationScheduleTaskUid");
+    expect(notifications).toContain("NOTIFICATIONS_ENABLED = false");
+    expect(notifications).toContain('skipped: "notifications-disabled"');
   });
 
   it("normalizes legacy category and payment icons into selectable emojis", () => {
@@ -243,11 +240,11 @@ describe("Together Ledger v1.2.9.1 Android wiring", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
       expo?: { version?: string; scheme?: string; android?: { versionCode?: number } };
     };
-    expect(appJson.expo?.version).toBe("1.2.9.1");
-    expect(appJson.expo?.android?.versionCode).toBe(21);
-    expect(readMobile("package.json")).toContain('"version": "1.2.9.1"');
+    expect(appJson.expo?.version).toBe("1.2.9.2");
+    expect(appJson.expo?.android?.versionCode).toBe(22);
+    expect(readMobile("package.json")).toContain('"version": "1.2.9.2"');
     expect(appJson.expo?.scheme).toBe("togetherledger");
-    expect(readMobile("app.json")).toContain("expo-notifications");
+    expect(readMobile("app.json")).not.toContain("expo-notifications");
     expect(readMobile("app.json")).toContain('"googleServicesFile": "./google-services.json"');
     expect(readMobile("app.json")).toContain('"softwareKeyboardLayoutMode": "resize"');
     expect(app).toContain("autoDownloadUpdatesOnWifi");

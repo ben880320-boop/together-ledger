@@ -9,14 +9,29 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { categoryEmoji, formatActivityTimestamp, normalizeLedgerWorkspace, paymentEmoji } from "@/lib/ledgerPresentation";
-import { BarChart3, Bell, CalendarDays, Check, ChevronLeft, ChevronRight, Clipboard, Download, Heart, LayoutDashboard, ListChecks, LoaderCircle, LogOut, Pencil, Plus, Receipt, Search, Settings2, Sparkles, Trash2, UserRound, Users, WalletCards, WifiOff } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { BarChart3, CalendarDays, Check, ChevronLeft, ChevronRight, Clipboard, Download, Heart, LayoutDashboard, ListChecks, LoaderCircle, LogOut, Pencil, Plus, Receipt, Search, Settings2, Sparkles, Trash2, UserRound, Users, WalletCards, WifiOff } from "lucide-react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
 type Page = "overview" | "records" | "calendar" | "analysis" | "planning" | "settings" | "profile";
 type Sheet = "ledger" | "join" | "transaction" | "budget" | "total-budget" | "recurring" | "travel" | "category" | "payment" | "manage" | null;
 const APP_VERSION = "1.2.9.1";
+function StableTransactionDialog(props: any) {
+  const workspaceSnapshot = useRef<any>(null);
+  const activeDraftKey = useRef<string | null>(null);
+  const draftKey = `${props.ledgerId}:${props.editing?.id ?? "new"}`;
+
+  if (!props.open) {
+    workspaceSnapshot.current = null;
+    activeDraftKey.current = null;
+  } else if (!workspaceSnapshot.current || activeDraftKey.current !== draftKey) {
+    workspaceSnapshot.current = props.workspace;
+    activeDraftKey.current = draftKey;
+  }
+
+  return <TransactionDialog {...props} workspace={workspaceSnapshot.current} />;
+}
 const workspaceSnapshotKey = (ledgerId: number) => `together-ledger-web-workspace-v1:${ledgerId}`;
 const money = (value: unknown) => `NT$ ${Math.round(Number(value) || 0).toLocaleString("zh-TW")}`;
 const currentMonth = () => new Date().toISOString().slice(0, 7);
@@ -216,7 +231,7 @@ export default function LedgerWorkspace() {
       </div>
       <CreateLedgerDialog open={sheet === "ledger"} onClose={() => setSheet(null)} onSubmit={(input) => createLedger.mutate(input as any)} />
       <TextDialog open={sheet === "join"} title="使用邀請碼加入帳本" description="加入後兩端會看到完全相同的帳本資料。" label="邀請碼" submit="加入帳本" onClose={() => setSheet(null)} onSubmit={(value: string) => joinLedger.mutate({ inviteCode: value.toUpperCase() } as any)} />
-      <TransactionDialog open={sheet === "transaction"} workspace={workspace} ledgerId={ledgerId!} editing={editing} onClose={() => { setSheet(null); setEditing(null); }} onCreate={(input: any) => createTransaction.mutate(input)} onUpdate={(input: any) => updateTransaction.mutate(input)} />
+      <StableTransactionDialog open={sheet === "transaction"} workspace={workspace} ledgerId={ledgerId!} editing={editing} onClose={() => { setSheet(null); setEditing(null); }} onCreate={(input: any) => createTransaction.mutate(input)} onUpdate={(input: any) => updateTransaction.mutate(input)} />
       <BudgetDialog open={sheet === "budget" || sheet === "total-budget"} totalBudget={sheet === "total-budget"} workspace={workspace} ledgerId={ledgerId!} month={month} onClose={() => setSheet(null)} onSave={(input: any) => saveBudget.mutate(input)} />
       <RecurringDialog open={sheet === "recurring"} workspace={workspace} ledgerId={ledgerId!} editing={sheet === "recurring" ? editing : null} onClose={() => { setSheet(null); setEditing(null); }} onSave={(input: any) => editing ? updateRecurring.mutate(input) : createRecurring.mutate(input)} />
       <TravelDialog open={sheet === "travel"} ledgerId={ledgerId!} onClose={() => setSheet(null)} onSave={(input: any) => createTravel.mutate(input)} />
@@ -357,21 +372,12 @@ function Profile({ workspace, onRefresh }: any) {
   const { user, logout } = useAuth();
   const [name, setName] = useState(user?.name || "");
   const [password, setPassword] = useState("");
-  const pref = trpc.notifications.preferences.useQuery(undefined, { refetchOnWindowFocus: false });
-  const notificationStatus = trpc.notifications.status.useQuery(undefined, { refetchInterval: 30_000, refetchOnWindowFocus: true });
   const updateName = trpc.profile.updateName.useMutation({ onSuccess: () => { toast.success("暱稱已儲存。"); onRefresh(); }, onError: fail });
-  const updatePrefs = trpc.notifications.updatePreferences.useMutation({ onSuccess: async () => { toast.success("提醒設定已儲存。"); await notificationStatus.refetch(); }, onError: fail });
   const deleteAccount = trpc.auth.deleteAccount.useMutation({ onSuccess: async () => { await logout(); navigate("/"); }, onError: fail });
   const leave = async () => { if (!window.confirm("確定要登出此裝置嗎？")) return; await logout(); navigate("/"); };
-  const devices = ((notificationStatus.data as any)?.devices ?? []) as any[];
-  const latestDevice = devices[0];
-  const latestStatus = latestDevice?.status === "delivered" ? "最近一次投遞已送出" : latestDevice?.status === "failed" ? "最近一次投遞失敗" : latestDevice ? "裝置已註冊，尚無投遞紀錄" : "尚未註冊 Android 裝置";
-  const latestTime = latestDevice?.lastDeliveryAt ? new Date(latestDevice.lastDeliveryAt).toLocaleString("zh-TW") : "—";
 
   return <div className="grid gap-5 xl:grid-cols-2">
     <Card title="個人資料" text="暱稱會在所有共同帳本與 Android App 顯示。"><form className="flex flex-col gap-2 sm:flex-row" onSubmit={event => { event.preventDefault(); updateName.mutate({ name: name.trim() } as any); }}><Input value={name} onChange={event => setName(event.target.value)} required maxLength={64} /><Button type="submit" className="bg-[#B56C78]">儲存暱稱</Button></form></Card>
-    <Card title="通知與預算提醒" text="收入、支出、月結算及預算門檻與 Android App 共用。">{pref.data ? <form key={JSON.stringify(pref.data)} className="space-y-4" onSubmit={event => { event.preventDefault(); const form = new FormData(event.currentTarget); updatePrefs.mutate({ incomeEnabled: form.get("income") === "on", expenseEnabled: form.get("expense") === "on", minimumAmount: Number(form.get("minimum") || 0), monthlySettlementEnabled: form.get("monthly") === "on", monthlyReminderDay: Number(form.get("day") || 1), budgetAlert80Enabled: form.get("budget80") === "on", budgetAlert100Enabled: form.get("budget100") === "on" } as any); }}><CheckBox label="收入通知" name="income" checked={Boolean((pref.data as any).incomeEnabled)} /><CheckBox label="支出通知" name="expense" checked={Boolean((pref.data as any).expenseEnabled)} /><CheckBox label="預算使用達 80% 通知" name="budget80" checked={(pref.data as any).budgetAlert80Enabled !== false} /><CheckBox label="預算使用達 100% 超支通知" name="budget100" checked={(pref.data as any).budgetAlert100Enabled !== false} /><CheckBox label="每月結算提醒" name="monthly" checked={Boolean((pref.data as any).monthlySettlementEnabled)} /><div className="grid grid-cols-2 gap-3"><Field label="提醒門檻（元）"><Input name="minimum" type="number" min="0" defaultValue={(pref.data as any).minimumAmount} /></Field><Field label="每月提醒日"><Input name="day" type="number" min="1" max="28" defaultValue={(pref.data as any).monthlyReminderDay} /></Field></div><Button type="submit" disabled={updatePrefs.isPending} className="bg-[#B56C78]">{updatePrefs.isPending ? "儲存中…" : "儲存提醒設定"}</Button></form> : <EmptyText text="正在讀取提醒設定…" />}</Card>
-  <Card title="通知狀態" text="通知投遞診斷會在 Android 與網頁同步顯示。"><div className="space-y-3"><div className={`rounded-xl border p-3 text-sm ${latestDevice?.status === "failed" ? "border-[#F0C6C9] bg-[#FFF4F4] text-[#A84552]" : "border-[#E6D8D2] bg-[#FFF9F6] text-[#6F5952]"}`}><div className="flex items-start gap-2"><Bell size={16} className="mt-0.5 shrink-0" /><div className="min-w-0 flex-1"><b className="block">{latestStatus}</b><span className="mt-1 block text-xs opacity-80">已註冊裝置：{devices.length}　最後檢查：{latestTime}</span>{latestDevice?.lastDeliveryError && <span className="mt-1 block break-words text-xs">原因：{latestDevice.lastDeliveryError}</span>}</div></div></div><div className="flex flex-col gap-2 sm:flex-row"><Button type="button" variant="outline" onClick={() => void notificationStatus.refetch()} disabled={notificationStatus.isFetching} className="border-[#DDC7C0] text-[#875A61]">{notificationStatus.isFetching ? "更新中…" : "重新整理狀態"}</Button><a href="https://github.com/ben880320-boop/together-ledger/releases/latest" target="_blank" rel="noreferrer" className="inline-flex min-h-10 items-center justify-center rounded-xl bg-[#F7ECE8] px-3 text-sm font-medium text-[#875A61]">在 Android App 重新註冊</a></div><p className="text-xs leading-relaxed text-[#9A847B]">網頁可查看投遞結果；重新註冊請在 Android App 的通知狀態頁完成。若顯示失敗，請先檢查網路、系統通知權限與 App 是否為最新版。</p></div></Card>
     <Card title="更新與帳號安全" text={`目前網頁版本 ${APP_VERSION}；Android App 可從下方下載。`}><div className="space-y-4"><a href="https://github.com/ben880320-boop/together-ledger/releases" target="_blank" rel="noreferrer" className="inline-flex rounded-xl border border-[#DDC7C0] bg-white px-4 py-2 text-sm font-medium text-[#875A61]">查看版本更新歷程</a><form className="border-t border-[#F0E7E2] pt-4" onSubmit={event => { event.preventDefault(); if (window.confirm("確定要永久刪除帳號嗎？此動作不可復原。")) deleteAccount.mutate({ password } as any); }}><Label>刪除帳號前請輸入密碼</Label><div className="mt-2 flex flex-col gap-2 sm:flex-row"><Input type="password" value={password} onChange={event => setPassword(event.target.value)} required /><Button type="submit" variant="destructive">刪除帳號</Button></div></form></div></Card>
     <Card title="Android App 與登入" text="使用官方 GitHub Release 下載 APK；登出不會刪除共同帳本資料。"><div className="flex flex-col gap-3 sm:flex-row"><a href="https://github.com/ben880320-boop/together-ledger/releases/latest" target="_blank" rel="noreferrer" className="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl bg-[#B56C78] px-4 py-2 text-sm font-semibold text-white"><Download size={16} className="mr-2" />下載 Together Ledger App</a><Button type="button" variant="outline" onClick={() => void leave()} className="min-h-11 border-[#DDC7C0] text-[#875A61]"><LogOut size={16} className="mr-2" />登出</Button></div></Card>
   </div>;
