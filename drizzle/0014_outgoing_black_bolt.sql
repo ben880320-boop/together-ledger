@@ -1,0 +1,1 @@
+ALTER TABLE `savingsBuckets` ADD `paymentMethodId` int NOT NULL;

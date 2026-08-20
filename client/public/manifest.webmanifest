@@ -1,0 +1,20 @@
+{
+  "id": "/",
+  "name": "共帳 Together Ledger",
+  "short_name": "共帳",
+  "description": "與重要的人一起記錄、分攤與整理共同生活支出。",
+  "lang": "zh-Hant",
+  "start_url": "/?source=pwa",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F7F4F1",
+  "theme_color": "#C87A8A",
+  "icons": [
+    {
+      "src": "/manus-storage/together-ledger-icon-512_34a4f4b8.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
