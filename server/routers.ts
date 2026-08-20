@@ -60,13 +60,16 @@ import {
   stopSavingsBucket,
   archiveSavingsBucket,
   restoreSavingsBucket,
+  addSavingsDeposit,
 } from "./db";
 import { TRPCError } from "@trpc/server";
 import { invokeLLM } from "./_core/llm";
 import { sdk } from "./_core/sdk";
 
 const ledgerType = z.enum(["couple", "roommate", "family", "travel", "custom"]);
-const transactionType = z.enum(["expense", "income", "transfer"]);
+// Transfers are created only by protected system workflows such as savings deposits.
+// General income/expense forms must never create a transfer directly.
+const transactionType = z.enum(["expense", "income"]);
 const splitType = z.enum(["equal", "custom", "amount", "none"]);
 const localAccountInput = z.object({
   email: z.string().trim().email("請輸入有效的電子信箱").max(320),
@@ -648,6 +651,24 @@ export const appRouter = router({
             return id;
           } catch (error) {
             if (error instanceof Error && error.message === "SAVINGS_BUCKET_CONFLICT") throw new TRPCError({ code: "CONFLICT", message: "此儲蓄桶已被其他成員修改，請重新整理後再編輯。" });
+            throw error;
+          }
+        }),
+      addDeposit: protectedProcedure
+        .input(z.object({
+          ledgerId: z.number().int().positive(),
+          bucketId: z.number().int().positive(),
+          expectedVersion: z.number().int().positive(),
+          amount: z.number().int().positive().max(100_000_000),
+        }))
+        .mutation(async ({ ctx, input }) => {
+          await requireLedger(input.ledgerId, ctx.user.id);
+          try {
+            return await addSavingsDeposit({ ...input, userId: ctx.user.id });
+          } catch (error) {
+            if (error instanceof Error && error.message === "SAVINGS_BUCKET_CONFLICT") {
+              throw new TRPCError({ code: "CONFLICT", message: "此儲蓄桶已被其他成員修改，請重新整理後再存入。" });
+            }
             throw error;
           }
         }),

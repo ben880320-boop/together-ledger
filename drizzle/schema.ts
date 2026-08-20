@@ -149,7 +149,7 @@ export const savingsBuckets = mysqlTable("savingsBuckets", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
-/** One immutable execution record per bucket/month; the unique key makes retries idempotent. */
+/** One immutable automated or manual funding record; the unique key makes retries idempotent. */
 export const savingsAllocations = mysqlTable("savingsAllocations", {
   id: int("id").autoincrement().primaryKey(),
   ledgerId: int("ledgerId").notNull(),
@@ -160,6 +160,8 @@ export const savingsAllocations = mysqlTable("savingsAllocations", {
   allocatedAmount: int("allocatedAmount").notNull(),
   shortfallAmount: int("shortfallAmount").notNull(),
   status: mysqlEnum("status", ["completed", "partial", "skipped"]).notNull(),
+  /** `automatic` is a scheduled allocation; `manual` is a user-confirmed extra deposit. */
+  source: mysqlEnum("source", ["automatic", "manual"]).default("automatic").notNull(),
   idempotencyKey: varchar("idempotencyKey", { length: 160 }).notNull().unique(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });

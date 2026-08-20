@@ -74,6 +74,19 @@ describe("Together Ledger 真實網頁帳本入口", () => {
     expect(savingsBuckets).toContain("shortfallAmount");
   });
 
+  it("讓網頁與 PWA 從儲蓄桶額外存入，並將手動紀錄與自動分配清楚區分", () => {
+    expect(savingsBuckets).toContain("trpc.ledger.savings.addDeposit.useMutation");
+    expect(savingsBuckets).toContain("expectedVersion: depositBucket.version");
+    expect(savingsBuckets).toContain("額外存入");
+    expect(savingsBuckets).toContain('source === "manual"');
+    expect(savingsBuckets).toContain("剩餘目標");
+  });
+
+  it("不在一般新增或編輯收支表單提供手動轉帳選項", () => {
+    expect(workspace).toContain('["expense", "income"].map(item');
+    expect(workspace).not.toContain('["expense", "income", "transfer"].map(item');
+  });
+
   it("在儲蓄目標首次達標時提供可減少動態效果的慶祝、封存與重新顯示流程", () => {
     expect(savingsBuckets).toContain('trpc.ledger.savings.archive.useMutation');
     expect(savingsBuckets).toContain('trpc.ledger.savings.restore.useMutation');
@@ -94,7 +107,7 @@ describe("Together Ledger 真實網頁帳本入口", () => {
   });
 
   it("提供可辨識的發布資訊與重新取得最新版本操作", () => {
-    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.1"');
+    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.2"');
     expect(footer).toContain("WEB_BUILD_TIMESTAMP");
     expect(footer).toContain("formatTaipeiTimestamp");
     expect(footer).toContain("重新載入最新版本");

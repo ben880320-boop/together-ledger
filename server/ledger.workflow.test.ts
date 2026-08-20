@@ -51,6 +51,7 @@ const mocks = vi.hoisted(() => ({
   stopSavingsBucket: vi.fn(),
   archiveSavingsBucket: vi.fn(),
   restoreSavingsBucket: vi.fn(),
+  addSavingsDeposit: vi.fn(),
 }));
 
 vi.mock("./db", () => mocks);
@@ -116,6 +117,7 @@ describe("typed ledger workflow contract", () => {
     mocks.createSavingsBucket.mockResolvedValue(31);
     mocks.updateSavingsBucket.mockResolvedValue({ id: 31, version: 2 });
     mocks.stopSavingsBucket.mockResolvedValue(31);
+    mocks.addSavingsDeposit.mockResolvedValue({ bucket: { id: 31, version: 3 }, allocation: { id: 41, source: "manual" } });
   });
 
   it("executes create and join ledger mutations through the typed router", async () => {
@@ -188,6 +190,22 @@ describe("typed ledger workflow contract", () => {
     expect(mocks.createTransaction).toHaveBeenLastCalledWith(
       expect.objectContaining({ userId: 1, splitType: "amount" }),
     );
+  });
+
+  it("rejects a user-created transfer at the typed transaction boundary", async () => {
+    const caller = appRouter.createCaller(createTestContext());
+    await expect(caller.ledger.createTransaction({
+      ledgerId: 1,
+      payerId: 1,
+      amount: 500,
+      type: "transfer",
+      categoryId: 11,
+      paymentMethodId: 12,
+      date: "2026-08-21T12:00:00.000Z",
+      splitType: "none",
+      splits: [],
+    } as any)).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(mocks.createTransaction).not.toHaveBeenCalled();
   });
 
   it("forwards ledger rename, direct ownership transfer, and independent travel plans", async () => {
@@ -333,6 +351,24 @@ describe("typed ledger workflow contract", () => {
       priority: 0,
       isActive: true,
     })).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("creates a manual savings deposit through the authorized, optimistic-lock route", async () => {
+    const caller = appRouter.createCaller(createTestContext());
+    await caller.ledger.savings.addDeposit({ ledgerId: 1, bucketId: 31, expectedVersion: 2, amount: 3_000 });
+    expect(mocks.addSavingsDeposit).toHaveBeenCalledWith(expect.objectContaining({
+      ledgerId: 1,
+      bucketId: 31,
+      expectedVersion: 2,
+      amount: 3_000,
+      userId: 1,
+    }));
+  });
+
+  it("returns a conflict rather than silently repeating a manual savings deposit", async () => {
+    const caller = appRouter.createCaller(createTestContext());
+    mocks.addSavingsDeposit.mockRejectedValueOnce(new Error("SAVINGS_BUCKET_CONFLICT"));
+    await expect(caller.ledger.savings.addDeposit({ ledgerId: 1, bucketId: 31, expectedVersion: 2, amount: 3_000 })).rejects.toMatchObject({ code: "CONFLICT" });
   });
 
   it("archives completed savings buckets and restores them through the authorized optimistic-lock route", async () => {

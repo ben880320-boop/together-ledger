@@ -946,6 +946,99 @@ export async function restoreSavingsBucket(input: { id: number; ledgerId: number
   return input.id;
 }
 
+/**
+ * Records a user-confirmed extra deposit as an immutable transfer and allocation audit row.
+ * The bucket version is advanced in the same transaction, so a retry or concurrent write
+ * cannot double-deposit against the same client-visible balance.
+ */
+export async function addSavingsDeposit(input: {
+  ledgerId: number;
+  bucketId: number;
+  expectedVersion: number;
+  amount: number;
+  userId: number;
+}) {
+  const db = requireDb();
+  const amount = Math.trunc(input.amount);
+  if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error("額外存入金額必須為大於零的整數。");
+
+  const now = new Date();
+  const { month } = taipeiMonthAndDay(now);
+  const categoryId = await ensureSavingsTransferCategoryId(input.ledgerId);
+
+  return db.transaction(async tx => {
+    const [bucket] = await tx.select().from(savingsBuckets)
+      .where(and(eq(savingsBuckets.id, input.bucketId), eq(savingsBuckets.ledgerId, input.ledgerId)))
+      .limit(1);
+    if (!bucket) throw new Error("找不到儲蓄桶。");
+    if (bucket.version !== input.expectedVersion) throw new Error("SAVINGS_BUCKET_CONFLICT");
+    if (bucket.isArchived) throw new Error("已封存的儲蓄桶無法額外存入，請先重新顯示此目標。");
+
+    const [payment, savedRows, currentTransactions] = await Promise.all([
+      tx.select({ id: paymentMethods.id }).from(paymentMethods)
+        .where(and(eq(paymentMethods.id, bucket.paymentMethodId), eq(paymentMethods.ledgerId, input.ledgerId), eq(paymentMethods.isActive, 1)))
+        .limit(1),
+      tx.select({ total: sql<number>`COALESCE(SUM(${savingsAllocations.allocatedAmount}), 0)` }).from(savingsAllocations)
+        .where(and(eq(savingsAllocations.ledgerId, input.ledgerId), eq(savingsAllocations.bucketId, bucket.id))),
+      tx.select({ type: transactions.type, amount: transactions.amount }).from(transactions)
+        .where(eq(transactions.ledgerId, input.ledgerId)),
+    ]);
+
+    if (!payment[0]) throw new Error("此儲蓄桶的扣款支付方式已停用，請先在設定中啟用或更換支付方式。");
+    const savedAmount = Number(savedRows[0]?.total ?? 0);
+    const remainingAmount = Math.max(0, Number(bucket.targetAmount) - savedAmount);
+    if (remainingAmount <= 0) throw new Error("此儲蓄桶已達成目標，無法再額外存入。");
+    if (amount > remainingAmount) throw new Error(`額外存入不可超過剩餘目標 ${remainingAmount}。`);
+
+    const availableAmount = Math.max(0, currentTransactions.reduce(
+      (total, row) => total + (row.type === "income" ? Number(row.amount) : -Number(row.amount)),
+      0,
+    ));
+    if (amount > availableAmount) throw new Error(`帳本可用餘額不足，目前可存入 ${availableAmount}。`);
+
+    const transactionResult = await tx.insert(transactions).values({
+      ledgerId: input.ledgerId,
+      userId: input.userId,
+      payerId: input.userId,
+      amount,
+      type: "transfer",
+      savingsBucketId: bucket.id,
+      categoryId,
+      paymentMethodId: bucket.paymentMethodId,
+      date: now,
+      note: `[儲蓄桶:${bucket.id}:manual] ${bucket.name} 額外存入`,
+      splitType: "none",
+    });
+    const transactionId = Number(transactionResult[0].insertId);
+    const allocationResult = await tx.insert(savingsAllocations).values({
+      ledgerId: input.ledgerId,
+      bucketId: bucket.id,
+      transactionId,
+      month,
+      scheduledAmount: amount,
+      allocatedAmount: amount,
+      shortfallAmount: 0,
+      status: "completed",
+      source: "manual",
+      idempotencyKey: `savings:manual:${bucket.id}:v${input.expectedVersion}`,
+    });
+    const allocationId = Number(allocationResult[0].insertId);
+    const versionResult = await tx.update(savingsBuckets).set({ version: bucket.version + 1 })
+      .where(and(eq(savingsBuckets.id, bucket.id), eq(savingsBuckets.ledgerId, input.ledgerId), eq(savingsBuckets.version, input.expectedVersion)));
+    if (Number(versionResult[0]?.affectedRows ?? 0) !== 1) throw new Error("SAVINGS_BUCKET_CONFLICT");
+    await tx.insert(activityLogs).values({
+      ledgerId: input.ledgerId,
+      userId: input.userId,
+      action: "create",
+      entityType: "savingsAllocation",
+      entityId: allocationId,
+      summary: `額外存入 ${bucket.name}`,
+      metadata: JSON.stringify({ bucketId: bucket.id, transactionId, amount, source: "manual" }),
+    });
+    return { bucketId: bucket.id, allocationId, transactionId, amount, source: "manual" as const };
+  });
+}
+
 async function ensureSavingsTransferCategoryId(ledgerId: number) {
   const db = requireDb();
   const existing = await db.select({ id: categories.id }).from(categories)
@@ -1023,6 +1116,7 @@ export async function runDueSavingsAllocations(now = new Date()) {
           allocatedAmount,
           shortfallAmount,
           status,
+          source: "automatic",
           idempotencyKey,
         });
         await tx.insert(activityLogs).values({

@@ -771,6 +771,7 @@ type SavingsAllocation = {
   allocatedAmount: number;
   shortfallAmount: number;
   status: "completed" | "partial" | "skipped";
+  source?: "automatic" | "manual";
   idempotencyKey: string;
 };
 const isSavingsTransfer = (
@@ -910,6 +911,7 @@ function AppContent() {
   const [showArchivedSavings, setShowArchivedSavings] = useState(false);
   const [savingsCelebrationBucket, setSavingsCelebrationBucket] = useState<SavingsBucket | null>(null);
   const [savingsHistoryBucket, setSavingsHistoryBucket] = useState<SavingsBucket | null>(null);
+  const [savingsDepositBucket, setSavingsDepositBucket] = useState<SavingsBucket | null>(null);
   const [savingsAllocations, setSavingsAllocations] = useState<SavingsAllocation[]>([]);
   const [savingsHistoryLoading, setSavingsHistoryLoading] = useState(false);
   const celebratedSavingsBucketKeysRef = useRef(new Set<string>());
@@ -1719,6 +1721,29 @@ function AppContent() {
       if (requestId === savingsHistoryRequestRef.current) setSavingsHistoryLoading(false);
     }
   };
+  const submitSavingsDeposit = async (bucket: SavingsBucket, amount: number) => {
+    if (!activeLedger) return;
+    const mutationKey = `savings-manual-deposit-${bucket.id}-${bucket.version}-${amount}`;
+    if (mutationGuardRef.current.has(mutationKey)) return;
+    mutationGuardRef.current.add(mutationKey);
+    setBusy(true);
+    try {
+      await api.ledger.savings.addDeposit.mutate({
+        ledgerId: activeLedger.id,
+        bucketId: bucket.id,
+        expectedVersion: bucket.version,
+        amount,
+      });
+      setSavingsDepositBucket(null);
+      await reloadLedger(activeLedger.id);
+      showToast(`已額外存入 ${money(amount)}，並建立正式轉存紀錄。`);
+    } catch (depositError) {
+      setError(savingsBucketErrorMessage(depositError, "額外存入失敗。請確認可用餘額後重試。"));
+    } finally {
+      setBusy(false);
+      mutationGuardRef.current.delete(mutationKey);
+    }
+  };
   const stopSavingsBucket = (bucket: SavingsBucket) => {
     if (!activeLedger) return;
     setConfirmRequest({
@@ -2071,6 +2096,7 @@ function AppContent() {
         onArchiveSavingsBucket={archiveSavingsBucket}
         onRestoreSavingsBucket={restoreSavingsBucket}
         onSavingsHistory={openSavingsHistory}
+        onSavingsDeposit={bucket => setSavingsDepositBucket(bucket)}
         onMoveSavingsBucket={moveSavingsBucketPriority}
         showArchivedSavings={showArchivedSavings}
         onToggleArchivedSavings={() => setShowArchivedSavings(current => !current)}
@@ -2316,6 +2342,12 @@ function AppContent() {
           setSavingsHistoryLoading(false);
         }}
         onRetry={() => savingsHistoryBucket && void openSavingsHistory(savingsHistoryBucket)}
+      />
+      <SavingsDepositModal
+        visible={Boolean(savingsDepositBucket)}
+        bucket={savingsDepositBucket}
+        onClose={() => setSavingsDepositBucket(null)}
+        onSubmit={amount => savingsDepositBucket ? submitSavingsDeposit(savingsDepositBucket, amount) : undefined}
       />
       <SavingsGoalCelebrationModal
         bucket={savingsCelebrationBucket}
@@ -3421,6 +3453,7 @@ function PlanningSection({
   onArchiveSavingsBucket,
   onRestoreSavingsBucket,
   onSavingsHistory,
+  onSavingsDeposit,
   onMoveSavingsBucket,
   showArchivedSavings,
   onToggleArchivedSavings,
@@ -3446,6 +3479,7 @@ function PlanningSection({
   onArchiveSavingsBucket: (bucket: SavingsBucket) => void;
   onRestoreSavingsBucket: (bucket: SavingsBucket) => void;
   onSavingsHistory: (bucket: SavingsBucket) => void;
+  onSavingsDeposit: (bucket: SavingsBucket) => void;
   onMoveSavingsBucket: (bucket: SavingsBucket, direction: -1 | 1) => void;
   showArchivedSavings: boolean;
   onToggleArchivedSavings: () => void;
@@ -3633,6 +3667,9 @@ function PlanningSection({
                     <Pressable accessibilityLabel={`查看${bucket.name}分配紀錄`} onPress={() => onSavingsHistory(bucket)} style={styles.rowActionButton}>
                       <MaterialCommunityIcons name="history" size={16} color={palette.muted} />
                     </Pressable>
+                    {bucket.isArchived === 0 && bucket.savedAmount < bucket.targetAmount && <Pressable accessibilityLabel={`額外存入${bucket.name}`} onPress={() => onSavingsDeposit(bucket)} style={styles.rowActionButton}>
+                      <MaterialCommunityIcons name="plus-circle-outline" size={17} color={palette.rose} />
+                    </Pressable>}
                     <Pressable disabled={bucket.isArchived !== 0 || index === 0} accessibilityLabel={`提高${bucket.name}的分配優先順序`} onPress={() => onMoveSavingsBucket(bucket, -1)} style={[styles.rowActionButton, (bucket.isArchived !== 0 || index === 0) && { opacity: 0.35 }]}>
                       <MaterialCommunityIcons name="chevron-up" size={17} color={palette.muted} />
                     </Pressable>
@@ -6310,10 +6347,10 @@ function SavingsAllocationHistoryModal({
             <Text style={styles.modalDescription}>每筆紀錄都對應正式轉存交易或本月分配結果；不足金額會保留在短缺欄位供追溯。</Text>
             {loading ? <ActivityIndicator color={palette.rose} style={{ marginVertical: 20 }} /> : allocations.length === 0 ? <EmptyInline text="目前尚無分配紀錄；排程執行後會顯示完成、部分分配或略過結果。" /> : allocations.map(item => (
               <View key={item.id} style={styles.recurringRow}>
-                <View style={styles.recurringIcon}><MaterialCommunityIcons name={item.status === "completed" ? "check-circle-outline" : item.status === "partial" ? "progress-alert" : "skip-next-circle-outline"} size={18} color={item.status === "completed" ? palette.sage : item.status === "partial" ? palette.orange : palette.muted} /></View>
+                <View style={styles.recurringIcon}><MaterialCommunityIcons name={item.source === "manual" ? "plus-circle-outline" : item.status === "completed" ? "check-circle-outline" : item.status === "partial" ? "progress-alert" : "skip-next-circle-outline"} size={18} color={item.source === "manual" ? palette.rose : item.status === "completed" ? palette.sage : item.status === "partial" ? palette.orange : palette.muted} /></View>
                 <View style={styles.memberPaymentName}>
-                  <Text style={styles.rowTitle}>{monthLabel(item.month)} · {statusLabel[item.status]}</Text>
-                  <Text style={styles.rowSubtitle}>應分配 {money(item.scheduledAmount)} · 實際 {money(item.allocatedAmount)} · 短缺 {money(item.shortfallAmount)}</Text>
+                  <Text style={styles.rowTitle}>{monthLabel(item.month)} · {item.source === "manual" ? "額外存入" : statusLabel[item.status]}</Text>
+                  <Text style={styles.rowSubtitle}>{item.source === "manual" ? "存入" : "應分配"} {money(item.scheduledAmount)} · 實際 {money(item.allocatedAmount)} · 短缺 {money(item.shortfallAmount)}</Text>
                 </View>
               </View>
             ))}
@@ -6324,6 +6361,67 @@ function SavingsAllocationHistoryModal({
           </View>
         </ScrollView>
       </View>
+    </Modal>
+  );
+}
+
+function SavingsDepositModal({
+  visible,
+  bucket,
+  onClose,
+  onSubmit,
+}: {
+  visible: boolean;
+  bucket: SavingsBucket | null;
+  onClose: () => void;
+  onSubmit: (amount: number) => void | Promise<void>;
+}) {
+  const [amount, setAmount] = useState("");
+  const [localError, setLocalError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  useEffect(() => {
+    if (!visible) return;
+    setAmount("");
+    setLocalError("");
+    setSubmitting(false);
+  }, [bucket?.id, visible]);
+  const submit = async () => {
+    const parsedAmount = Number(amount);
+    const remaining = bucket?.remainingAmount || 0;
+    if (!Number.isSafeInteger(parsedAmount) || parsedAmount <= 0) {
+      setLocalError("請輸入大於零的整數金額。");
+      return;
+    }
+    if (parsedAmount > remaining) {
+      setLocalError(`存入金額不可超過剩餘目標 ${money(remaining)}。`);
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await onSubmit(parsedAmount);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}>
+        <Pressable style={styles.modalDismiss} onPress={onClose} />
+        <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollableContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>額外存入</Text>
+            <Text style={styles.modalDescription}>將從「{bucket?.name || "儲蓄桶"}」設定的扣款支付方式建立正式轉存。這筆金額不會納入消費分析，且最多可存入 {money(bucket?.remainingAmount || 0)}。</Text>
+            <TextInput value={amount} onChangeText={setAmount} keyboardType="numeric" placeholder="額外存入金額" placeholderTextColor="#B9A69E" style={styles.input} autoFocus />
+            <Text style={styles.cardHint}>送出前會再次驗證帳本可用餘額、目標剩餘金額與儲蓄桶版本；同步衝突時不會重複扣款。</Text>
+            {!!localError && <Text style={styles.errorText}>{localError}</Text>}
+            <View style={styles.modalActionBar}>
+              <Pressable disabled={submitting || !bucket?.remainingAmount} onPress={() => void submit()} style={({ pressed }) => [styles.primaryButton, (pressed || submitting) && styles.pressed, (!bucket?.remainingAmount || submitting) && { opacity: 0.55 }]}><Text style={styles.primaryButtonText}>{submitting ? "存入中…" : "確認存入"}</Text></Pressable>
+              <Pressable disabled={submitting} onPress={onClose} style={styles.modalCancel}><Text style={styles.modalCancelText}>取消</Text></Pressable>
+            </View>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
