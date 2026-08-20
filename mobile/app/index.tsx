@@ -107,7 +107,7 @@ const appearanceDefaults: AppearancePreferences = {
   colorMode: "system",
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.3.0";
+const APP_VERSION = "1.3.2";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 const GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/ben880320-boop/together-ledger/releases/latest";
