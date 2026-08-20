@@ -6356,7 +6356,7 @@ function SavingsGoalCelebrationModal({
     <Modal visible={!!bucket} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.modalBackdrop}>
         <Pressable style={styles.modalDismiss} onPress={onClose} />
-        <View style={[styles.modalCard, { alignItems: "center" }]}> 
+        <View style={[styles.modalCard, { alignItems: "center" }]}>
           <View style={styles.modalHandle} />
           <Animated.View style={{ opacity, transform: [{ scale }] }}>
             <View style={{ width: 76, height: 76, borderRadius: 38, alignItems: "center", justifyContent: "center", backgroundColor: palette.roseSoft, borderWidth: 1, borderColor: palette.rose }}>
@@ -6367,7 +6367,7 @@ function SavingsGoalCelebrationModal({
           <Text style={[styles.modalDescription, { textAlign: "center" }]}>恭喜，你們已為「{bucket?.icon || "🎯"} {bucket?.name || "儲蓄桶"}」存滿 {money(bucket?.targetAmount || 0)}。這筆正式轉存與所有分配紀錄已完整保留。</Text>
           <Text style={{ color: palette.sage, fontWeight: "800", marginTop: 4 }}>✦ ✦ ✦ 100% 完成 ✦ ✦ ✦</Text>
           <Text style={[styles.rowSubtitle, { textAlign: "center", marginTop: 10 }]}>可先保留在規劃中，或封存以從預設清單隱藏；封存後可隨時重新顯示。</Text>
-          <View style={[styles.modalActionBar, { marginTop: 18 }]}> 
+          <View style={[styles.modalActionBar, { marginTop: 18 }]}>
             <Pressable onPress={onArchive} style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}><Text style={styles.primaryButtonText}>封存目標</Text></Pressable>
             <Pressable onPress={onClose} style={styles.modalCancel}><Text style={styles.modalCancelText}>先保留</Text></Pressable>
           </View>
