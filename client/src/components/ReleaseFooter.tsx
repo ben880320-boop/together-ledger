@@ -46,18 +46,18 @@ export function ReleaseFooter({ compact = false }: { compact?: boolean }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   return (
-    <footer className={compact ? "mt-8 border-t border-[#EADFD9] pt-5" : "mt-12 border-t border-[#E9DED8] bg-white/55"}>
-      <div className={compact ? "flex flex-col gap-3 text-xs text-[#87736B] sm:flex-row sm:items-center sm:justify-between" : "mx-auto flex w-full max-w-6xl flex-col gap-4 px-5 py-7 text-xs text-[#87736B] md:flex-row md:items-center md:justify-between md:px-8"}>
+    <footer className={compact ? "mt-8 border-t border-border pt-5" : "mt-12 border-t border-border bg-card/55"}>
+      <div className={compact ? "flex flex-col gap-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between" : "mx-auto flex w-full max-w-6xl flex-col gap-4 px-5 py-7 text-xs text-muted-foreground md:flex-row md:items-center md:justify-between md:px-8"}>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-          <span className="font-semibold text-[#684F48]">共帳 Together Ledger</span>
+          <span className="font-semibold text-foreground">共帳 Together Ledger</span>
           <span>網頁版 v{WEB_RELEASE_VERSION}</span>
-          <span className="hidden text-[#C5AEA5] sm:inline">•</span>
+          <span className="hidden text-muted-foreground/60 sm:inline">•</span>
           <span>本次發布：{formatTaipeiTimestamp(WEB_BUILD_TIMESTAMP)}</span>
-          <span className="hidden text-[#C5AEA5] sm:inline">•</span>
+          <span className="hidden text-muted-foreground/60 sm:inline">•</span>
           <span>建置已驗證</span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1 text-[#6D8A73]"><ShieldCheck size={14} />版本資訊已同步</span>
+          <span className="inline-flex items-center gap-1 text-[var(--scene-income)]"><ShieldCheck size={14} />版本資訊已同步</span>
           <Button
             type="button"
             size="sm"
@@ -67,7 +67,7 @@ export function ReleaseFooter({ compact = false }: { compact?: boolean }) {
               setIsRefreshing(true);
               void reloadLatestVersion();
             }}
-            className="h-8 rounded-lg border-[#DEC9C2] bg-white/80 px-3 text-xs font-semibold text-[#8C5862] hover:bg-white"
+            className="h-8 rounded-lg border-border bg-card/80 px-3 text-xs font-semibold text-primary hover:bg-accent"
           >
             <RefreshCw size={14} className={isRefreshing ? "mr-1.5 animate-spin" : "mr-1.5"} />
             {isRefreshing ? "正在取得最新版" : "重新載入最新版本"}

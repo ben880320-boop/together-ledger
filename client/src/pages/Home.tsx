@@ -279,7 +279,7 @@ function LoginLanding({ onLogin }: { onLogin: () => void }) {
     { version: "1.2.8.6", date: "前一版", title: "續傳下載與設定重整", detail: "支援更新下載中斷後續傳，並重整個人設定的更新與下載專區。" },
     { version: "1.2.8.5", date: "前一版", title: "更新資訊與輸入體驗", detail: "改善鍵盤避讓、固定收支、分類管理及更新內容顯示。" },
   ];
-  return <div className="min-h-screen overflow-hidden bg-[#F7F4F1] text-[#302724]">
+  return <div className="web-public-landing min-h-screen overflow-hidden bg-background text-foreground">
     <div className="pointer-events-none absolute inset-x-0 top-0 h-[520px] bg-[radial-gradient(circle_at_18%_8%,rgba(244,204,207,0.88),transparent_31%),radial-gradient(circle_at_82%_19%,rgba(209,225,216,0.9),transparent_29%),linear-gradient(145deg,#fffaf7_0%,#f5ece8_55%,#efece9_100%)]" />
     <header className="relative mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-6 md:px-8">
       <div className="flex items-center gap-3"><div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-[#B56C78] text-white shadow-[0_12px_28px_rgba(181,108,120,0.28)]"><Heart size={21} fill="currentColor" /></div><div><div className="font-serif text-[22px] font-semibold tracking-[0.02em]">共帳</div><div className="text-[10px] tracking-[0.22em] text-[#9B817B]">TOGETHER LEDGER</div></div></div>
