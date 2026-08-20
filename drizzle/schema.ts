@@ -142,6 +142,8 @@ export const savingsBuckets = mysqlTable("savingsBuckets", {
   dayOfMonth: int("dayOfMonth").default(1).notNull(),
   priority: int("priority").default(0).notNull(),
   isActive: int("isActive").default(1).notNull(),
+  /** Archived goals are hidden from the default planning view and never receive new allocations. */
+  isArchived: int("isArchived").default(0).notNull(),
   version: int("version").default(1).notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

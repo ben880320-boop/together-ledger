@@ -58,6 +58,8 @@ import {
   createSavingsBucket,
   updateSavingsBucket,
   stopSavingsBucket,
+  archiveSavingsBucket,
+  restoreSavingsBucket,
 } from "./db";
 import { TRPCError } from "@trpc/server";
 import { invokeLLM } from "./_core/llm";
@@ -633,6 +635,32 @@ export const appRouter = router({
             if (error instanceof Error && error.message === "SAVINGS_BUCKET_CONFLICT") {
               throw new TRPCError({ code: "CONFLICT", message: "此儲蓄桶已被其他成員修改，請重新整理後再編輯。" });
             }
+            throw error;
+          }
+        }),
+      archive: protectedProcedure
+        .input(z.object({ ledgerId: z.number().int().positive(), bucketId: z.number().int().positive(), expectedVersion: z.number().int().positive() }))
+        .mutation(async ({ ctx, input }) => {
+          await requireLedger(input.ledgerId, ctx.user.id);
+          try {
+            const id = await archiveSavingsBucket({ ledgerId: input.ledgerId, id: input.bucketId, expectedVersion: input.expectedVersion });
+            await logActivity({ ledgerId: input.ledgerId, userId: ctx.user.id, action: "update", entityType: "savingsBucket", entityId: id, summary: "封存已達標儲蓄桶" });
+            return id;
+          } catch (error) {
+            if (error instanceof Error && error.message === "SAVINGS_BUCKET_CONFLICT") throw new TRPCError({ code: "CONFLICT", message: "此儲蓄桶已被其他成員修改，請重新整理後再編輯。" });
+            throw error;
+          }
+        }),
+      restore: protectedProcedure
+        .input(z.object({ ledgerId: z.number().int().positive(), bucketId: z.number().int().positive(), expectedVersion: z.number().int().positive() }))
+        .mutation(async ({ ctx, input }) => {
+          await requireLedger(input.ledgerId, ctx.user.id);
+          try {
+            const id = await restoreSavingsBucket({ ledgerId: input.ledgerId, id: input.bucketId, expectedVersion: input.expectedVersion });
+            await logActivity({ ledgerId: input.ledgerId, userId: ctx.user.id, action: "update", entityType: "savingsBucket", entityId: id, summary: "重新顯示已封存儲蓄桶" });
+            return id;
+          } catch (error) {
+            if (error instanceof Error && error.message === "SAVINGS_BUCKET_CONFLICT") throw new TRPCError({ code: "CONFLICT", message: "此儲蓄桶已被其他成員修改，請重新整理後再編輯。" });
             throw error;
           }
         }),

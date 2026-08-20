@@ -240,9 +240,9 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
       expo?: { version?: string; scheme?: string; android?: { versionCode?: number } };
     };
-    expect(appJson.expo?.version).toBe("1.3.0");
-    expect(appJson.expo?.android?.versionCode).toBe(23);
-    expect(readMobile("package.json")).toContain('"version": "1.3.0"');
+    expect(appJson.expo?.version).toBe("1.3.1");
+    expect(appJson.expo?.android?.versionCode).toBe(24);
+    expect(readMobile("package.json")).toContain('"version": "1.3.1"');
     expect(appJson.expo?.scheme).toBe("togetherledger");
     expect(readMobile("app.json")).not.toContain("expo-notifications");
     expect(readMobile("app.json")).toContain('"googleServicesFile": "./google-services.json"');

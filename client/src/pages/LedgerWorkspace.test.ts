@@ -71,8 +71,25 @@ describe("Together Ledger 真實網頁帳本入口", () => {
     expect(savingsBuckets).toContain("shortfallAmount");
   });
 
+  it("在儲蓄目標首次達標時提供可減少動態效果的慶祝、封存與重新顯示流程", () => {
+    expect(savingsBuckets).toContain('trpc.ledger.savings.archive.useMutation');
+    expect(savingsBuckets).toContain('trpc.ledger.savings.restore.useMutation');
+    expect(savingsBuckets).toContain("目標達成！");
+    expect(savingsBuckets).toContain("封存此目標");
+    expect(savingsBuckets).toContain("重新顯示");
+    expect(savingsBuckets).toContain("motion-reduce:animate-none");
+    expect(savingsBuckets).toContain("together-ledger:savings-completed:");
+  });
+
+  it("將所有帳本輸入對話框維持在穩定快照中，避免背景同步覆寫未提交文字", () => {
+    expect(workspace).toContain("function StableFormDialog");
+    expect(workspace).toContain("propsSnapshot.current = props");
+    expect(workspace).toContain("<StableFormDialog");
+    expect(savingsBuckets).toContain("}, [open, bucket?.id]);");
+  });
+
   it("提供可辨識的發布資訊與重新取得最新版本操作", () => {
-    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.0"');
+    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.1"');
     expect(footer).toContain("WEB_BUILD_TIMESTAMP");
     expect(footer).toContain("formatTaipeiTimestamp");
     expect(footer).toContain("重新載入最新版本");
