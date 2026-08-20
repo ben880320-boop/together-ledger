@@ -3678,7 +3678,7 @@ function PlanningSection({
                     </Pressable>
                     {bucket.isArchived === 0 && <Pressable accessibilityLabel={`編輯${bucket.name}`} onPress={() => onEditSavingsBucket(bucket)} style={styles.rowActionButton}>
                       <MaterialCommunityIcons name="pencil-outline" size={16} color={palette.muted} />
-                    </Pressable>
+                    </Pressable>}
                     {bucket.isArchived !== 0 ? (
                       <Pressable accessibilityLabel={`重新顯示${bucket.name}`} onPress={() => onRestoreSavingsBucket(bucket)} style={styles.rowActionButton}>
                         <MaterialCommunityIcons name="archive-arrow-up-outline" size={17} color={palette.sage} />
