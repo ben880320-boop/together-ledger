@@ -1740,6 +1740,36 @@ function AppContent() {
       },
     });
   };
+  const moveSavingsBucketPriority = async (bucket: SavingsBucket, direction: -1 | 1) => {
+    if (!activeLedger) return;
+    const ordered = [...savingsBuckets].sort((a, b) => a.priority - b.priority || a.id - b.id);
+    const currentIndex = ordered.findIndex(item => item.id === bucket.id);
+    const targetIndex = currentIndex + direction;
+    if (currentIndex < 0 || targetIndex < 0 || targetIndex >= ordered.length) return;
+    const [moving] = ordered.splice(currentIndex, 1);
+    ordered.splice(targetIndex, 0, moving);
+    const updates = ordered.map((item, index) => ({ item, priority: index + 1 })).filter(({ item, priority }) => item.priority !== priority);
+    if (!updates.length) return;
+    const mutationKey = `savings-priority-${updates.map(({ item }) => `${item.id}-${item.version}`).join("-")}`;
+    if (mutationGuardRef.current.has(mutationKey)) return;
+    mutationGuardRef.current.add(mutationKey);
+    setBusy(true);
+    try {
+      await Promise.all(updates.map(({ item, priority }) => api.ledger.savings.update.mutate({
+        ledgerId: activeLedger.id, bucketId: item.id, expectedVersion: item.version, paymentMethodId: item.paymentMethodId,
+        name: item.name, icon: item.icon, targetAmount: item.targetAmount, monthlyAmount: item.monthlyAmount,
+        dayOfMonth: item.dayOfMonth, priority, isActive: item.isActive !== 0,
+      })));
+      await reloadLedger(activeLedger.id);
+      showToast("儲蓄桶優先順序已更新。 ");
+    } catch (priorityError) {
+      setError(savingsBucketErrorMessage(priorityError, "調整儲蓄桶優先順序失敗。請重新整理後再試。"));
+      await reloadLedger(activeLedger.id);
+    } finally {
+      setBusy(false);
+      mutationGuardRef.current.delete(mutationKey);
+    }
+  };
   const removeBudget = (budget: Budget) => {
     const category = categories.find(item => item.id === budget.categoryId);
     const label = budget.categoryId === 0 ? "每月總預算" : `${category?.icon || "◌"} ${category?.name || "分類預算"}`;
@@ -1978,6 +2008,7 @@ function AppContent() {
         onEditSavingsBucket={openSavingsBucketEditor}
         onStopSavingsBucket={stopSavingsBucket}
         onSavingsHistory={openSavingsHistory}
+        onMoveSavingsBucket={moveSavingsBucketPriority}
       />
     ) : (
       <SettingsSection
@@ -3314,6 +3345,7 @@ function PlanningSection({
   onEditSavingsBucket,
   onStopSavingsBucket,
   onSavingsHistory,
+  onMoveSavingsBucket,
 }: {
   analytics: Analytics | null;
   budgets: Budget[];
@@ -3334,6 +3366,7 @@ function PlanningSection({
   onEditSavingsBucket: (bucket: SavingsBucket) => void;
   onStopSavingsBucket: (bucket: SavingsBucket) => void;
   onSavingsHistory: (bucket: SavingsBucket) => void;
+  onMoveSavingsBucket: (bucket: SavingsBucket, direction: -1 | 1) => void;
 }) {
   const { palette } = useAppearance();
   const totalBudget = budgets.find(item => item.categoryId === 0);
@@ -3497,7 +3530,7 @@ function PlanningSection({
         {savingsBuckets.length === 0 ? (
           <EmptyInline text="建立買車、旅行或其他目標；系統會依優先順序按月正式轉存。" />
         ) : (
-          savingsBuckets.map(bucket => {
+          [...savingsBuckets].sort((a, b) => a.priority - b.priority || a.id - b.id).map((bucket, index, orderedBuckets) => {
             const payment = paymentMethods.find(item => item.id === bucket.paymentMethodId);
             const percent = bucket.targetAmount > 0
               ? Math.min(100, Math.round((bucket.savedAmount / bucket.targetAmount) * 100))
@@ -3514,6 +3547,12 @@ function PlanningSection({
                   <View style={styles.transactionActions}>
                     <Pressable accessibilityLabel={`查看${bucket.name}分配紀錄`} onPress={() => onSavingsHistory(bucket)} style={styles.rowActionButton}>
                       <MaterialCommunityIcons name="history" size={16} color={palette.muted} />
+                    </Pressable>
+                    <Pressable disabled={index === 0} accessibilityLabel={`提高${bucket.name}的分配優先順序`} onPress={() => onMoveSavingsBucket(bucket, -1)} style={[styles.rowActionButton, index === 0 && { opacity: 0.35 }]}>
+                      <MaterialCommunityIcons name="chevron-up" size={17} color={palette.muted} />
+                    </Pressable>
+                    <Pressable disabled={index === orderedBuckets.length - 1} accessibilityLabel={`降低${bucket.name}的分配優先順序`} onPress={() => onMoveSavingsBucket(bucket, 1)} style={[styles.rowActionButton, index === orderedBuckets.length - 1 && { opacity: 0.35 }]}>
+                      <MaterialCommunityIcons name="chevron-down" size={17} color={palette.muted} />
                     </Pressable>
                     <Pressable accessibilityLabel={`編輯${bucket.name}`} onPress={() => onEditSavingsBucket(bucket)} style={styles.rowActionButton}>
                       <MaterialCommunityIcons name="pencil-outline" size={16} color={palette.muted} />
