@@ -6,7 +6,7 @@ const homePage = readFileSync(fileURLToPath(new URL("./Home.tsx", import.meta.ur
 
 describe("Together Ledger 網頁產品入口", () => {
   it("同步顯示 Android App 版本、更新歷程與跨裝置使用引導", () => {
-    expect(homePage).toContain("1.2.9.1");
+    expect(homePage).toContain("1.2.9.2");
     expect(homePage).toContain("更新歷程");
     expect(homePage).toContain("iOS");
     expect(homePage).toContain("Android");

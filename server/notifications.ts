@@ -21,6 +21,10 @@ type NotificationPreferenceFlags = {
 };
 
 const expoPushEndpoint = "https://exp.host/--/api/v2/push/send";
+/**
+ * 使用者要求暫停所有通知功能；保留資料結構與投遞實作，日後完成 FCM 憑證設定後可再啟用。
+ */
+export const NOTIFICATIONS_ENABLED = false;
 
 export function shouldNotifyTransaction(preference: NotificationPreferenceFlags, type: "income" | "expense" | "transfer", amount: number) {
   if (type === "transfer" || amount < preference.minimumAmount) return false;
@@ -36,6 +40,7 @@ function currency(amount: number) {
 }
 
 export async function dispatchExpoPush(userId: number, title: string, body: string, data: Record<string, unknown>) {
+  if (!NOTIFICATIONS_ENABLED) return { delivered: 0, skipped: "notifications-disabled" as const };
   const devices = await getActivePushTokens(userId);
   if (devices.length === 0) return { delivered: 0 };
 
@@ -84,6 +89,7 @@ export async function dispatchExpoPush(userId: number, title: string, body: stri
 }
 
 async function createAndSend(input: { userId: number; ledgerId?: number; kind: NotificationKind; title: string; body: string; dedupeKey: string; data: Record<string, unknown> }) {
+  if (!NOTIFICATIONS_ENABLED) return { created: false, delivered: 0, skipped: "notifications-disabled" as const };
   const saved = await createAppNotification(input);
   if (!saved.created) return { created: false, delivered: 0 };
   const sent = await dispatchExpoPush(input.userId, input.title, input.body, input.data);
@@ -97,6 +103,7 @@ function taipeiMonth(date: Date) {
 }
 
 export async function notifyBudgetThresholds(input: { ledgerId: number; ledgerName: string; actorUserId: number; transactionId: number; transactionDate: Date }) {
+  if (!NOTIFICATIONS_ENABLED) return;
   const month = taipeiMonth(input.transactionDate);
   const [members, usages] = await Promise.all([getLedgerMembers(input.ledgerId), getBudgetUsage(input.ledgerId, month)]);
   if (usages.length === 0) return;
@@ -132,6 +139,7 @@ export async function notifyLedgerMembersAboutTransaction(input: {
   amount: number;
   note?: string;
 }) {
+  if (!NOTIFICATIONS_ENABLED) return;
   if (input.type === "transfer") return;
   const members = (await getLedgerMembers(input.ledgerId)) ?? [];
   const kind = input.type === "income" ? "income" : "expense";
@@ -154,6 +162,7 @@ export async function notifyLedgerMembersAboutTransaction(input: {
 }
 
 export async function processMonthlySettlementReminders(now = new Date(), userId?: number) {
+  if (!NOTIFICATIONS_ENABLED) return { created: 0 };
   const taipeiDate = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit",
   }).formatToParts(now);
@@ -190,6 +199,7 @@ export async function processMonthlySettlementReminders(now = new Date(), userId
 }
 
 export async function processMonthlySettlementReminderForTask(taskUid: string, now = new Date()) {
+  if (!NOTIFICATIONS_ENABLED) return { created: 0, skipped: "notifications-disabled" as const };
   const preference = await getNotificationPreferencesByScheduleTaskUid(taskUid);
   if (!preference || preference.monthlySettlementEnabled !== 1) return { created: 0, skipped: "inactive-or-orphan" as const };
   return processMonthlySettlementReminders(now, preference.userId);

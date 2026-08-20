@@ -4,7 +4,6 @@ import type { TrpcContext } from "./_core/context";
 const mocks = vi.hoisted(() => ({
   getPreferences: vi.fn(),
   updatePreferences: vi.fn(),
-  saveTaskUid: vi.fn(),
   upsertPushDevice: vi.fn(),
   getLedgerAccess: vi.fn(),
   createTransaction: vi.fn(),
@@ -12,7 +11,6 @@ const mocks = vi.hoisted(() => ({
   getLedgerMembers: vi.fn(),
   createAppNotification: vi.fn(),
   getActivePushTokens: vi.fn(),
-  disablePushDevice: vi.fn(),
 }));
 
 vi.mock("./db", async importOriginal => {
@@ -21,7 +19,6 @@ vi.mock("./db", async importOriginal => {
     ...actual,
     getNotificationPreferences: mocks.getPreferences,
     updateNotificationPreferences: mocks.updatePreferences,
-    updateNotificationScheduleTaskUid: mocks.saveTaskUid,
     upsertPushDevice: mocks.upsertPushDevice,
     getLedgerAccess: mocks.getLedgerAccess,
     createTransaction: mocks.createTransaction,
@@ -29,7 +26,6 @@ vi.mock("./db", async importOriginal => {
     getLedgerMembers: mocks.getLedgerMembers,
     createAppNotification: mocks.createAppNotification,
     getActivePushTokens: mocks.getActivePushTokens,
-    disablePushDevice: mocks.disablePushDevice,
   };
 });
 
@@ -39,7 +35,7 @@ function createContext(): TrpcContext {
   return {
     user: {
       id: 7,
-      openId: "full-notification-flow",
+      openId: "notification-suspension-flow",
       email: "flow@example.com",
       name: "流程測試者",
       loginMethod: "manus",
@@ -53,49 +49,32 @@ function createContext(): TrpcContext {
   };
 }
 
-describe("notification full router-to-delivery flow", () => {
+describe("notification suspension end-to-end flow", () => {
   afterEach(() => {
     vi.resetAllMocks();
     vi.unstubAllGlobals();
   });
 
-  it("handles device token lifecycle and delivers a qualifying expense after preference setup", async () => {
-    const preference = {
-      id: 1, userId: 7, incomeEnabled: 0, expenseEnabled: 1, minimumAmount: 300,
-      monthlySettlementEnabled: 0, monthlyReminderDay: 15, scheduleCronTaskUid: null,
-      createdAt: new Date(), updatedAt: new Date(),
-    };
-    const devices = [{ expoPushToken: "ExponentPushToken[old]", isActive: 0 }];
-    mocks.getPreferences.mockResolvedValue(preference);
-    mocks.updatePreferences.mockResolvedValue(preference);
-    mocks.upsertPushDevice.mockImplementation(async (input: { expoPushToken: string }) => {
-      const existing = devices.find(device => device.expoPushToken === input.expoPushToken);
-      if (existing) existing.isActive = 1;
-      else devices.push({ expoPushToken: input.expoPushToken, isActive: 1 });
-      return existing ? "refreshed" : "created";
-    });
+  it("keeps a valid expense write free from notification side effects", async () => {
     mocks.getLedgerAccess.mockResolvedValue({ ledger: { id: 9, name: "共同生活帳本" }, member: { role: "admin" } });
     mocks.createTransaction.mockResolvedValue(81);
     mocks.logActivity.mockResolvedValue(undefined);
-    mocks.getLedgerMembers.mockResolvedValue([{ user: { id: 7 } }, { user: { id: 8 } }]);
-    mocks.createAppNotification.mockResolvedValue({ created: true, id: 22 });
-    mocks.getActivePushTokens.mockResolvedValue([{ token: "ExponentPushToken[new]" }]);
-    mocks.disablePushDevice.mockResolvedValue(undefined);
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: [{ status: "ok" }] }) }));
+    const fetch = vi.fn();
+    vi.stubGlobal("fetch", fetch);
 
     const caller = appRouter.createCaller(createContext());
-    await caller.notifications.updatePreferences({
+    await expect(caller.notifications.updatePreferences({
       incomeEnabled: false,
       expenseEnabled: true,
       minimumAmount: 300,
       monthlySettlementEnabled: false,
       monthlyReminderDay: 15,
-    });
-    await caller.notifications.registerDevice({ expoPushToken: "ExponentPushToken[old]", platform: "android" });
-    devices[0]!.isActive = 0; // Expo DeviceNotRegistered feedback leaves the old token disabled.
-    await caller.notifications.registerDevice({ expoPushToken: "ExponentPushToken[new]", platform: "android" });
-    await caller.notifications.registerDevice({ expoPushToken: "ExponentPushToken[new]", platform: "android" });
-    await caller.ledger.createTransaction({
+    })).resolves.toEqual({ success: true, disabled: true });
+    await expect(caller.notifications.registerDevice({
+      expoPushToken: "ExponentPushToken[disabled]", platform: "android",
+    })).resolves.toEqual({ success: true, disabled: true });
+
+    await expect(caller.ledger.createTransaction({
       ledgerId: 9,
       payerId: 7,
       amount: 300,
@@ -106,18 +85,15 @@ describe("notification full router-to-delivery flow", () => {
       note: "交通費",
       splitType: "none",
       splits: [],
-    });
+    })).resolves.toBe(81);
 
-    await vi.waitFor(() => expect(mocks.createAppNotification).toHaveBeenCalledWith(expect.objectContaining({
-      userId: 8,
-      dedupeKey: "transaction:81:user:8",
-      kind: "expense",
-    })));
-    expect(devices).toEqual([
-      { expoPushToken: "ExponentPushToken[old]", isActive: 0 },
-      { expoPushToken: "ExponentPushToken[new]", isActive: 1 },
-    ]);
-    expect(mocks.upsertPushDevice).toHaveBeenCalledTimes(3);
-    expect(fetch).toHaveBeenCalledWith("https://exp.host/--/api/v2/push/send", expect.objectContaining({ method: "POST" }));
+    expect(mocks.createTransaction).toHaveBeenCalledOnce();
+    expect(mocks.getPreferences).not.toHaveBeenCalled();
+    expect(mocks.updatePreferences).not.toHaveBeenCalled();
+    expect(mocks.upsertPushDevice).not.toHaveBeenCalled();
+    expect(mocks.getLedgerMembers).not.toHaveBeenCalled();
+    expect(mocks.createAppNotification).not.toHaveBeenCalled();
+    expect(mocks.getActivePushTokens).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
