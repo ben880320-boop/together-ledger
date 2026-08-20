@@ -33,6 +33,18 @@ function StableTransactionDialog(props: any) {
 
   return <TransactionDialog {...props} workspace={workspaceSnapshot.current} />;
 }
+function StableFormDialog({ DialogComponent, draftKey, ...props }: any) {
+  const propsSnapshot = useRef<any>(null);
+  const activeDraftKey = useRef<string | null>(null);
+  if (!props.open) {
+    propsSnapshot.current = null;
+    activeDraftKey.current = null;
+  } else if (!propsSnapshot.current || activeDraftKey.current !== draftKey) {
+    propsSnapshot.current = props;
+    activeDraftKey.current = draftKey;
+  }
+  return <DialogComponent {...propsSnapshot.current} />;
+}
 const workspaceSnapshotKey = (ledgerId: number) => `together-ledger-web-workspace-v1:${ledgerId}`;
 const money = (value: unknown) => `NT$ ${Math.round(Number(value) || 0).toLocaleString("zh-TW")}`;
 const isSavingsTransfer = (item: any) => item?.type === "transfer" && Number(item?.savingsBucketId || 0) > 0;
@@ -231,14 +243,14 @@ export default function LedgerWorkspace() {
           <ReleaseFooter compact />
         </main>
       </div>
-      <CreateLedgerDialog open={sheet === "ledger"} onClose={() => setSheet(null)} onSubmit={(input) => createLedger.mutate(input as any)} />
-      <TextDialog open={sheet === "join"} title="使用邀請碼加入帳本" description="加入後兩端會看到完全相同的帳本資料。" label="邀請碼" submit="加入帳本" onClose={() => setSheet(null)} onSubmit={(value: string) => joinLedger.mutate({ inviteCode: value.toUpperCase() } as any)} />
+      <StableFormDialog DialogComponent={CreateLedgerDialog} draftKey="create-ledger" open={sheet === "ledger"} onClose={() => setSheet(null)} onSubmit={(input: any) => createLedger.mutate(input)} />
+      <StableFormDialog DialogComponent={TextDialog} draftKey="join-ledger" open={sheet === "join"} title="使用邀請碼加入帳本" description="加入後兩端會看到完全相同的帳本資料。" label="邀請碼" submit="加入帳本" onClose={() => setSheet(null)} onSubmit={(value: string) => joinLedger.mutate({ inviteCode: value.toUpperCase() } as any)} />
       <StableTransactionDialog open={sheet === "transaction"} workspace={workspace} ledgerId={ledgerId!} editing={editing} onClose={() => { setSheet(null); setEditing(null); }} onCreate={(input: any) => createTransaction.mutate(input)} onUpdate={(input: any) => updateTransaction.mutate(input)} />
-      <BudgetDialog open={sheet === "budget" || sheet === "total-budget"} totalBudget={sheet === "total-budget"} workspace={workspace} ledgerId={ledgerId!} month={month} onClose={() => setSheet(null)} onSave={(input: any) => saveBudget.mutate(input)} />
-      <RecurringDialog open={sheet === "recurring"} workspace={workspace} ledgerId={ledgerId!} editing={sheet === "recurring" ? editing : null} onClose={() => { setSheet(null); setEditing(null); }} onSave={(input: any) => editing ? updateRecurring.mutate(input) : createRecurring.mutate(input)} />
-      <TravelDialog open={sheet === "travel"} ledgerId={ledgerId!} onClose={() => setSheet(null)} onSave={(input: any) => createTravel.mutate(input)} />
-      <EntityDialog open={sheet === "category" || sheet === "payment"} type={sheet === "payment" ? "payment" : "category"} ledgerId={ledgerId!} entity={editing} onClose={() => { setSheet(null); setEditing(null); }} onCategory={(input: any) => editing ? updateCategory.mutate(input) : createCategory.mutate(input)} onPayment={(input: any) => editing ? updatePayment.mutate(input) : createPayment.mutate(input)} />
-      <ManageDialog open={sheet === "manage"} ledger={ledger} workspace={workspace} userId={user.id} onClose={() => setSheet(null)} onRename={(input: { name: string; icon: string | null }) => rename.mutate({ ledgerId: ledgerId!, ...input } as any)} onTransfer={(targetUserId: number) => transfer.mutate({ ledgerId: ledgerId!, targetUserId } as any)} />
+      <StableFormDialog DialogComponent={BudgetDialog} draftKey={`${ledgerId}:${sheet}:${month}`} open={sheet === "budget" || sheet === "total-budget"} totalBudget={sheet === "total-budget"} workspace={workspace} ledgerId={ledgerId!} month={month} onClose={() => setSheet(null)} onSave={(input: any) => saveBudget.mutate(input)} />
+      <StableFormDialog DialogComponent={RecurringDialog} draftKey={`${ledgerId}:recurring:${editing?.id ?? "new"}`} open={sheet === "recurring"} workspace={workspace} ledgerId={ledgerId!} editing={sheet === "recurring" ? editing : null} onClose={() => { setSheet(null); setEditing(null); }} onSave={(input: any) => editing ? updateRecurring.mutate(input) : createRecurring.mutate(input)} />
+      <StableFormDialog DialogComponent={TravelDialog} draftKey={`${ledgerId}:travel:new`} open={sheet === "travel"} ledgerId={ledgerId!} onClose={() => setSheet(null)} onSave={(input: any) => createTravel.mutate(input)} />
+      <StableFormDialog DialogComponent={EntityDialog} draftKey={`${ledgerId}:${sheet}:${editing?.id ?? "new"}`} open={sheet === "category" || sheet === "payment"} type={sheet === "payment" ? "payment" : "category"} ledgerId={ledgerId!} entity={editing} onClose={() => { setSheet(null); setEditing(null); }} onCategory={(input: any) => editing ? updateCategory.mutate(input) : createCategory.mutate(input)} onPayment={(input: any) => editing ? updatePayment.mutate(input) : createPayment.mutate(input)} />
+      <StableFormDialog DialogComponent={ManageDialog} draftKey={`${ledgerId}:manage`} open={sheet === "manage"} ledger={ledger} workspace={workspace} userId={user.id} onClose={() => setSheet(null)} onRename={(input: { name: string; icon: string | null }) => rename.mutate({ ledgerId: ledgerId!, ...input } as any)} onTransfer={(targetUserId: number) => transfer.mutate({ ledgerId: ledgerId!, targetUserId } as any)} />
       <ConfirmDialog request={confirm} onClose={() => setConfirm(null)} />
     </div>
   );

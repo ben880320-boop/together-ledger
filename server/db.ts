@@ -916,6 +916,36 @@ export async function stopSavingsBucket(input: { id: number; ledgerId: number; e
   return input.id;
 }
 
+/** Archives a completed goal without deleting its transfer or allocation audit trail. */
+export async function archiveSavingsBucket(input: { id: number; ledgerId: number; expectedVersion: number }) {
+  const db = requireDb();
+  const [existing, totals] = await Promise.all([
+    db.select().from(savingsBuckets).where(and(eq(savingsBuckets.id, input.id), eq(savingsBuckets.ledgerId, input.ledgerId))).limit(1),
+    db.select({ total: sql<number>`COALESCE(SUM(${savingsAllocations.allocatedAmount}), 0)` }).from(savingsAllocations).where(and(eq(savingsAllocations.ledgerId, input.ledgerId), eq(savingsAllocations.bucketId, input.id))),
+  ]);
+  if (!existing[0]) throw new Error("找不到儲蓄桶。");
+  if (existing[0].version !== input.expectedVersion) throw new Error("SAVINGS_BUCKET_CONFLICT");
+  if (Number(totals[0]?.total ?? 0) < Number(existing[0].targetAmount)) throw new Error("只有已達成目標的儲蓄桶可以封存。");
+  const result = await db.update(savingsBuckets).set({ isArchived: 1, isActive: 0, version: existing[0].version + 1 })
+    .where(and(eq(savingsBuckets.id, input.id), eq(savingsBuckets.ledgerId, input.ledgerId), eq(savingsBuckets.version, input.expectedVersion), eq(savingsBuckets.isArchived, 0)));
+  if (Number(result[0]?.affectedRows ?? 0) !== 1) throw new Error("SAVINGS_BUCKET_CONFLICT");
+  return input.id;
+}
+
+/** Restores an archived goal to the planning view while keeping automatic allocations paused. */
+export async function restoreSavingsBucket(input: { id: number; ledgerId: number; expectedVersion: number }) {
+  const db = requireDb();
+  const existing = await db.select().from(savingsBuckets)
+    .where(and(eq(savingsBuckets.id, input.id), eq(savingsBuckets.ledgerId, input.ledgerId)))
+    .limit(1);
+  if (!existing[0]) throw new Error("找不到儲蓄桶。");
+  if (existing[0].version !== input.expectedVersion) throw new Error("SAVINGS_BUCKET_CONFLICT");
+  const result = await db.update(savingsBuckets).set({ isArchived: 0, version: existing[0].version + 1 })
+    .where(and(eq(savingsBuckets.id, input.id), eq(savingsBuckets.ledgerId, input.ledgerId), eq(savingsBuckets.version, input.expectedVersion), eq(savingsBuckets.isArchived, 1)));
+  if (Number(result[0]?.affectedRows ?? 0) !== 1) throw new Error("SAVINGS_BUCKET_CONFLICT");
+  return input.id;
+}
+
 async function ensureSavingsTransferCategoryId(ledgerId: number) {
   const db = requireDb();
   const existing = await db.select({ id: categories.id }).from(categories)
@@ -945,7 +975,7 @@ export async function runDueSavingsAllocations(now = new Date()) {
   const db = requireDb();
   const { month, day } = taipeiMonthAndDay(now);
   const buckets = await db.select().from(savingsBuckets)
-    .where(and(eq(savingsBuckets.isActive, 1), lte(savingsBuckets.dayOfMonth, day)))
+    .where(and(eq(savingsBuckets.isActive, 1), eq(savingsBuckets.isArchived, 0), lte(savingsBuckets.dayOfMonth, day)))
     .orderBy(asc(savingsBuckets.ledgerId), asc(savingsBuckets.priority), asc(savingsBuckets.createdAt));
   const results: Array<{ bucketId: number; status: "completed" | "partial" | "skipped"; allocatedAmount: number; shortfallAmount: number }> = [];
 

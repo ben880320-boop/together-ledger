@@ -756,6 +756,7 @@ type SavingsBucket = {
   dayOfMonth: number;
   priority: number;
   isActive: number;
+  isArchived: number;
   version: number;
   savedAmount: number;
   remainingAmount: number;
@@ -906,9 +907,12 @@ function AppContent() {
   const [savingsBuckets, setSavingsBuckets] = useState<SavingsBucket[]>([]);
   const [savingsBucketModal, setSavingsBucketModal] = useState(false);
   const [editingSavingsBucket, setEditingSavingsBucket] = useState<SavingsBucket | null>(null);
+  const [showArchivedSavings, setShowArchivedSavings] = useState(false);
+  const [savingsCelebrationBucket, setSavingsCelebrationBucket] = useState<SavingsBucket | null>(null);
   const [savingsHistoryBucket, setSavingsHistoryBucket] = useState<SavingsBucket | null>(null);
   const [savingsAllocations, setSavingsAllocations] = useState<SavingsAllocation[]>([]);
   const [savingsHistoryLoading, setSavingsHistoryLoading] = useState(false);
+  const celebratedSavingsBucketKeysRef = useRef(new Set<string>());
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [ledgerModal, setLedgerModal] = useState<"create" | "join" | null>(
     null
@@ -1740,6 +1744,43 @@ function AppContent() {
       },
     });
   };
+  const archiveSavingsBucket = (bucket: SavingsBucket) => {
+    if (!activeLedger) return;
+    if (bucket.savedAmount < bucket.targetAmount) {
+      setError("尚未達到儲蓄目標，無法封存。請保留目標直到完成，或先調整目標金額。");
+      return;
+    }
+    setConfirmRequest({
+      title: "封存已達標目標",
+      message: `要封存「${bucket.name}」嗎？它會從預設規劃清單隱藏並停止後續自動分配；所有轉存及分配紀錄都會保留，之後可隨時重新顯示。`,
+      confirmText: "確認封存",
+      onConfirm: async () => {
+        setBusy(true);
+        try {
+          await api.ledger.savings.archive.mutate({ ledgerId: activeLedger.id, bucketId: bucket.id, expectedVersion: bucket.version });
+          await reloadLedger(activeLedger.id);
+          showToast("已封存達標儲蓄桶。 ");
+        } catch (archiveError) {
+          setError(savingsBucketErrorMessage(archiveError, "封存儲蓄桶失敗。請稍後重試。"));
+        } finally {
+          setBusy(false);
+        }
+      },
+    });
+  };
+  const restoreSavingsBucket = async (bucket: SavingsBucket) => {
+    if (!activeLedger) return;
+    setBusy(true);
+    try {
+      await api.ledger.savings.restore.mutate({ ledgerId: activeLedger.id, bucketId: bucket.id, expectedVersion: bucket.version });
+      await reloadLedger(activeLedger.id);
+      showToast("儲蓄桶已重新顯示，並維持暫停自動分配。 ");
+    } catch (restoreError) {
+      setError(savingsBucketErrorMessage(restoreError, "重新顯示儲蓄桶失敗。請稍後重試。"));
+    } finally {
+      setBusy(false);
+    }
+  };
   const moveSavingsBucketPriority = async (bucket: SavingsBucket, direction: -1 | 1) => {
     if (!activeLedger) return;
     const ordered = [...savingsBuckets].sort((a, b) => a.priority - b.priority || a.id - b.id);
@@ -1770,6 +1811,26 @@ function AppContent() {
       mutationGuardRef.current.delete(mutationKey);
     }
   };
+  useEffect(() => {
+    if (!activeLedger || savingsCelebrationBucket) return;
+    const completed = savingsBuckets.find(bucket =>
+      bucket.isArchived === 0 && bucket.targetAmount > 0 && bucket.savedAmount >= bucket.targetAmount
+    );
+    if (!completed) return;
+    const key = `savings-goal-completed:${activeLedger.id}:${completed.id}`;
+    if (celebratedSavingsBucketKeysRef.current.has(key)) return;
+    celebratedSavingsBucketKeysRef.current.add(key);
+    let cancelled = false;
+    void AsyncStorage.getItem(key).then(value => {
+      if (!cancelled && value !== "1") {
+        setSavingsCelebrationBucket(completed);
+        void AsyncStorage.setItem(key, "1");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeLedger?.id, savingsBuckets, savingsCelebrationBucket]);
   const removeBudget = (budget: Budget) => {
     const category = categories.find(item => item.id === budget.categoryId);
     const label = budget.categoryId === 0 ? "每月總預算" : `${category?.icon || "◌"} ${category?.name || "分類預算"}`;
@@ -2007,8 +2068,12 @@ function AppContent() {
         onSavingsBucket={() => openSavingsBucketEditor()}
         onEditSavingsBucket={openSavingsBucketEditor}
         onStopSavingsBucket={stopSavingsBucket}
+        onArchiveSavingsBucket={archiveSavingsBucket}
+        onRestoreSavingsBucket={restoreSavingsBucket}
         onSavingsHistory={openSavingsHistory}
         onMoveSavingsBucket={moveSavingsBucketPriority}
+        showArchivedSavings={showArchivedSavings}
+        onToggleArchivedSavings={() => setShowArchivedSavings(current => !current)}
       />
     ) : (
       <SettingsSection
@@ -2251,6 +2316,15 @@ function AppContent() {
           setSavingsHistoryLoading(false);
         }}
         onRetry={() => savingsHistoryBucket && void openSavingsHistory(savingsHistoryBucket)}
+      />
+      <SavingsGoalCelebrationModal
+        bucket={savingsCelebrationBucket}
+        onClose={() => setSavingsCelebrationBucket(null)}
+        onArchive={() => {
+          const bucket = savingsCelebrationBucket;
+          setSavingsCelebrationBucket(null);
+          if (bucket) archiveSavingsBucket(bucket);
+        }}
       />
       <LedgerManageModal
         visible={ledgerManageModal !== null}
@@ -3344,8 +3418,12 @@ function PlanningSection({
   onSavingsBucket,
   onEditSavingsBucket,
   onStopSavingsBucket,
+  onArchiveSavingsBucket,
+  onRestoreSavingsBucket,
   onSavingsHistory,
   onMoveSavingsBucket,
+  showArchivedSavings,
+  onToggleArchivedSavings,
 }: {
   analytics: Analytics | null;
   budgets: Budget[];
@@ -3365,8 +3443,12 @@ function PlanningSection({
   onSavingsBucket: () => void;
   onEditSavingsBucket: (bucket: SavingsBucket) => void;
   onStopSavingsBucket: (bucket: SavingsBucket) => void;
+  onArchiveSavingsBucket: (bucket: SavingsBucket) => void;
+  onRestoreSavingsBucket: (bucket: SavingsBucket) => void;
   onSavingsHistory: (bucket: SavingsBucket) => void;
   onMoveSavingsBucket: (bucket: SavingsBucket, direction: -1 | 1) => void;
+  showArchivedSavings: boolean;
+  onToggleArchivedSavings: () => void;
 }) {
   const { palette } = useAppearance();
   const totalBudget = budgets.find(item => item.categoryId === 0);
@@ -3521,16 +3603,21 @@ function PlanningSection({
         <View style={styles.cardHeading}>
           <View>
             <Text style={styles.cardTitle}>儲蓄桶</Text>
-            <Text style={styles.cardHint}>正式轉存，不納入消費分析</Text>
+            <Text style={styles.cardHint}>{showArchivedSavings ? "顯示包含封存的目標" : "正式轉存，不納入消費分析"}</Text>
           </View>
-          <Pressable onPress={onSavingsBucket} style={styles.outlineIconButton} accessibilityLabel="新增儲蓄桶">
-            <MaterialCommunityIcons name="piggy-bank-outline" size={18} color={palette.rose} />
-          </Pressable>
+          <View style={styles.transactionActions}>
+            <Pressable onPress={onToggleArchivedSavings} style={styles.outlineIconButton} accessibilityLabel={showArchivedSavings ? "隱藏封存儲蓄桶" : "顯示封存儲蓄桶"}>
+              <MaterialCommunityIcons name="archive-outline" size={17} color={palette.muted} />
+            </Pressable>
+            <Pressable onPress={onSavingsBucket} style={styles.outlineIconButton} accessibilityLabel="新增儲蓄桶">
+              <MaterialCommunityIcons name="piggy-bank-outline" size={18} color={palette.rose} />
+            </Pressable>
+          </View>
         </View>
-        {savingsBuckets.length === 0 ? (
+        {savingsBuckets.filter(bucket => showArchivedSavings || bucket.isArchived === 0).length === 0 ? (
           <EmptyInline text="建立買車、旅行或其他目標；系統會依優先順序按月正式轉存。" />
         ) : (
-          [...savingsBuckets].sort((a, b) => a.priority - b.priority || a.id - b.id).map((bucket, index, orderedBuckets) => {
+          savingsBuckets.filter(bucket => showArchivedSavings || bucket.isArchived === 0).sort((a, b) => a.priority - b.priority || a.id - b.id).map((bucket, index, orderedBuckets) => {
             const payment = paymentMethods.find(item => item.id === bucket.paymentMethodId);
             const percent = bucket.targetAmount > 0
               ? Math.min(100, Math.round((bucket.savedAmount / bucket.targetAmount) * 100))
@@ -3540,24 +3627,30 @@ function PlanningSection({
                 <View style={styles.barLabelRow}>
                   <View style={styles.memberPaymentName}>
                     <Text style={styles.rowTitle} numberOfLines={1}>{bucket.icon || "💰"} {bucket.name}</Text>
-                    <Text style={styles.rowSubtitle} numberOfLines={1}>
-                      每月 {money(bucket.monthlyAmount)} · {bucket.dayOfMonth} 日 · {paymentEmoji(payment)} {payment?.name || "扣款方式"} · 優先 {bucket.priority}
-                    </Text>
+                    <Text style={styles.rowSubtitle} numberOfLines={1}>{bucket.isArchived !== 0 ? "已封存 · 不會自動分配" : `每月 ${money(bucket.monthlyAmount)} · ${bucket.dayOfMonth} 日 · ${paymentEmoji(payment)} ${payment?.name || "扣款方式"} · 優先 ${bucket.priority}`}</Text>
                   </View>
                   <View style={styles.transactionActions}>
                     <Pressable accessibilityLabel={`查看${bucket.name}分配紀錄`} onPress={() => onSavingsHistory(bucket)} style={styles.rowActionButton}>
                       <MaterialCommunityIcons name="history" size={16} color={palette.muted} />
                     </Pressable>
-                    <Pressable disabled={index === 0} accessibilityLabel={`提高${bucket.name}的分配優先順序`} onPress={() => onMoveSavingsBucket(bucket, -1)} style={[styles.rowActionButton, index === 0 && { opacity: 0.35 }]}>
+                    <Pressable disabled={bucket.isArchived !== 0 || index === 0} accessibilityLabel={`提高${bucket.name}的分配優先順序`} onPress={() => onMoveSavingsBucket(bucket, -1)} style={[styles.rowActionButton, (bucket.isArchived !== 0 || index === 0) && { opacity: 0.35 }]}>
                       <MaterialCommunityIcons name="chevron-up" size={17} color={palette.muted} />
                     </Pressable>
-                    <Pressable disabled={index === orderedBuckets.length - 1} accessibilityLabel={`降低${bucket.name}的分配優先順序`} onPress={() => onMoveSavingsBucket(bucket, 1)} style={[styles.rowActionButton, index === orderedBuckets.length - 1 && { opacity: 0.35 }]}>
+                    <Pressable disabled={bucket.isArchived !== 0 || index === orderedBuckets.length - 1} accessibilityLabel={`降低${bucket.name}的分配優先順序`} onPress={() => onMoveSavingsBucket(bucket, 1)} style={[styles.rowActionButton, (bucket.isArchived !== 0 || index === orderedBuckets.length - 1) && { opacity: 0.35 }]}>
                       <MaterialCommunityIcons name="chevron-down" size={17} color={palette.muted} />
                     </Pressable>
-                    <Pressable accessibilityLabel={`編輯${bucket.name}`} onPress={() => onEditSavingsBucket(bucket)} style={styles.rowActionButton}>
+                    {bucket.isArchived === 0 && <Pressable accessibilityLabel={`編輯${bucket.name}`} onPress={() => onEditSavingsBucket(bucket)} style={styles.rowActionButton}>
                       <MaterialCommunityIcons name="pencil-outline" size={16} color={palette.muted} />
                     </Pressable>
-                    {bucket.isActive !== 0 && (
+                    {bucket.isArchived !== 0 ? (
+                      <Pressable accessibilityLabel={`重新顯示${bucket.name}`} onPress={() => onRestoreSavingsBucket(bucket)} style={styles.rowActionButton}>
+                        <MaterialCommunityIcons name="archive-arrow-up-outline" size={17} color={palette.sage} />
+                      </Pressable>
+                    ) : bucket.savedAmount >= bucket.targetAmount ? (
+                      <Pressable accessibilityLabel={`封存${bucket.name}`} onPress={() => onArchiveSavingsBucket(bucket)} style={styles.rowActionButton}>
+                        <MaterialCommunityIcons name="archive-arrow-down-outline" size={17} color={palette.sage} />
+                      </Pressable>
+                    ) : bucket.isActive !== 0 && (
                       <Pressable accessibilityLabel={`暫停${bucket.name}`} onPress={() => onStopSavingsBucket(bucket)} style={styles.rowActionButton}>
                         <MaterialCommunityIcons name="pause-circle-outline" size={17} color={palette.rose} />
                       </Pressable>
@@ -3569,7 +3662,7 @@ function PlanningSection({
                 </View>
                 <View style={styles.barLabelRow}>
                   <Text style={styles.progressHint}>{money(bucket.savedAmount)} / {money(bucket.targetAmount)} · 尚差 {money(bucket.remainingAmount)}</Text>
-                  <Text style={[styles.progressHint, bucket.isActive === 0 && styles.warningText]}>{bucket.isActive === 0 ? "已暫停" : `${percent}%`}</Text>
+                  <Text style={[styles.progressHint, (bucket.isActive === 0 || bucket.isArchived !== 0) && styles.warningText]}>{bucket.isArchived !== 0 ? "已封存" : percent >= 100 ? "已達成！" : bucket.isActive === 0 ? "已暫停" : `${percent}%`}</Text>
                 </View>
               </View>
             );
@@ -4879,7 +4972,7 @@ function LedgerManageModal({
   const [draftIcon, setDraftIcon] = useState<string | null>(ledger.icon || null);
   useEffect(() => {
     if (visible) { setDraftName(ledger.name); setDraftIcon(ledger.icon || null); }
-  }, [visible, ledger.name, ledger.icon]);
+  }, [visible, ledger.id]);
   const others = members.filter(item => item.user.id !== user.id);
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
@@ -5753,7 +5846,7 @@ function BudgetModal({
       setAmount(editingBudget ? String(editingBudget.amount) : "");
       setLocalError("");
     }
-  }, [visible, editingBudget]);
+  }, [visible, editingBudget?.id]);
   return (
     <Modal
       visible={visible}
@@ -5893,7 +5986,7 @@ function RecurringModal({
       setDay(editingRecurring ? String(editingRecurring.dayOfMonth) : "1");
       setLocalError("");
     }
-  }, [visible, editingRecurring]);
+  }, [visible, editingRecurring?.id]);
   const filtered = categories.filter(item => item.type === type && item.isActive !== 0);
   const availablePayments = paymentMethods.filter(item => item.isActive !== 0);
   const selectedCategory = categoryId || String(filtered[0]?.id || "");
@@ -6112,7 +6205,7 @@ function SavingsBucketModal({
     setPaymentMethodId(editingBucket ? String(editingBucket.paymentMethodId) : "");
     setIsActive(editingBucket ? editingBucket.isActive !== 0 : true);
     setLocalError("");
-  }, [editingBucket, visible]);
+  }, [editingBucket?.id, visible]);
   const availablePayments = paymentMethods.filter(item => item.isActive !== 0);
   const selectedPaymentId = paymentMethodId || String(availablePayments[0]?.id || "");
   const submit = () => {
@@ -6230,6 +6323,55 @@ function SavingsAllocationHistoryModal({
             </View>
           </View>
         </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
+function SavingsGoalCelebrationModal({
+  bucket,
+  onClose,
+  onArchive,
+}: {
+  bucket: SavingsBucket | null;
+  onClose: () => void;
+  onArchive: () => void;
+}) {
+  const { palette, preferences } = useAppearance();
+  const scale = useRef(new Animated.Value(0.86)).current;
+  const opacity = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    if (!bucket) return;
+    scale.setValue(preferences.reduceMotion ? 1 : 0.86);
+    opacity.setValue(preferences.reduceMotion ? 1 : 0);
+    Animated.parallel([
+      Animated.timing(opacity, { toValue: 1, duration: preferences.reduceMotion ? 0 : 180, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      Animated.sequence([
+        Animated.timing(scale, { toValue: 1.1, duration: preferences.reduceMotion ? 0 : 300, easing: Easing.out(Easing.back(1.5)), useNativeDriver: true }),
+        Animated.timing(scale, { toValue: 1, duration: preferences.reduceMotion ? 0 : 220, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+      ]),
+    ]).start();
+  }, [bucket, opacity, preferences.reduceMotion, scale]);
+  return (
+    <Modal visible={!!bucket} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <Pressable style={styles.modalDismiss} onPress={onClose} />
+        <View style={[styles.modalCard, { alignItems: "center" }]}> 
+          <View style={styles.modalHandle} />
+          <Animated.View style={{ opacity, transform: [{ scale }] }}>
+            <View style={{ width: 76, height: 76, borderRadius: 38, alignItems: "center", justifyContent: "center", backgroundColor: palette.roseSoft, borderWidth: 1, borderColor: palette.rose }}>
+              <MaterialCommunityIcons name="trophy-outline" size={42} color={palette.rose} />
+            </View>
+          </Animated.View>
+          <Text style={[styles.modalTitle, { textAlign: "center", marginTop: 16 }]}>目標達成！</Text>
+          <Text style={[styles.modalDescription, { textAlign: "center" }]}>恭喜，你們已為「{bucket?.icon || "🎯"} {bucket?.name || "儲蓄桶"}」存滿 {money(bucket?.targetAmount || 0)}。這筆正式轉存與所有分配紀錄已完整保留。</Text>
+          <Text style={{ color: palette.sage, fontWeight: "800", marginTop: 4 }}>✦ ✦ ✦ 100% 完成 ✦ ✦ ✦</Text>
+          <Text style={[styles.rowSubtitle, { textAlign: "center", marginTop: 10 }]}>可先保留在規劃中，或封存以從預設清單隱藏；封存後可隨時重新顯示。</Text>
+          <View style={[styles.modalActionBar, { marginTop: 18 }]}> 
+            <Pressable onPress={onArchive} style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}><Text style={styles.primaryButtonText}>封存目標</Text></Pressable>
+            <Pressable onPress={onClose} style={styles.modalCancel}><Text style={styles.modalCancelText}>先保留</Text></Pressable>
+          </View>
+        </View>
       </View>
     </Modal>
   );

@@ -49,6 +49,8 @@ const mocks = vi.hoisted(() => ({
   createSavingsBucket: vi.fn(),
   updateSavingsBucket: vi.fn(),
   stopSavingsBucket: vi.fn(),
+  archiveSavingsBucket: vi.fn(),
+  restoreSavingsBucket: vi.fn(),
 }));
 
 vi.mock("./db", () => mocks);
@@ -331,6 +333,17 @@ describe("typed ledger workflow contract", () => {
       priority: 0,
       isActive: true,
     })).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("archives completed savings buckets and restores them through the authorized optimistic-lock route", async () => {
+    const caller = appRouter.createCaller(createTestContext());
+    await caller.ledger.savings.archive({ ledgerId: 1, bucketId: 31, expectedVersion: 2 });
+    await caller.ledger.savings.restore({ ledgerId: 1, bucketId: 31, expectedVersion: 3 });
+
+    expect(mocks.archiveSavingsBucket).toHaveBeenCalledWith({ ledgerId: 1, id: 31, expectedVersion: 2 });
+    expect(mocks.restoreSavingsBucket).toHaveBeenCalledWith({ ledgerId: 1, id: 31, expectedVersion: 3 });
+    expect(mocks.logActivity).toHaveBeenCalledWith(expect.objectContaining({ entityType: "savingsBucket", summary: "封存已達標儲蓄桶" }));
+    expect(mocks.logActivity).toHaveBeenCalledWith(expect.objectContaining({ entityType: "savingsBucket", summary: "重新顯示已封存儲蓄桶" }));
   });
 
   it("enforces admin role changes and marks a computed settlement", async () => {
