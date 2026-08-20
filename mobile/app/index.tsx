@@ -107,7 +107,7 @@ const appearanceDefaults: AppearancePreferences = {
   colorMode: "system",
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.2.9.2";
+const APP_VERSION = "1.3.0";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 const GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/ben880320-boop/together-ledger/releases/latest";
@@ -702,6 +702,7 @@ type Transaction = {
   date: Date | string;
   note: string | null;
   splitType: "equal" | "custom" | "amount" | "none";
+  savingsBucketId?: number | null;
 };
 type Analytics = {
   income: number;
@@ -743,6 +744,42 @@ type Recurring = {
   frequency: "weekly" | "monthly" | "yearly";
   dayOfMonth: number;
   isActive: number;
+};
+type SavingsBucket = {
+  id: number;
+  ledgerId: number;
+  paymentMethodId: number;
+  name: string;
+  icon: string;
+  targetAmount: number;
+  monthlyAmount: number;
+  dayOfMonth: number;
+  priority: number;
+  isActive: number;
+  version: number;
+  savedAmount: number;
+  remainingAmount: number;
+};
+type SavingsAllocation = {
+  id: number;
+  ledgerId: number;
+  bucketId: number;
+  transactionId: number | null;
+  month: string;
+  scheduledAmount: number;
+  allocatedAmount: number;
+  shortfallAmount: number;
+  status: "completed" | "partial" | "skipped";
+  idempotencyKey: string;
+};
+const isSavingsTransfer = (
+  transaction: Pick<Transaction, "type" | "savingsBucketId">
+) => transaction.type === "transfer" && Number(transaction.savingsBucketId || 0) > 0;
+const savingsBucketErrorMessage = (error: unknown, fallback: string) => {
+  const message = error instanceof Error ? error.message : fallback;
+  return /SAVINGS_BUCKET_CONFLICT|\bCONFLICT\b/.test(message)
+    ? "此儲蓄桶已被其他成員修改，請重新整理後再編輯。"
+    : message;
 };
 
 const CATEGORY_EMOJI_CHOICES = ["🍜", "☕", "🚗", "⛽", "🏠", "🧺", "🛍️", "📱", "🎮", "💕", "✈️", "💊", "📚", "💰", "🎁", "✨", "🏷️"];
@@ -866,6 +903,12 @@ function AppContent() {
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [travelPlans, setTravelPlans] = useState<TravelPlan[]>([]);
   const [recurring, setRecurring] = useState<Recurring[]>([]);
+  const [savingsBuckets, setSavingsBuckets] = useState<SavingsBucket[]>([]);
+  const [savingsBucketModal, setSavingsBucketModal] = useState(false);
+  const [editingSavingsBucket, setEditingSavingsBucket] = useState<SavingsBucket | null>(null);
+  const [savingsHistoryBucket, setSavingsHistoryBucket] = useState<SavingsBucket | null>(null);
+  const [savingsAllocations, setSavingsAllocations] = useState<SavingsAllocation[]>([]);
+  const [savingsHistoryLoading, setSavingsHistoryLoading] = useState(false);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [ledgerModal, setLedgerModal] = useState<"create" | "join" | null>(
     null
@@ -911,6 +954,7 @@ function AppContent() {
   const mutationGuardRef = useRef(new Set<string>());
   const updateNoticeRef = useRef(false);
   const recurringSyncRef = useRef(new Map<number, number>());
+  const savingsHistoryRequestRef = useRef(0);
   const toastSequenceRef = useRef(0);
 
   const showToast = useCallback((message: string) => {
@@ -1071,7 +1115,10 @@ function AppContent() {
       recurringSyncRef.current.set(ledgerId, Date.now());
     }
     const month = currentMonth();
-    const workspace = await api.ledger.workspace.query({ ledgerId, month });
+    const [workspace, bucketRows] = await Promise.all([
+      api.ledger.workspace.query({ ledgerId, month }),
+      api.ledger.savings.buckets.query({ ledgerId }),
+    ]);
     if (requestId !== ledgerRequestRef.current) return false;
     setMembers(workspace.members as LedgerMember[]);
     setCategories(workspace.categories as Category[]);
@@ -1085,6 +1132,7 @@ function AppContent() {
     setBudgets(workspace.budgets as Budget[]);
     setTravelPlans(workspace.travelPlans as TravelPlan[]);
     setRecurring(workspace.recurring as Recurring[]);
+    setSavingsBuckets(bucketRows as SavingsBucket[]);
     setActivityLogs(workspace.activityLogs as ActivityLog[]);
     return true;
   }, []);
@@ -1126,6 +1174,8 @@ function AppContent() {
         setBudgets([]);
         setTravelPlans([]);
         setRecurring([]);
+        setSavingsBuckets([]);
+        setSavingsAllocations([]);
         setActivityLogs([]);
       }
     } catch (loadError) {
@@ -1236,6 +1286,9 @@ function AppContent() {
     setBudgets([]);
     setTravelPlans([]);
     setRecurring([]);
+    setSavingsBuckets([]);
+    setSavingsAllocations([]);
+    setSavingsHistoryBucket(null);
     setActivityLogs([]);
   };
   const leaveLedger = () => {
@@ -1545,6 +1598,10 @@ function AppContent() {
     setTransactionModal(true);
   };
   const openEditTransaction = (transaction: Transaction) => {
+    if (isSavingsTransfer(transaction)) {
+      showToast("儲蓄桶自動轉存會保留完整追溯紀錄，無法直接編輯；請從儲蓄桶調整未來分配。 ");
+      return;
+    }
     setConfirmRequest({
       title: "編輯收支",
       message: "將開啟編輯表單；尚未儲存前不會修改帳本資料。",
@@ -1556,6 +1613,10 @@ function AppContent() {
     });
   };
   const removeTransaction = (transaction: Transaction) => {
+    if (isSavingsTransfer(transaction)) {
+      showToast("儲蓄桶自動轉存無法直接刪除，請改從儲蓄桶暫停未來自動分配。 ");
+      return;
+    }
     setConfirmRequest({
       title: "確認移除收支",
       message: "這筆收支會從目前帳本移除。下一步會再確認一次。",
@@ -1627,6 +1688,57 @@ function AppContent() {
   const openRecurringEditor = (item?: Recurring) => {
     setEditingRecurring(item || null);
     setRecurringModal(true);
+  };
+  const openSavingsBucketEditor = (bucket?: SavingsBucket) => {
+    setEditingSavingsBucket(bucket || null);
+    setSavingsBucketModal(true);
+  };
+  const openSavingsHistory = async (bucket: SavingsBucket) => {
+    if (!activeLedger) return;
+    const requestId = ++savingsHistoryRequestRef.current;
+    setSavingsHistoryBucket(bucket);
+    setSavingsAllocations([]);
+    setSavingsHistoryLoading(true);
+    try {
+      const rows = await api.ledger.savings.allocations.query({
+        ledgerId: activeLedger.id,
+        bucketId: bucket.id,
+      });
+      if (requestId === savingsHistoryRequestRef.current) {
+        setSavingsAllocations(rows as SavingsAllocation[]);
+      }
+    } catch (historyError) {
+      if (requestId === savingsHistoryRequestRef.current) {
+        setError(historyError instanceof Error ? historyError.message : "無法讀取儲蓄桶分配紀錄。請稍後重試。");
+      }
+    } finally {
+      if (requestId === savingsHistoryRequestRef.current) setSavingsHistoryLoading(false);
+    }
+  };
+  const stopSavingsBucket = (bucket: SavingsBucket) => {
+    if (!activeLedger) return;
+    setConfirmRequest({
+      title: "暫停自動分配",
+      message: `要暫停「${bucket.name}」嗎？從下次排程起不會再建立新的轉存，已完成與部分分配紀錄都會完整保留。`,
+      confirmText: "確認暫停",
+      destructive: true,
+      onConfirm: async () => {
+        setBusy(true);
+        try {
+          await api.ledger.savings.stop.mutate({
+            ledgerId: activeLedger.id,
+            bucketId: bucket.id,
+            expectedVersion: bucket.version,
+          });
+          await reloadLedger(activeLedger.id);
+          showToast("儲蓄桶已暫停。 ");
+        } catch (stopError) {
+          setError(savingsBucketErrorMessage(stopError, "暫停儲蓄桶失敗。請稍後重試。"));
+        } finally {
+          setBusy(false);
+        }
+      },
+    });
   };
   const removeBudget = (budget: Budget) => {
     const category = categories.find(item => item.id === budget.categoryId);
@@ -1852,6 +1964,8 @@ function AppContent() {
         travelPlans={travelPlans}
         categories={categories}
         recurring={recurring}
+        savingsBuckets={savingsBuckets}
+        paymentMethods={paymentMethods}
         onBudget={() => openBudgetEditor()}
         onEditBudget={openBudgetEditor}
         onDeleteBudget={removeBudget}
@@ -1860,6 +1974,10 @@ function AppContent() {
         onRecurring={() => openRecurringEditor()}
         onEditRecurring={openRecurringEditor}
         onDeleteRecurring={removeRecurring}
+        onSavingsBucket={() => openSavingsBucketEditor()}
+        onEditSavingsBucket={openSavingsBucketEditor}
+        onStopSavingsBucket={stopSavingsBucket}
+        onSavingsHistory={openSavingsHistory}
       />
     ) : (
       <SettingsSection
@@ -2048,6 +2166,60 @@ function AppContent() {
             mutationGuardRef.current.delete(mutationKey);
           }
         }}
+      />
+      <SavingsBucketModal
+        visible={savingsBucketModal}
+        editingBucket={editingSavingsBucket}
+        paymentMethods={paymentMethods}
+        onClose={() => {
+          setSavingsBucketModal(false);
+          setEditingSavingsBucket(null);
+          setError("");
+        }}
+        onSubmit={async input => {
+          if (!activeLedger) return;
+          const mutationKey = editingSavingsBucket
+            ? `update-savings-bucket-${editingSavingsBucket.id}-${editingSavingsBucket.version}`
+            : `create-savings-bucket-${activeLedger.id}-${input.name.trim().toLowerCase()}`;
+          if (mutationGuardRef.current.has(mutationKey)) return;
+          mutationGuardRef.current.add(mutationKey);
+          setBusy(true);
+          try {
+            if (editingSavingsBucket) {
+              await api.ledger.savings.update.mutate({
+                ledgerId: activeLedger.id,
+                bucketId: editingSavingsBucket.id,
+                expectedVersion: editingSavingsBucket.version,
+                ...input,
+              });
+            } else {
+              const { isActive: _isActive, ...createInput } = input;
+              await api.ledger.savings.create.mutate({ ledgerId: activeLedger.id, ...createInput });
+            }
+            setSavingsBucketModal(false);
+            setEditingSavingsBucket(null);
+            await reloadLedger(activeLedger.id);
+            showToast(editingSavingsBucket ? "儲蓄桶已更新。" : "儲蓄桶已建立。 ");
+          } catch (bucketError) {
+            setError(savingsBucketErrorMessage(bucketError, "儲蓄桶儲存失敗。請稍後重試。"));
+          } finally {
+            setBusy(false);
+            mutationGuardRef.current.delete(mutationKey);
+          }
+        }}
+      />
+      <SavingsAllocationHistoryModal
+        visible={Boolean(savingsHistoryBucket)}
+        bucket={savingsHistoryBucket}
+        allocations={savingsAllocations}
+        loading={savingsHistoryLoading}
+        onClose={() => {
+          savingsHistoryRequestRef.current += 1;
+          setSavingsHistoryBucket(null);
+          setSavingsAllocations([]);
+          setSavingsHistoryLoading(false);
+        }}
+        onRetry={() => savingsHistoryBucket && void openSavingsHistory(savingsHistoryBucket)}
       />
       <LedgerManageModal
         visible={ledgerManageModal !== null}
@@ -3128,6 +3300,8 @@ function PlanningSection({
   travelPlans,
   categories,
   recurring,
+  savingsBuckets,
+  paymentMethods,
   onBudget,
   onEditBudget,
   onDeleteBudget,
@@ -3136,12 +3310,18 @@ function PlanningSection({
   onRecurring,
   onEditRecurring,
   onDeleteRecurring,
+  onSavingsBucket,
+  onEditSavingsBucket,
+  onStopSavingsBucket,
+  onSavingsHistory,
 }: {
   analytics: Analytics | null;
   budgets: Budget[];
   travelPlans: TravelPlan[];
   categories: Category[];
   recurring: Recurring[];
+  savingsBuckets: SavingsBucket[];
+  paymentMethods: PaymentMethod[];
   onBudget: () => void;
   onEditBudget: (budget: Budget) => void;
   onDeleteBudget: (budget: Budget) => void;
@@ -3150,6 +3330,10 @@ function PlanningSection({
   onRecurring: () => void;
   onEditRecurring: (item: Recurring) => void;
   onDeleteRecurring: (item: Recurring) => void;
+  onSavingsBucket: () => void;
+  onEditSavingsBucket: (bucket: SavingsBucket) => void;
+  onStopSavingsBucket: (bucket: SavingsBucket) => void;
+  onSavingsHistory: (bucket: SavingsBucket) => void;
 }) {
   const { palette } = useAppearance();
   const totalBudget = budgets.find(item => item.categoryId === 0);
@@ -3298,6 +3482,59 @@ function PlanningSection({
           })}
         {budgets.filter(item => item.categoryId !== 0).length === 0 && (
           <EmptyInline text="尚未設定分類預算。" />
+        )}
+      </View>
+      <View style={styles.card}>
+        <View style={styles.cardHeading}>
+          <View>
+            <Text style={styles.cardTitle}>儲蓄桶</Text>
+            <Text style={styles.cardHint}>正式轉存，不納入消費分析</Text>
+          </View>
+          <Pressable onPress={onSavingsBucket} style={styles.outlineIconButton} accessibilityLabel="新增儲蓄桶">
+            <MaterialCommunityIcons name="piggy-bank-outline" size={18} color={palette.rose} />
+          </Pressable>
+        </View>
+        {savingsBuckets.length === 0 ? (
+          <EmptyInline text="建立買車、旅行或其他目標；系統會依優先順序按月正式轉存。" />
+        ) : (
+          savingsBuckets.map(bucket => {
+            const payment = paymentMethods.find(item => item.id === bucket.paymentMethodId);
+            const percent = bucket.targetAmount > 0
+              ? Math.min(100, Math.round((bucket.savedAmount / bucket.targetAmount) * 100))
+              : 0;
+            return (
+              <View key={bucket.id} style={styles.budgetRow}>
+                <View style={styles.barLabelRow}>
+                  <View style={styles.memberPaymentName}>
+                    <Text style={styles.rowTitle} numberOfLines={1}>{bucket.icon || "💰"} {bucket.name}</Text>
+                    <Text style={styles.rowSubtitle} numberOfLines={1}>
+                      每月 {money(bucket.monthlyAmount)} · {bucket.dayOfMonth} 日 · {paymentEmoji(payment)} {payment?.name || "扣款方式"} · 優先 {bucket.priority}
+                    </Text>
+                  </View>
+                  <View style={styles.transactionActions}>
+                    <Pressable accessibilityLabel={`查看${bucket.name}分配紀錄`} onPress={() => onSavingsHistory(bucket)} style={styles.rowActionButton}>
+                      <MaterialCommunityIcons name="history" size={16} color={palette.muted} />
+                    </Pressable>
+                    <Pressable accessibilityLabel={`編輯${bucket.name}`} onPress={() => onEditSavingsBucket(bucket)} style={styles.rowActionButton}>
+                      <MaterialCommunityIcons name="pencil-outline" size={16} color={palette.muted} />
+                    </Pressable>
+                    {bucket.isActive !== 0 && (
+                      <Pressable accessibilityLabel={`暫停${bucket.name}`} onPress={() => onStopSavingsBucket(bucket)} style={styles.rowActionButton}>
+                        <MaterialCommunityIcons name="pause-circle-outline" size={17} color={palette.rose} />
+                      </Pressable>
+                    )}
+                  </View>
+                </View>
+                <View style={styles.barTrack}>
+                  <View style={[styles.barFill, { width: `${Math.max(percent ? 5 : 0, percent)}%`, backgroundColor: bucket.isActive === 0 ? palette.muted : palette.sage }]} />
+                </View>
+                <View style={styles.barLabelRow}>
+                  <Text style={styles.progressHint}>{money(bucket.savedAmount)} / {money(bucket.targetAmount)} · 尚差 {money(bucket.remainingAmount)}</Text>
+                  <Text style={[styles.progressHint, bucket.isActive === 0 && styles.warningText]}>{bucket.isActive === 0 ? "已暫停" : `${percent}%`}</Text>
+                </View>
+              </View>
+            );
+          })
         )}
       </View>
       <View style={styles.card}>
@@ -4376,6 +4613,7 @@ function TransactionRow({
 }) {
   const { palette } = useAppearance();
   const category = categories.find(item => item.id === transaction.categoryId);
+  const savingsTransfer = isSavingsTransfer(transaction);
   return (
     <View style={styles.transactionRow}>
       <View
@@ -4391,20 +4629,20 @@ function TransactionRow({
         />
       </View>
       <View style={styles.memberPaymentName}>
-        <Text style={styles.rowTitle}>{categoryEmoji(category)} {category?.name || "未分類"}</Text>
-        <Text style={styles.rowSubtitle}>{transaction.note || "共同收支"} · {dateKey(transaction.date)}</Text>
+        <Text style={styles.rowTitle}>{savingsTransfer ? "🎯 儲蓄桶轉存" : `${categoryEmoji(category)} ${category?.name || "未分類"}`}</Text>
+        <Text style={styles.rowSubtitle}>{savingsTransfer ? "系統建立的正式轉存 · 唯讀" : transaction.note || "共同收支"} · {dateKey(transaction.date)}</Text>
       </View>
       <Text style={[styles.rowAmount, transaction.type === "income" && styles.incomeText]}>
         {transaction.type === "income" ? "+" : "-"}{money(transaction.amount)}
       </Text>
-      <View style={styles.transactionActions}>
-        <Pressable accessibilityLabel="編輯收支" onPress={() => onEdit(transaction)} style={styles.rowActionButton}>
-          <MaterialCommunityIcons name="pencil-outline" size={16} color={palette.muted} />
-        </Pressable>
-        <Pressable accessibilityLabel="移除收支" onPress={() => onDelete(transaction)} style={styles.rowActionButton}>
-          <MaterialCommunityIcons name="trash-can-outline" size={16} color={palette.rose} />
-        </Pressable>
-      </View>
+      {!savingsTransfer && <View style={styles.transactionActions}>
+          <Pressable accessibilityLabel="編輯收支" onPress={() => onEdit(transaction)} style={styles.rowActionButton}>
+            <MaterialCommunityIcons name="pencil-outline" size={16} color={palette.muted} />
+          </Pressable>
+          <Pressable accessibilityLabel="移除收支" onPress={() => onDelete(transaction)} style={styles.rowActionButton}>
+            <MaterialCommunityIcons name="trash-can-outline" size={16} color={palette.rose} />
+          </Pressable>
+        </View>}
     </View>
   );
 }
@@ -5787,6 +6025,173 @@ function RecurringModal({
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+function SavingsBucketModal({
+  visible,
+  editingBucket,
+  paymentMethods,
+  onClose,
+  onSubmit,
+}: {
+  visible: boolean;
+  editingBucket: SavingsBucket | null;
+  paymentMethods: PaymentMethod[];
+  onClose: () => void;
+  onSubmit: (input: {
+    name: string;
+    icon: string;
+    targetAmount: number;
+    monthlyAmount: number;
+    dayOfMonth: number;
+    priority: number;
+    paymentMethodId: number;
+    isActive: boolean;
+  }) => void | Promise<void>;
+}) {
+  const { palette } = useAppearance();
+  const [name, setName] = useState("");
+  const [icon, setIcon] = useState("🎯");
+  const [targetAmount, setTargetAmount] = useState("");
+  const [monthlyAmount, setMonthlyAmount] = useState("");
+  const [dayOfMonth, setDayOfMonth] = useState("1");
+  const [priority, setPriority] = useState("1");
+  const [paymentMethodId, setPaymentMethodId] = useState("");
+  const [isActive, setIsActive] = useState(true);
+  const [localError, setLocalError] = useState("");
+  const iconChoices = ["🎯", "🚗", "✈️", "🏠", "💻", "💰", "💍", "🪴"];
+  useEffect(() => {
+    if (!visible) return;
+    setName(editingBucket?.name || "");
+    setIcon(editingBucket?.icon || "🎯");
+    setTargetAmount(editingBucket ? String(editingBucket.targetAmount) : "");
+    setMonthlyAmount(editingBucket ? String(editingBucket.monthlyAmount) : "");
+    setDayOfMonth(editingBucket ? String(editingBucket.dayOfMonth) : "1");
+    setPriority(editingBucket ? String(editingBucket.priority) : "1");
+    setPaymentMethodId(editingBucket ? String(editingBucket.paymentMethodId) : "");
+    setIsActive(editingBucket ? editingBucket.isActive !== 0 : true);
+    setLocalError("");
+  }, [editingBucket, visible]);
+  const availablePayments = paymentMethods.filter(item => item.isActive !== 0);
+  const selectedPaymentId = paymentMethodId || String(availablePayments[0]?.id || "");
+  const submit = () => {
+    const parsedTarget = Number(targetAmount);
+    const parsedMonthly = Number(monthlyAmount);
+    const parsedDay = Number(dayOfMonth);
+    const parsedPriority = Number(priority);
+    if (
+      !name.trim() ||
+      !Number.isInteger(parsedTarget) || parsedTarget <= 0 ||
+      !Number.isInteger(parsedMonthly) || parsedMonthly <= 0 ||
+      !Number.isInteger(parsedDay) || parsedDay < 1 || parsedDay > 31 ||
+      !Number.isInteger(parsedPriority) || parsedPriority < 1 ||
+      !selectedPaymentId || availablePayments.length === 0
+    ) {
+      setLocalError("請完整填寫名稱、目標、每月金額、1 至 31 日、優先順序與可用扣款支付方式。 ");
+      return;
+    }
+    onSubmit({
+      name: name.trim(),
+      icon: icon.trim() || "🎯",
+      targetAmount: parsedTarget,
+      monthlyAmount: parsedMonthly,
+      dayOfMonth: parsedDay,
+      priority: parsedPriority,
+      paymentMethodId: Number(selectedPaymentId),
+      isActive,
+    });
+  };
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}>
+        <Pressable style={styles.modalDismiss} onPress={onClose} />
+        <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollableContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>{editingBucket ? "編輯儲蓄桶" : "建立儲蓄桶"}</Text>
+            <Text style={styles.modalDescription}>每月指定日期會從選定支付方式建立正式資金轉存；轉存不列入消費分析。餘額不足時依優先順序部分分配並保留短缺紀錄。</Text>
+            <TextInput value={name} onChangeText={setName} placeholder="名稱，例如日本旅遊基金" placeholderTextColor="#B9A69E" style={styles.input} />
+            <Field label="圖示">
+              <OptionScroller items={iconChoices.map((value, index) => ({ id: index + 1, label: value }))} value={Math.max(1, iconChoices.indexOf(icon) + 1)} onChange={value => setIcon(iconChoices[value - 1] || "🎯")} />
+            </Field>
+            <TextInput value={targetAmount} onChangeText={setTargetAmount} keyboardType="numeric" placeholder="目標金額" placeholderTextColor="#B9A69E" style={styles.input} />
+            <TextInput value={monthlyAmount} onChangeText={setMonthlyAmount} keyboardType="numeric" placeholder="每月固定分配金額" placeholderTextColor="#B9A69E" style={styles.input} />
+            <View style={styles.segmentRow}>
+              <TextInput value={dayOfMonth} onChangeText={setDayOfMonth} keyboardType="numeric" placeholder="每月幾日" placeholderTextColor="#B9A69E" style={[styles.input, { flex: 1 }]} />
+              <TextInput value={priority} onChangeText={setPriority} keyboardType="numeric" placeholder="優先順序" placeholderTextColor="#B9A69E" style={[styles.input, { flex: 1 }]} />
+            </View>
+            <Field label="扣款支付方式">
+              <OptionScroller items={availablePayments.map(item => ({ id: item.id, label: `${paymentEmoji(item)} ${item.name}` }))} value={Number(selectedPaymentId)} onChange={value => setPaymentMethodId(String(value))} />
+              {availablePayments.length === 0 && <Text style={styles.errorText}>請先在帳本設定新增可用支付方式。</Text>}
+            </Field>
+            {editingBucket && (
+              <Field label="自動分配狀態">
+                <View style={styles.segmentRow}>
+                  <Pressable onPress={() => setIsActive(true)} style={[styles.segment, isActive && styles.segmentActive]}><Text style={[styles.segmentText, isActive && styles.segmentTextActive]}>進行中</Text></Pressable>
+                  <Pressable onPress={() => setIsActive(false)} style={[styles.segment, !isActive && styles.segmentActive]}><Text style={[styles.segmentText, !isActive && styles.segmentTextActive]}>已暫停</Text></Pressable>
+                </View>
+              </Field>
+            )}
+            {!!localError && <Text style={styles.errorText}>{localError}</Text>}
+            <View style={styles.modalActionBar}>
+              <Pressable onPress={submit} style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}><Text style={styles.primaryButtonText}>{editingBucket ? "更新儲蓄桶" : "建立儲蓄桶"}</Text></Pressable>
+              <Pressable onPress={onClose} style={styles.modalCancel}><Text style={styles.modalCancelText}>取消</Text></Pressable>
+            </View>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+function SavingsAllocationHistoryModal({
+  visible,
+  bucket,
+  allocations,
+  loading,
+  onClose,
+  onRetry,
+}: {
+  visible: boolean;
+  bucket: SavingsBucket | null;
+  allocations: SavingsAllocation[];
+  loading: boolean;
+  onClose: () => void;
+  onRetry: () => void;
+}) {
+  const { palette } = useAppearance();
+  const statusLabel: Record<SavingsAllocation["status"], string> = {
+    completed: "已完成",
+    partial: "部分分配",
+    skipped: "本月略過",
+  };
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <View style={styles.modalBackdrop}>
+        <Pressable style={styles.modalDismiss} onPress={onClose} />
+        <ScrollView style={styles.modalScroll} contentContainerStyle={styles.modalScrollableContent}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHandle} />
+            <Text style={styles.modalTitle}>{bucket?.icon || "🎯"} {bucket?.name || "儲蓄桶"}分配紀錄</Text>
+            <Text style={styles.modalDescription}>每筆紀錄都對應正式轉存交易或本月分配結果；不足金額會保留在短缺欄位供追溯。</Text>
+            {loading ? <ActivityIndicator color={palette.rose} style={{ marginVertical: 20 }} /> : allocations.length === 0 ? <EmptyInline text="目前尚無分配紀錄；排程執行後會顯示完成、部分分配或略過結果。" /> : allocations.map(item => (
+              <View key={item.id} style={styles.recurringRow}>
+                <View style={styles.recurringIcon}><MaterialCommunityIcons name={item.status === "completed" ? "check-circle-outline" : item.status === "partial" ? "progress-alert" : "skip-next-circle-outline"} size={18} color={item.status === "completed" ? palette.sage : item.status === "partial" ? palette.orange : palette.muted} /></View>
+                <View style={styles.memberPaymentName}>
+                  <Text style={styles.rowTitle}>{monthLabel(item.month)} · {statusLabel[item.status]}</Text>
+                  <Text style={styles.rowSubtitle}>應分配 {money(item.scheduledAmount)} · 實際 {money(item.allocatedAmount)} · 短缺 {money(item.shortfallAmount)}</Text>
+                </View>
+              </View>
+            ))}
+            <View style={styles.modalActionBar}>
+              <Pressable onPress={onRetry} style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}><Text style={styles.primaryButtonText}>重新讀取</Text></Pressable>
+              <Pressable onPress={onClose} style={styles.modalCancel}><Text style={styles.modalCancelText}>關閉</Text></Pressable>
+            </View>
+          </View>
+        </ScrollView>
+      </View>
     </Modal>
   );
 }

@@ -75,6 +75,8 @@ export const transactions = mysqlTable("transactions", {
   payerId: int("payerId").notNull(), // who paid
   amount: int("amount").notNull(), // stored in cents or integer NT$
   type: mysqlEnum("type", ["expense", "income", "transfer"]).default("expense").notNull(),
+  /** Set only for system-created transfers into a savings bucket. */
+  savingsBucketId: int("savingsBucketId"),
   categoryId: int("categoryId").notNull(),
   paymentMethodId: int("paymentMethodId").notNull(),
   date: timestamp("date").notNull(),
@@ -126,12 +128,57 @@ export const travelPlans = mysqlTable("travelPlans", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+/** A ledger-scoped savings goal, stored in the same integer unit as transactions. */
+export const savingsBuckets = mysqlTable("savingsBuckets", {
+  id: int("id").autoincrement().primaryKey(),
+  ledgerId: int("ledgerId").notNull(),
+  createdBy: int("createdBy").notNull(),
+  /** Existing ledger payment method from which each monthly savings transfer is funded. */
+  paymentMethodId: int("paymentMethodId").notNull(),
+  name: varchar("name", { length: 128 }).notNull(),
+  icon: varchar("icon", { length: 32 }).default("🎯").notNull(),
+  targetAmount: int("targetAmount").notNull(),
+  monthlyAmount: int("monthlyAmount").notNull(),
+  dayOfMonth: int("dayOfMonth").default(1).notNull(),
+  priority: int("priority").default(0).notNull(),
+  isActive: int("isActive").default(1).notNull(),
+  version: int("version").default(1).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+/** One immutable execution record per bucket/month; the unique key makes retries idempotent. */
+export const savingsAllocations = mysqlTable("savingsAllocations", {
+  id: int("id").autoincrement().primaryKey(),
+  ledgerId: int("ledgerId").notNull(),
+  bucketId: int("bucketId").notNull(),
+  transactionId: int("transactionId"),
+  month: varchar("month", { length: 16 }).notNull(),
+  scheduledAmount: int("scheduledAmount").notNull(),
+  allocatedAmount: int("allocatedAmount").notNull(),
+  shortfallAmount: int("shortfallAmount").notNull(),
+  status: mysqlEnum("status", ["completed", "partial", "skipped"]).notNull(),
+  idempotencyKey: varchar("idempotencyKey", { length: 160 }).notNull().unique(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+/** Durable lookup and status row for the project-level daily allocation Heartbeat. */
+export const savingsAutomationSettings = mysqlTable("savingsAutomationSettings", {
+  id: int("id").autoincrement().primaryKey(),
+  scheduleCronTaskUid: varchar("scheduleCronTaskUid", { length: 65 }).unique(),
+  lastRunAt: timestamp("lastRunAt"),
+  lastRunStatus: varchar("lastRunStatus", { length: 32 }),
+  lastRunError: varchar("lastRunError", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export const activityLogs = mysqlTable("activityLogs", {
   id: int("id").autoincrement().primaryKey(),
   ledgerId: int("ledgerId").notNull(),
   userId: int("userId").notNull(),
   action: mysqlEnum("action", ["create", "update", "delete"]).notNull(),
-  entityType: mysqlEnum("entityType", ["transaction", "category", "paymentMethod", "budget", "recurring"]).notNull(),
+  entityType: mysqlEnum("entityType", ["transaction", "category", "paymentMethod", "budget", "recurring", "savingsBucket", "savingsAllocation"]).notNull(),
   entityId: int("entityId").notNull(),
   summary: varchar("summary", { length: 255 }).notNull(),
   metadata: text("metadata"),

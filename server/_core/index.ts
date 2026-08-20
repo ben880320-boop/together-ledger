@@ -8,6 +8,7 @@ import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { processMonthlySettlementReminderForTask } from "../notifications";
+import { ensureDailySavingsAutomation, processDailySavingsAutomation } from "../savingsAutomation";
 import { sdk } from "./sdk";
 import { serveStatic, setupVite } from "./vite";
 import { resolveListenConfig } from "./listenConfig";
@@ -65,6 +66,28 @@ async function startServer() {
         timestamp: new Date().toISOString(),
       });
     }
+  });
+  app.post("/api/scheduled/savings-allocations", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron || !user.taskUid) {
+        return res.status(403).json({ error: "cron-only" });
+      }
+      const result = await processDailySavingsAutomation(user.taskUid);
+      return res.json({ ok: true, ...result, taskUid: user.taskUid });
+    } catch (error) {
+      const normalized = error instanceof Error ? error : new Error(String(error));
+      console.error("[Scheduled] savings allocations failed", normalized);
+      return res.status(500).json({
+        error: normalized.message,
+        stack: normalized.stack,
+        context: { path: req.path },
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
+  void ensureDailySavingsAutomation().catch(error => {
+    console.error("[Scheduled] could not ensure daily savings automation", error);
   });
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {

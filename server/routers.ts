@@ -53,6 +53,11 @@ import {
   createLocalUser,
   deleteUserAccount,
   verifyLocalPassword,
+  listSavingsBuckets,
+  listSavingsAllocations,
+  createSavingsBucket,
+  updateSavingsBucket,
+  stopSavingsBucket,
 } from "./db";
 import { TRPCError } from "@trpc/server";
 import { invokeLLM } from "./_core/llm";
@@ -565,6 +570,73 @@ export const appRouter = router({
         await logActivity({ ledgerId: input.ledgerId, userId: ctx.user.id, action: "delete", entityType: "recurring", entityId: id, summary: "移除固定收支" });
         return id;
       }),
+    savings: router({
+      buckets: protectedProcedure
+        .input(z.object({ ledgerId: z.number().int().positive() }))
+        .query(({ ctx, input }) => requireLedger(input.ledgerId, ctx.user.id).then(() => listSavingsBuckets(input.ledgerId))),
+      allocations: protectedProcedure
+        .input(z.object({ ledgerId: z.number().int().positive(), bucketId: z.number().int().positive().optional() }))
+        .query(({ ctx, input }) => requireLedger(input.ledgerId, ctx.user.id).then(() => listSavingsAllocations(input.ledgerId, input.bucketId))),
+      create: protectedProcedure
+        .input(z.object({
+          ledgerId: z.number().int().positive(),
+          paymentMethodId: z.number().int().positive(),
+          name: z.string().trim().min(1).max(128),
+          icon: z.string().trim().max(32).default("🎯"),
+          targetAmount: z.number().int().positive().max(100_000_000),
+          monthlyAmount: z.number().int().positive().max(100_000_000),
+          dayOfMonth: z.number().int().min(1).max(28),
+          priority: z.number().int().min(0).max(100_000).default(0),
+        }))
+        .mutation(async ({ ctx, input }) => {
+          await requireLedger(input.ledgerId, ctx.user.id);
+          const id = await createSavingsBucket({ ...input, isActive: 1, createdBy: ctx.user.id });
+          await logActivity({ ledgerId: input.ledgerId, userId: ctx.user.id, action: "create", entityType: "savingsBucket", entityId: id, summary: `新增儲蓄桶：${input.name}` });
+          return id;
+        }),
+      update: protectedProcedure
+        .input(z.object({
+          ledgerId: z.number().int().positive(),
+          bucketId: z.number().int().positive(),
+          expectedVersion: z.number().int().positive(),
+          paymentMethodId: z.number().int().positive(),
+          name: z.string().trim().min(1).max(128),
+          icon: z.string().trim().max(32).default("🎯"),
+          targetAmount: z.number().int().positive().max(100_000_000),
+          monthlyAmount: z.number().int().positive().max(100_000_000),
+          dayOfMonth: z.number().int().min(1).max(28),
+          priority: z.number().int().min(0).max(100_000),
+          isActive: z.boolean(),
+        }))
+        .mutation(async ({ ctx, input }) => {
+          await requireLedger(input.ledgerId, ctx.user.id);
+          try {
+            const bucket = await updateSavingsBucket({ ...input, id: input.bucketId, isActive: input.isActive ? 1 : 0 });
+            await logActivity({ ledgerId: input.ledgerId, userId: ctx.user.id, action: "update", entityType: "savingsBucket", entityId: bucket.id, summary: `更新儲蓄桶：${input.name}` });
+            return bucket;
+          } catch (error) {
+            if (error instanceof Error && error.message === "SAVINGS_BUCKET_CONFLICT") {
+              throw new TRPCError({ code: "CONFLICT", message: "此儲蓄桶已被其他成員修改，請重新整理後再編輯。" });
+            }
+            throw error;
+          }
+        }),
+      stop: protectedProcedure
+        .input(z.object({ ledgerId: z.number().int().positive(), bucketId: z.number().int().positive(), expectedVersion: z.number().int().positive() }))
+        .mutation(async ({ ctx, input }) => {
+          await requireLedger(input.ledgerId, ctx.user.id);
+          try {
+            const id = await stopSavingsBucket({ ledgerId: input.ledgerId, id: input.bucketId, expectedVersion: input.expectedVersion });
+            await logActivity({ ledgerId: input.ledgerId, userId: ctx.user.id, action: "update", entityType: "savingsBucket", entityId: id, summary: "暫停儲蓄桶自動分配" });
+            return id;
+          } catch (error) {
+            if (error instanceof Error && error.message === "SAVINGS_BUCKET_CONFLICT") {
+              throw new TRPCError({ code: "CONFLICT", message: "此儲蓄桶已被其他成員修改，請重新整理後再編輯。" });
+            }
+            throw error;
+          }
+        }),
+    }),
   }),
   profile: router({
     updateName: protectedProcedure

@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 const workspace = readFileSync(fileURLToPath(new URL("./LedgerWorkspace.tsx", import.meta.url)), "utf8");
+const savingsBuckets = readFileSync(fileURLToPath(new URL("../components/SavingsBucketsPanel.tsx", import.meta.url)), "utf8");
 const auth = readFileSync(fileURLToPath(new URL("./WebAuth.tsx", import.meta.url)), "utf8");
 const footer = readFileSync(fileURLToPath(new URL("../components/ReleaseFooter.tsx", import.meta.url)), "utf8");
 
@@ -55,8 +56,23 @@ describe("Together Ledger 真實網頁帳本入口", () => {
     expect(workspace).toContain("同步到期項目");
   });
 
+  it("以可追溯、具樂觀鎖保護的儲蓄桶介面同步網頁與 PWA 規劃功能", () => {
+    expect(workspace).toContain("<SavingsBucketsPanel");
+    expect(workspace).toContain("isSavingsTransfer");
+    expect(workspace).toContain("儲蓄桶自動轉存則保留為唯讀紀錄");
+    expect(savingsBuckets).toContain("trpc.ledger.savings.buckets.useQuery");
+    expect(savingsBuckets).toContain("trpc.ledger.savings.allocations.useQuery");
+    expect(savingsBuckets).toContain("trpc.ledger.savings.create.useMutation");
+    expect(savingsBuckets).toContain("trpc.ledger.savings.update.useMutation");
+    expect(savingsBuckets).toContain("trpc.ledger.savings.stop.useMutation");
+    expect(savingsBuckets).toContain("expectedVersion: editor.version");
+    expect(savingsBuckets).toContain("此儲蓄桶已被其他成員修改，請重新整理後再編輯。");
+    expect(savingsBuckets).toContain("部分分配");
+    expect(savingsBuckets).toContain("shortfallAmount");
+  });
+
   it("提供可辨識的發布資訊與重新取得最新版本操作", () => {
-    expect(footer).toContain('WEB_RELEASE_VERSION = "1.2.9.2"');
+    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.0"');
     expect(footer).toContain("WEB_BUILD_TIMESTAMP");
     expect(footer).toContain("formatTaipeiTimestamp");
     expect(footer).toContain("重新載入最新版本");

@@ -1,6 +1,6 @@
 import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { nanoid } from "nanoid";
-import { and, asc, desc, eq, gte, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { createPool, type Pool } from "mysql2";
 import {
@@ -16,6 +16,9 @@ import {
   paymentMethods,
   pushDevices,
   recurringTransactions,
+  savingsAllocations,
+  savingsAutomationSettings,
+  savingsBuckets,
   settlements,
   transactionSplits,
   transactions,
@@ -420,6 +423,8 @@ export async function leaveLedger(input: {
   const transactionIds = transactionRows.map(row => row.id);
   if (transactionIds.length > 0) await db.delete(transactionSplits).where(inArray(transactionSplits.transactionId, transactionIds));
   await db.delete(activityLogs).where(eq(activityLogs.ledgerId, input.ledgerId));
+  await db.delete(savingsAllocations).where(eq(savingsAllocations.ledgerId, input.ledgerId));
+  await db.delete(savingsBuckets).where(eq(savingsBuckets.ledgerId, input.ledgerId));
   await db.delete(budgets).where(eq(budgets.ledgerId, input.ledgerId));
   await db.delete(travelPlans).where(eq(travelPlans.ledgerId, input.ledgerId));
   await db.delete(recurringTransactions).where(eq(recurringTransactions.ledgerId, input.ledgerId));
@@ -462,6 +467,8 @@ export async function deleteUserAccount(userId: number) {
     const transactionIds = transactionRows.map(row => row.id);
     if (transactionIds.length > 0) await db.delete(transactionSplits).where(inArray(transactionSplits.transactionId, transactionIds));
     await db.delete(activityLogs).where(eq(activityLogs.ledgerId, owned.id));
+    await db.delete(savingsAllocations).where(eq(savingsAllocations.ledgerId, owned.id));
+    await db.delete(savingsBuckets).where(eq(savingsBuckets.ledgerId, owned.id));
     await db.delete(appNotifications).where(eq(appNotifications.ledgerId, owned.id));
     await db.delete(budgets).where(eq(budgets.ledgerId, owned.id));
     await db.delete(travelPlans).where(eq(travelPlans.ledgerId, owned.id));
@@ -650,6 +657,7 @@ export async function createTransaction(input: {
   payerId: number;
   amount: number;
   type: "expense" | "income" | "transfer";
+  savingsBucketId?: number | null;
   categoryId: number;
   paymentMethodId: number;
   date: Date;
@@ -664,6 +672,7 @@ export async function createTransaction(input: {
     payerId: input.payerId,
     amount: input.amount,
     type: input.type,
+    savingsBucketId: input.savingsBucketId ?? null,
     categoryId: input.categoryId,
     paymentMethodId: input.paymentMethodId,
     date: input.date,
@@ -691,6 +700,11 @@ export async function updateTransaction(input: {
   splits: Array<{ userId: number; shareAmount: number }>;
 }) {
   const db = requireDb();
+  const existing = await db.select({ savingsBucketId: transactions.savingsBucketId })
+    .from(transactions)
+    .where(and(eq(transactions.id, input.id), eq(transactions.ledgerId, input.ledgerId)))
+    .limit(1);
+  if (existing[0]?.savingsBucketId) throw new Error("自動儲蓄轉存不可直接編輯，請調整儲蓄桶設定。");
   await db.update(transactions).set({
     payerId: input.payerId,
     amount: input.amount,
@@ -710,6 +724,11 @@ export async function updateTransaction(input: {
 
 export async function deleteTransaction(input: { id: number; ledgerId: number }) {
   const db = requireDb();
+  const existing = await db.select({ savingsBucketId: transactions.savingsBucketId })
+    .from(transactions)
+    .where(and(eq(transactions.id, input.id), eq(transactions.ledgerId, input.ledgerId)))
+    .limit(1);
+  if (existing[0]?.savingsBucketId) throw new Error("自動儲蓄轉存不可直接刪除，請停止或調整儲蓄桶。");
   await db.delete(transactionSplits).where(eq(transactionSplits.transactionId, input.id));
   await db.delete(transactions).where(and(eq(transactions.id, input.id), eq(transactions.ledgerId, input.ledgerId)));
   return input.id;
@@ -737,18 +756,25 @@ export async function deleteCategory(input: { id: number; ledgerId: number }) {
 
 export async function archivePaymentMethod(input: { id: number; ledgerId: number }) {
   const db = requireDb();
+  const savingsReference = await db.select({ id: savingsBuckets.id }).from(savingsBuckets)
+    .where(and(eq(savingsBuckets.ledgerId, input.ledgerId), eq(savingsBuckets.paymentMethodId, input.id), eq(savingsBuckets.isActive, 1)))
+    .limit(1);
+  if (savingsReference[0]) {
+    throw new Error("這個支付方式正被啟用中的儲蓄桶扣款使用，請先停止或更換該儲蓄桶的扣款方式。");
+  }
   await db.update(paymentMethods).set({ isActive: 0 }).where(and(eq(paymentMethods.id, input.id), eq(paymentMethods.ledgerId, input.ledgerId)));
   return input.id;
 }
 
 export async function deletePaymentMethod(input: { id: number; ledgerId: number }) {
   const db = requireDb();
-  const [transactionReference, recurringReference] = await Promise.all([
+  const [transactionReference, recurringReference, savingsReference] = await Promise.all([
     db.select({ id: transactions.id }).from(transactions).where(and(eq(transactions.ledgerId, input.ledgerId), eq(transactions.paymentMethodId, input.id))).limit(1),
     db.select({ id: recurringTransactions.id }).from(recurringTransactions).where(and(eq(recurringTransactions.ledgerId, input.ledgerId), eq(recurringTransactions.paymentMethodId, input.id))).limit(1),
+    db.select({ id: savingsBuckets.id }).from(savingsBuckets).where(and(eq(savingsBuckets.ledgerId, input.ledgerId), eq(savingsBuckets.paymentMethodId, input.id))).limit(1),
   ]);
-  if (transactionReference[0] || recurringReference[0]) {
-    throw new Error("這個支付方式已被交易或固定收支使用，為保留歷史資料只能隱藏，無法永久刪除。");
+  if (transactionReference[0] || recurringReference[0] || savingsReference[0]) {
+    throw new Error("這個支付方式已被交易、固定收支或儲蓄桶使用，為保留歷史資料只能隱藏，無法永久刪除。");
   }
   await db.delete(paymentMethods).where(and(eq(paymentMethods.id, input.id), eq(paymentMethods.ledgerId, input.ledgerId)));
   return input.id;
@@ -758,7 +784,7 @@ export async function logActivity(input: {
   ledgerId: number;
   userId: number;
   action: "create" | "update" | "delete";
-  entityType: "transaction" | "category" | "paymentMethod" | "budget" | "recurring";
+  entityType: "transaction" | "category" | "paymentMethod" | "budget" | "recurring" | "savingsBucket" | "savingsAllocation";
   entityId: number;
   summary: string;
   metadata?: Record<string, unknown>;
@@ -773,6 +799,264 @@ export async function logActivity(input: {
     summary: input.summary.slice(0, 255),
     metadata: input.metadata ? JSON.stringify(input.metadata) : null,
   });
+}
+
+export type SavingsBucketWriteInput = {
+  ledgerId: number;
+  paymentMethodId: number;
+  name: string;
+  icon: string;
+  targetAmount: number;
+  monthlyAmount: number;
+  dayOfMonth: number;
+  priority: number;
+  isActive: number;
+};
+
+function normalizeSavingsBucketInput(input: SavingsBucketWriteInput) {
+  const name = input.name.trim();
+  if (!name) throw new Error("儲蓄桶名稱不能是空白。");
+  if (name.length > 128) throw new Error("儲蓄桶名稱不可超過 128 個字元。");
+  const targetAmount = Math.trunc(input.targetAmount);
+  const monthlyAmount = Math.trunc(input.monthlyAmount);
+  if (!Number.isSafeInteger(targetAmount) || targetAmount <= 0) throw new Error("目標金額必須為大於零的整數。");
+  if (!Number.isSafeInteger(monthlyAmount) || monthlyAmount <= 0) throw new Error("每月存入額度必須為大於零的整數。");
+  const dayOfMonth = Math.trunc(input.dayOfMonth);
+  if (dayOfMonth < 1 || dayOfMonth > 28) throw new Error("每月自動分配日期必須介於 1 至 28 日。");
+  return {
+    ...input,
+    name,
+    icon: input.icon.trim().slice(0, 32) || "🎯",
+    targetAmount,
+    monthlyAmount,
+    dayOfMonth,
+    priority: Math.max(0, Math.min(100000, Math.trunc(input.priority))),
+    isActive: input.isActive ? 1 : 0,
+  };
+}
+
+async function assertSavingsPaymentMethod(ledgerId: number, paymentMethodId: number) {
+  const db = requireDb();
+  const paymentMethod = await db.select({ id: paymentMethods.id, isActive: paymentMethods.isActive })
+    .from(paymentMethods)
+    .where(and(eq(paymentMethods.id, paymentMethodId), eq(paymentMethods.ledgerId, ledgerId)))
+    .limit(1);
+  if (!paymentMethod[0] || !paymentMethod[0].isActive) throw new Error("請選擇帳本中啟用的扣款支付方式。");
+}
+
+export async function listSavingsBuckets(ledgerId: number) {
+  const db = requireDb();
+  const [buckets, allocationRows] = await Promise.all([
+    db.select().from(savingsBuckets).where(eq(savingsBuckets.ledgerId, ledgerId)).orderBy(asc(savingsBuckets.priority), asc(savingsBuckets.createdAt)),
+    db.select({ bucketId: savingsAllocations.bucketId, total: sql<number>`COALESCE(SUM(${savingsAllocations.allocatedAmount}), 0)` })
+      .from(savingsAllocations)
+      .where(eq(savingsAllocations.ledgerId, ledgerId))
+      .groupBy(savingsAllocations.bucketId),
+  ]);
+  const totals = new Map(allocationRows.map(row => [row.bucketId, Number(row.total ?? 0)]));
+  return buckets.map(bucket => {
+    const savedAmount = totals.get(bucket.id) ?? 0;
+    return { ...bucket, savedAmount, remainingAmount: Math.max(0, Number(bucket.targetAmount) - savedAmount) };
+  });
+}
+
+export async function listSavingsAllocations(ledgerId: number, bucketId?: number) {
+  const db = requireDb();
+  return db.select().from(savingsAllocations)
+    .where(bucketId === undefined
+      ? eq(savingsAllocations.ledgerId, ledgerId)
+      : and(eq(savingsAllocations.ledgerId, ledgerId), eq(savingsAllocations.bucketId, bucketId)))
+    .orderBy(desc(savingsAllocations.createdAt));
+}
+
+export async function createSavingsBucket(input: SavingsBucketWriteInput & { createdBy: number }) {
+  const db = requireDb();
+  const next = normalizeSavingsBucketInput(input);
+  await assertSavingsPaymentMethod(next.ledgerId, next.paymentMethodId);
+  const result = await db.insert(savingsBuckets).values({ ...next, createdBy: input.createdBy });
+  return Number(result[0].insertId);
+}
+
+export async function updateSavingsBucket(input: SavingsBucketWriteInput & { id: number; expectedVersion: number }) {
+  const db = requireDb();
+  const next = normalizeSavingsBucketInput(input);
+  await assertSavingsPaymentMethod(next.ledgerId, next.paymentMethodId);
+  const existing = await db.select().from(savingsBuckets)
+    .where(and(eq(savingsBuckets.id, input.id), eq(savingsBuckets.ledgerId, input.ledgerId)))
+    .limit(1);
+  if (!existing[0]) throw new Error("找不到儲蓄桶。");
+  if (existing[0].version !== input.expectedVersion) throw new Error("SAVINGS_BUCKET_CONFLICT");
+  const updateResult = await db.update(savingsBuckets).set({
+    paymentMethodId: next.paymentMethodId,
+    name: next.name,
+    icon: next.icon,
+    targetAmount: next.targetAmount,
+    monthlyAmount: next.monthlyAmount,
+    dayOfMonth: next.dayOfMonth,
+    priority: next.priority,
+    isActive: next.isActive,
+    version: existing[0].version + 1,
+  }).where(and(eq(savingsBuckets.id, input.id), eq(savingsBuckets.ledgerId, input.ledgerId), eq(savingsBuckets.version, input.expectedVersion)));
+  if (Number(updateResult[0]?.affectedRows ?? 0) !== 1) throw new Error("SAVINGS_BUCKET_CONFLICT");
+  const updated = await db.select().from(savingsBuckets).where(eq(savingsBuckets.id, input.id)).limit(1);
+  if (!updated[0]) throw new Error("找不到儲蓄桶。");
+  return updated[0];
+}
+
+export async function stopSavingsBucket(input: { id: number; ledgerId: number; expectedVersion: number }) {
+  const db = requireDb();
+  const existing = await db.select().from(savingsBuckets)
+    .where(and(eq(savingsBuckets.id, input.id), eq(savingsBuckets.ledgerId, input.ledgerId)))
+    .limit(1);
+  if (!existing[0]) throw new Error("找不到儲蓄桶。");
+  if (existing[0].version !== input.expectedVersion) throw new Error("SAVINGS_BUCKET_CONFLICT");
+  const stopResult = await db.update(savingsBuckets).set({ isActive: 0, version: existing[0].version + 1 })
+    .where(and(eq(savingsBuckets.id, input.id), eq(savingsBuckets.ledgerId, input.ledgerId), eq(savingsBuckets.version, input.expectedVersion)));
+  if (Number(stopResult[0]?.affectedRows ?? 0) !== 1) throw new Error("SAVINGS_BUCKET_CONFLICT");
+  return input.id;
+}
+
+async function ensureSavingsTransferCategoryId(ledgerId: number) {
+  const db = requireDb();
+  const existing = await db.select({ id: categories.id }).from(categories)
+    .where(and(eq(categories.ledgerId, ledgerId), eq(categories.name, "儲蓄轉存"), eq(categories.type, "expense")))
+    .limit(1);
+  if (existing[0]) return existing[0].id;
+  const result = await db.insert(categories).values({
+    ledgerId,
+    parentCategoryId: 0,
+    name: "儲蓄轉存",
+    type: "expense",
+    icon: "🏦",
+    color: "#6D8EA8",
+    isActive: 0,
+  });
+  return Number(result[0].insertId);
+}
+
+function taipeiMonthAndDay(now: Date) {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
+  const value = (type: string) => parts.find(part => part.type === type)?.value ?? "";
+  return { month: `${value("year")}-${value("month")}`, day: Number(value("day")) };
+}
+
+/** Executes at or after a bucket's configured day; its allocation key makes retries idempotent. */
+export async function runDueSavingsAllocations(now = new Date()) {
+  const db = requireDb();
+  const { month, day } = taipeiMonthAndDay(now);
+  const buckets = await db.select().from(savingsBuckets)
+    .where(and(eq(savingsBuckets.isActive, 1), lte(savingsBuckets.dayOfMonth, day)))
+    .orderBy(asc(savingsBuckets.ledgerId), asc(savingsBuckets.priority), asc(savingsBuckets.createdAt));
+  const results: Array<{ bucketId: number; status: "completed" | "partial" | "skipped"; allocatedAmount: number; shortfallAmount: number }> = [];
+
+  for (const bucket of buckets) {
+    const idempotencyKey = `savings:${bucket.id}:${month}`;
+    const previous = await db.select({ id: savingsAllocations.id }).from(savingsAllocations)
+      .where(eq(savingsAllocations.idempotencyKey, idempotencyKey)).limit(1);
+    if (previous[0]) continue;
+    const categoryId = await ensureSavingsTransferCategoryId(bucket.ledgerId);
+    try {
+      const outcome = await db.transaction(async tx => {
+        const [currentTransactions, savedRows, payment] = await Promise.all([
+          tx.select({ type: transactions.type, amount: transactions.amount }).from(transactions).where(eq(transactions.ledgerId, bucket.ledgerId)),
+          tx.select({ total: sql<number>`COALESCE(SUM(${savingsAllocations.allocatedAmount}), 0)` }).from(savingsAllocations).where(eq(savingsAllocations.bucketId, bucket.id)),
+          tx.select({ id: paymentMethods.id }).from(paymentMethods).where(and(eq(paymentMethods.id, bucket.paymentMethodId), eq(paymentMethods.ledgerId, bucket.ledgerId), eq(paymentMethods.isActive, 1))).limit(1),
+        ]);
+        const availableAmount = Math.max(0, currentTransactions.reduce((total, row) => total + (row.type === "income" ? Number(row.amount) : -Number(row.amount)), 0));
+        const remainingTarget = Math.max(0, Number(bucket.targetAmount) - Number(savedRows[0]?.total ?? 0));
+        const allocatedAmount = payment[0] ? Math.min(Number(bucket.monthlyAmount), availableAmount, remainingTarget) : 0;
+        const shortfallAmount = Number(bucket.monthlyAmount) - allocatedAmount;
+        const status = allocatedAmount === 0 ? "skipped" as const : shortfallAmount > 0 ? "partial" as const : "completed" as const;
+        let transactionId: number | null = null;
+        if (allocatedAmount > 0) {
+          const transaction = await tx.insert(transactions).values({
+            ledgerId: bucket.ledgerId,
+            userId: bucket.createdBy,
+            payerId: bucket.createdBy,
+            amount: allocatedAmount,
+            type: "transfer",
+            savingsBucketId: bucket.id,
+            categoryId,
+            paymentMethodId: bucket.paymentMethodId,
+            date: now,
+            note: `[儲蓄桶:${bucket.id}:${month}] ${bucket.name}`,
+            splitType: "none",
+          });
+          transactionId = Number(transaction[0].insertId);
+        }
+        await tx.insert(savingsAllocations).values({
+          ledgerId: bucket.ledgerId,
+          bucketId: bucket.id,
+          transactionId,
+          month,
+          scheduledAmount: Number(bucket.monthlyAmount),
+          allocatedAmount,
+          shortfallAmount,
+          status,
+          idempotencyKey,
+        });
+        await tx.insert(activityLogs).values({
+          ledgerId: bucket.ledgerId,
+          userId: bucket.createdBy,
+          action: "create",
+          entityType: "savingsAllocation",
+          entityId: bucket.id,
+          summary: status === "completed" ? `自動轉存 ${bucket.name}` : status === "partial" ? `${bucket.name} 部分自動轉存` : `${bucket.name} 本月自動轉存略過`,
+          metadata: JSON.stringify({ month, scheduledAmount: Number(bucket.monthlyAmount), allocatedAmount, shortfallAmount, transactionId }),
+        });
+        return { bucketId: bucket.id, status, allocatedAmount, shortfallAmount };
+      });
+      results.push(outcome);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/duplicate|Duplicate/i.test(message)) throw error;
+    }
+  }
+  return { month, results };
+}
+
+export async function getSavingsAutomationStatus() {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(savingsAutomationSettings).orderBy(desc(savingsAutomationSettings.updatedAt)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getSavingsAutomationStatusByTaskUid(taskUid: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(savingsAutomationSettings)
+    .where(eq(savingsAutomationSettings.scheduleCronTaskUid, taskUid))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/** Stores the project-wide daily savings automation task UID in a stable singleton row. */
+export async function saveSavingsAutomationTaskUid(taskUid: string) {
+  const db = requireDb();
+  await db.insert(savingsAutomationSettings).values({ id: 1, scheduleCronTaskUid: taskUid }).onDuplicateKeyUpdate({
+    set: { scheduleCronTaskUid: taskUid, updatedAt: new Date() },
+  });
+  return getSavingsAutomationStatus();
+}
+
+export async function recordSavingsAutomationRun(input: {
+  taskUid: string;
+  status: "success" | "failed";
+  error?: string | null;
+  ranAt?: Date;
+}) {
+  const db = requireDb();
+  const existing = await db.select({ id: savingsAutomationSettings.id }).from(savingsAutomationSettings)
+    .where(eq(savingsAutomationSettings.scheduleCronTaskUid, input.taskUid))
+    .limit(1);
+  if (!existing[0]) return null;
+  await db.update(savingsAutomationSettings).set({
+    lastRunAt: input.ranAt ?? new Date(),
+    lastRunStatus: input.status,
+    lastRunError: input.error ? input.error.slice(0, 255) : null,
+  }).where(eq(savingsAutomationSettings.id, existing[0].id));
+  return existing[0].id;
 }
 
 export async function getActivityLogs(ledgerId: number, limit = 100) {

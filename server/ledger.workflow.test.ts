@@ -44,6 +44,11 @@ const mocks = vi.hoisted(() => ({
   updateNotificationPreferences: vi.fn(),
   updateNotificationScheduleTaskUid: vi.fn(),
   upsertPushDevice: vi.fn(),
+  listSavingsBuckets: vi.fn(),
+  listSavingsAllocations: vi.fn(),
+  createSavingsBucket: vi.fn(),
+  updateSavingsBucket: vi.fn(),
+  stopSavingsBucket: vi.fn(),
 }));
 
 vi.mock("./db", () => mocks);
@@ -104,6 +109,11 @@ describe("typed ledger workflow contract", () => {
     });
     mocks.createSettlement.mockResolvedValue(16);
     mocks.logActivity.mockResolvedValue(undefined);
+    mocks.listSavingsBuckets.mockResolvedValue([]);
+    mocks.listSavingsAllocations.mockResolvedValue([]);
+    mocks.createSavingsBucket.mockResolvedValue(31);
+    mocks.updateSavingsBucket.mockResolvedValue({ id: 31, version: 2 });
+    mocks.stopSavingsBucket.mockResolvedValue(31);
   });
 
   it("executes create and join ledger mutations through the typed router", async () => {
@@ -274,6 +284,53 @@ describe("typed ledger workflow contract", () => {
     expect(mocks.setCategoryActive).toHaveBeenCalledWith({ ledgerId: 1, id: 11, isActive: 0 });
     expect(mocks.updatePaymentMethod).toHaveBeenCalledWith({ ledgerId: 1, id: 12, name: "共同信用卡", icon: "💳" });
     expect(mocks.setPaymentMethodActive).toHaveBeenCalledWith({ ledgerId: 1, id: 12, isActive: 1 });
+  });
+
+  it("manages authorized savings buckets with payment sources and allocation history", async () => {
+    const caller = appRouter.createCaller(createTestContext());
+    await caller.ledger.savings.buckets({ ledgerId: 1 });
+    await caller.ledger.savings.allocations({ ledgerId: 1, bucketId: 31 });
+    await caller.ledger.savings.create({
+      ledgerId: 1,
+      paymentMethodId: 12,
+      name: "日本旅遊",
+      icon: "✈️",
+      targetAmount: 100_000,
+      monthlyAmount: 5_000,
+      dayOfMonth: 5,
+      priority: 1,
+    });
+
+    expect(mocks.listSavingsBuckets).toHaveBeenCalledWith(1);
+    expect(mocks.listSavingsAllocations).toHaveBeenCalledWith(1, 31);
+    expect(mocks.createSavingsBucket).toHaveBeenCalledWith(expect.objectContaining({
+      ledgerId: 1,
+      paymentMethodId: 12,
+      monthlyAmount: 5_000,
+      dayOfMonth: 5,
+      createdBy: 1,
+      isActive: 1,
+    }));
+    expect(mocks.logActivity).toHaveBeenCalledWith(expect.objectContaining({ entityType: "savingsBucket", action: "create" }));
+  });
+
+  it("returns a conflict instead of silently overwriting a newer savings bucket", async () => {
+    const caller = appRouter.createCaller(createTestContext());
+    mocks.updateSavingsBucket.mockRejectedValueOnce(new Error("SAVINGS_BUCKET_CONFLICT"));
+
+    await expect(caller.ledger.savings.update({
+      ledgerId: 1,
+      bucketId: 31,
+      expectedVersion: 1,
+      paymentMethodId: 12,
+      name: "買車基金",
+      icon: "🚗",
+      targetAmount: 500_000,
+      monthlyAmount: 10_000,
+      dayOfMonth: 1,
+      priority: 0,
+      isActive: true,
+    })).rejects.toMatchObject({ code: "CONFLICT" });
   });
 
   it("enforces admin role changes and marks a computed settlement", async () => {
