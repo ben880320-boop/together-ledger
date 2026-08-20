@@ -493,9 +493,9 @@
 
 ## PWA 主畫面安裝與離線體驗
 
-- [ ] 建立 Web App Manifest、主畫面圖示與 iOS／Android 安裝中繼資料
-- [ ] 在公開首頁與個人設定提供可理解的安裝入口及 iPhone Safari 操作指引
-- [ ] 建立版本化 Service Worker 快取，支援離線開啟介面與最近帳本快照閱讀
-- [ ] 在離線、重新連線與新版可用時提供不遺失草稿的狀態提示與重新載入入口
-- [ ] 新增 PWA 回歸測試，完成 TypeScript、單元、Android 核心流程、正式建置與行動版視覺驗證
-- [ ] 更新 README／安裝文件，並依檢查結果發布 PWA 版本
+- [x] 建立 Web App Manifest、主畫面圖示與 iOS／Android 安裝中繼資料
+- [x] 在公開首頁與個人設定提供可理解的安裝入口及 iPhone Safari 操作指引
+- [x] 建立版本化 Service Worker 快取，支援離線開啟介面與最近帳本快照閱讀
+- [x] 在離線、重新連線與新版可用時提供不遺失草稿的狀態提示與重新載入入口
+- [x] 新增 PWA 回歸測試，完成 TypeScript、單元、Android 核心流程、正式建置與行動版視覺驗證
+- [x] 更新 README／安裝文件，並依檢查結果發布 PWA 版本
