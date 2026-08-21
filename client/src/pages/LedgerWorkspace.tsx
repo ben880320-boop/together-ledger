@@ -1,5 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { ReleaseFooter } from "@/components/ReleaseFooter";
+import { setPwaDraftSafety } from "@/components/PwaInstallPanel";
 import { SavingsBucketsPanel } from "@/components/SavingsBucketsPanel";
 import { WebAppearancePanel } from "@/components/WebAppearancePanel";
 import { Button } from "@/components/ui/button";
@@ -17,7 +18,7 @@ import { useLocation } from "wouter";
 
 type Page = "overview" | "records" | "calendar" | "analysis" | "planning" | "settings" | "profile";
 type Sheet = "ledger" | "join" | "transaction" | "budget" | "total-budget" | "recurring" | "travel" | "category" | "payment" | "manage" | null;
-const APP_VERSION = "1.3.3";
+const APP_VERSION = "1.3.4";
 function StableTransactionDialog(props: any) {
   const workspaceSnapshot = useRef<any>(null);
   const activeDraftKey = useRef<string | null>(null);
@@ -182,6 +183,12 @@ export default function LedgerWorkspace() {
     } catch {}
   }, [ledgerId, workspaceQuery.data, workspaceQuery.dataUpdatedAt]);
 
+  useEffect(() => {
+    const context = sheet === "transaction" ? "正在編輯收支" : sheet ? "正在填寫帳本表單" : undefined;
+    setPwaDraftSafety({ hasUnsavedChanges: Boolean(sheet), context });
+    return () => setPwaDraftSafety({ hasUnsavedChanges: false });
+  }, [sheet]);
+
   if (loading) return <AuthLoadingSkeleton />;
   if (!user) return <AccessGate onLogin={() => navigate("/login")} />;
 
@@ -243,7 +250,11 @@ export default function LedgerWorkspace() {
         </aside>
         <main data-page={active} className="ledger-main min-w-0 flex-1 px-4 py-5 sm:px-7 sm:py-7">
           <header className="ledger-workspace-header flex flex-col gap-4 border-b border-[#E9DED8] pb-5 sm:flex-row sm:items-center sm:justify-between"><div><button type="button" onClick={() => { setStandaloneProfile(false); setLedgerHome(true); }} className="mb-2 inline-flex min-h-11 items-center gap-1 rounded-xl px-2 text-sm font-semibold text-[#9A6870] hover:text-[#7D4C55]"><ChevronLeft size={17} />返回我的帳本</button><div className="flex flex-wrap items-center gap-2"><h1 className="text-2xl font-bold sm:text-3xl">{ledger?.name || "我的共同帳本"}</h1>{isWorkspaceRefreshing && <span className="inline-flex items-center gap-1 rounded-full bg-[#F9EEE9] px-2 py-1 text-[11px] font-semibold text-[#9A6870]" role="status"><LoaderCircle size={12} className="animate-spin" />同步中</span>}</div>{ledger && <p className="mt-1 text-xs text-[#9A857D]">{lastSyncedAt ? `上次同步：${new Date(lastSyncedAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}` : "尚未完成同步"}</p>}</div><div className="flex flex-wrap gap-2"><Button type="button" variant="outline" onClick={() => void refresh().catch(() => undefined)} disabled={isWorkspaceRefreshing} className="rounded-xl border-[#DDC7C0] bg-white text-[#875A61]"><LoaderCircle size={16} className={`mr-2 ${isWorkspaceRefreshing ? "animate-spin" : ""}`} />重新整理</Button><Button type="button" variant="outline" onClick={() => setSheet("join")} className="rounded-xl border-[#DDC7C0] bg-white text-[#875A61]"><Users size={16} className="mr-2" />加入帳本</Button>{ledger && <Button type="button" onClick={() => openTransaction()} className="rounded-xl bg-[#B56C78] text-white hover:bg-[#A35B68]"><Plus size={16} className="mr-2" />新增收支</Button>}</div></header>
-          {(syncError || !online) && <div className="mt-4 flex flex-wrap items-center gap-3 rounded-2xl border border-[#ECD6CC] bg-[#FFF7F2] px-4 py-3 text-sm text-[#815D53]" role="alert"><WifiOff size={18} className="shrink-0 text-[#B56C78]" /><span className="min-w-0 flex-1">{syncError || "目前離線，顯示最近一次同步的資料。"}</span><Button type="button" size="sm" variant="outline" onClick={() => void refresh().catch(() => undefined)} className="rounded-lg border-[#DDBDB2] bg-white">重試同步</Button></div>}
+          <section aria-label="同步狀態中心" className={`ledger-sync-center mt-4 flex flex-wrap items-center gap-3 rounded-2xl border px-4 py-3 text-sm ${syncError || !online ? "border-[#ECD6CC] bg-[#FFF7F2] text-[#815D53]" : "border-[var(--border)] bg-[color:var(--card)] text-[var(--card-foreground)]"}`} role={syncError || !online ? "alert" : "status"}>
+            <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${syncError || !online ? "bg-[#F6E2DA] text-[#B56C78]" : "bg-[color:var(--accent)] text-[var(--primary)]"}`}>{isWorkspaceRefreshing ? <LoaderCircle size={18} className="animate-spin" /> : online ? <Check size={18} /> : <WifiOff size={18} />}</span>
+            <span className="min-w-0 flex-1"><b className="block">{isWorkspaceRefreshing ? "正在同步帳本資料" : syncError || !online ? "目前顯示最近可用資料" : "資料已安全同步"}</b><span className="mt-0.5 block text-xs opacity-75">{syncError || (!online ? "網路恢復後可重試；輸入中的表單不會被背景同步清空。" : lastSyncedAt ? `最後同步：${new Date(lastSyncedAt).toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" })}。草稿輸入會受到保護。` : "完成首次同步後將顯示時間。")}</span></span>
+            <Button type="button" size="sm" variant="outline" onClick={() => void refresh().catch(() => undefined)} disabled={isWorkspaceRefreshing} className="rounded-lg border-[var(--border)] bg-[color:var(--card)] text-[var(--card-foreground)]">{isWorkspaceRefreshing ? "同步中" : "重試同步"}</Button>
+          </section>
           {!ledgerList.isLoading && !ledger ? <EmptyLedger onCreate={() => setSheet("ledger")} onJoin={() => setSheet("join")} /> : workspaceQuery.isLoading && !workspace ? <Loading /> : workspace ? <section key={`${ledgerId}-${active}`} className="ledger-content-enter py-6">
             {active === "overview" && <AppAlignedOverview workspace={workspace} ledger={ledger} currentUserId={user.id} memberName={memberName} getCategory={category} onAdd={() => openTransaction()} onEdit={openTransaction} onDelete={(item: any) => setConfirm({ title: "刪除這筆收支？", text: "刪除後會同步移除所有成員看到的資料。", run: () => deleteTransaction.mutate({ ledgerId: ledgerId!, transactionId: item.id } as any) })} onShowRecords={() => selectPage("records")} onSettle={() => setConfirm({ title: "確認本月結算？", text: "此操作會建立結算紀錄，請確認款項已交付。", run: () => settle.mutate({ ledgerId: ledgerId!, month } as any) })} />}
             {active === "records" && <Records workspace={workspace} getCategory={category} getPayment={payment} memberName={memberName} onEdit={openTransaction} onDelete={(item: any) => setConfirm({ title: "刪除這筆收支？", text: "刪除後不可復原。", run: () => deleteTransaction.mutate({ ledgerId: ledgerId!, transactionId: item.id } as any) })} />}

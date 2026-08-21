@@ -238,6 +238,7 @@ button { cursor: pointer; }
 .web-ledger-shell { width: 100%; max-width: 100%; overflow-x: clip; background-image: radial-gradient(circle at 12% 8%, color-mix(in srgb, var(--primary) 14%, transparent), transparent 27rem), radial-gradient(circle at 86% 20%, color-mix(in srgb, var(--primary) 10%, transparent), transparent 25rem); }
 .ledger-sidebar { border-right: 1px solid var(--border); background: color-mix(in srgb, var(--card) 94%, transparent); color: var(--card-foreground); }
 .ledger-main { min-width: 0; }
+.ledger-sync-center { box-shadow: 0 8px 20px color-mix(in srgb, var(--foreground) 6%, transparent); }
 .ledger-card { border: 1px solid var(--border); background: var(--card); color: var(--card-foreground); }
 .ledger-mobile-nav { border: 1px solid var(--border); background: color-mix(in srgb, var(--card) 94%, transparent); color: var(--card-foreground); box-shadow: 0 12px 30px color-mix(in srgb, var(--foreground) 14%, transparent); }
 .ledger-mobile-utilities button { border: 1px solid var(--border); box-shadow: 0 8px 20px color-mix(in srgb, var(--foreground) 8%, transparent); }
@@ -315,6 +316,8 @@ button { cursor: pointer; }
   .web-ledger-shell header h1 { font-size: 1.125rem; line-height: 1.35; }
   .web-ledger-shell header > div:last-child { width: 100%; flex-wrap: nowrap; gap: 0.5rem; }
   .web-ledger-shell header > div:last-child > button { min-height: 3.25rem; flex: 1 1 0; justify-content: center; border-radius: 1rem; padding-inline: 0.5rem; font-size: 0.75rem; }
+  .ledger-sync-center { display: grid !important; grid-template-columns: 2.25rem minmax(0, 1fr); gap: 0.625rem !important; border-radius: 1.25rem; padding: 0.875rem !important; }
+  .ledger-sync-center > button { grid-column: 1 / -1; min-height: 2.75rem; width: 100%; justify-content: center; }
   .web-ledger-shell .ledger-overview-stack > * + * { margin-top: 0.875rem !important; }
   .web-ledger-shell .ledger-hero { border-radius: 1.75rem; padding: 1.25rem; box-shadow: 0 14px 28px rgba(79, 47, 52, 0.22); }
   .web-ledger-shell .ledger-hero h2 { font-size: 1.65rem; line-height: 1.2; }

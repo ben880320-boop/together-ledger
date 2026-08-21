@@ -167,7 +167,9 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     expect(app).toContain("key={`wave-${left}`}");
     expect(app).toContain("key={`reflection-${index}`}");
     expect(app).toContain("KeyboardAvoidingView");
-    expect(app).toContain('Platform.OS === "ios" ? "padding" : undefined');
+    expect(app).toContain('Platform.OS === "ios" ? "padding" : "height"');
+    expect(app).toContain("keyboardVerticalOffset={Platform.OS === \"ios\" ? 12 : 0}");
+    expect((app.match(/automaticallyAdjustKeyboardInsets/g) || []).length).toBeGreaterThanOrEqual(8);
     expect(app).not.toContain('android: "height"');
     expect(app).toContain("confirmContent");
     expect(app).toContain('maxHeight: "88%"');
@@ -240,9 +242,9 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
       expo?: { version?: string; scheme?: string; android?: { versionCode?: number } };
     };
-    expect(appJson.expo?.version).toBe("1.3.3");
-    expect(appJson.expo?.android?.versionCode).toBe(26);
-    expect(readMobile("package.json")).toContain('"version": "1.3.3"');
+    expect(appJson.expo?.version).toBe("1.3.4");
+    expect(appJson.expo?.android?.versionCode).toBe(27);
+    expect(readMobile("package.json")).toContain('"version": "1.3.4"');
     expect(appJson.expo?.scheme).toBe("togetherledger");
     expect(readMobile("app.json")).not.toContain("expo-notifications");
     expect(readMobile("app.json")).toContain('"googleServicesFile": "./google-services.json"');
@@ -266,6 +268,10 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     expect(app).toContain("深色模式");
     expect(app).toContain("colorMode");
     expect(app).toContain("updateStatusBadge");
+    expect(app).toContain("AppUpdateDiagnostic");
+    expect(app).toContain("更新安裝診斷");
+    expect(app).toContain("來源與校驗");
+    expect(app).toContain("SHA-256 校驗檔");
     expect(app).toContain("availablePayments");
     expect(app).toContain("managerActionScroll");
     expect(app).toContain('name="delete-outline"');

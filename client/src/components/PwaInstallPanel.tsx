@@ -10,6 +10,21 @@ type BeforeInstallPromptEvent = Event & {
 
 type PwaInstallPanelProps = { variant?: "landing" | "settings" };
 
+type PwaDraftSafety = {
+  hasUnsavedChanges: boolean;
+  context?: string;
+};
+
+let pwaDraftSafety: PwaDraftSafety = { hasUnsavedChanges: false };
+
+/**
+ * Form surfaces call this while a stable draft is open. The service worker is
+ * then allowed to activate only after the user closes or submits that form.
+ */
+export function setPwaDraftSafety(next: PwaDraftSafety) {
+  pwaDraftSafety = next;
+}
+
 const isIosBrowser = () => /iPad|iPhone|iPod/.test(navigator.userAgent);
 const isStandalone = () => window.matchMedia("(display-mode: standalone)").matches || Boolean((navigator as Navigator & { standalone?: boolean }).standalone);
 
@@ -20,18 +35,27 @@ export function PwaRuntime() {
     let shouldReload = false;
     let announcedRegistration: ServiceWorkerRegistration | null = null;
 
+    const requestSafeReload = (registration: ServiceWorkerRegistration) => {
+      if (pwaDraftSafety.hasUnsavedChanges) {
+        toast.warning("已保留新版，請先完成表單。", {
+          description: `${pwaDraftSafety.context || "目前有未提交的輸入"}；關閉或儲存後再重新載入，避免草稿遺失。`,
+          duration: 7_000,
+        });
+        return;
+      }
+      shouldReload = true;
+      registration.waiting?.postMessage({ type: "SKIP_WAITING" });
+    };
+
     const announceUpdate = (registration: ServiceWorkerRegistration) => {
       if (!registration.waiting || !navigator.serviceWorker.controller || announcedRegistration === registration) return;
       announcedRegistration = registration;
       toast("新版共帳已準備完成。", {
-        description: "重新載入後會保留未提交的表單草稿。",
+        description: "沒有未提交表單時可立即更新；輸入中的內容會先受到保護。",
         duration: Infinity,
         action: {
-          label: "重新載入",
-          onClick: () => {
-            shouldReload = true;
-            registration.waiting?.postMessage({ type: "SKIP_WAITING" });
-          },
+          label: "安全重新載入",
+          onClick: () => requestSafeReload(registration),
         },
       });
     };

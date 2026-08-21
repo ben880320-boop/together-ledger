@@ -17,6 +17,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ComponentProps,
   type ReactNode,
 } from "react";
 import {
@@ -25,7 +26,7 @@ import {
   Animated,
   Easing,
   FlatList,
-  KeyboardAvoidingView,
+  KeyboardAvoidingView as NativeKeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -62,6 +63,15 @@ const colors = {
   orange: "#C98558",
   blue: "#6D8EA8",
 };
+
+/**
+ * Android needs an explicit height strategy even when a legacy form omitted
+ * one. This centralises keyboard avoidance and prevents layout jumps when the
+ * keyboard is dismissed.
+ */
+function KeyboardAvoidingView({ behavior, keyboardVerticalOffset, ...props }: ComponentProps<typeof NativeKeyboardAvoidingView>) {
+  return <NativeKeyboardAvoidingView {...props} behavior={behavior ?? (Platform.OS === "ios" ? "padding" : "height")} keyboardVerticalOffset={keyboardVerticalOffset ?? 0} />;
+}
 
 type AppearanceTheme =
   | "rose"
@@ -107,7 +117,7 @@ const appearanceDefaults: AppearancePreferences = {
   colorMode: "system",
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.3.3";
+const APP_VERSION = "1.3.4";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 const GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/ben880320-boop/together-ledger/releases/latest";
@@ -118,9 +128,10 @@ const updateResumeStorageKey = "together-ledger-update-resume-v1";
 const ledgerHomeSnapshotStorageKey = "together-ledger-ledger-home-snapshot-v1";
 
 type AppUpdateStatus = "idle" | "checking" | "downloading" | "installing";
-type GitHubReleaseAsset = { name?: string; browser_download_url?: string };
+type AppUpdateDiagnostic = "not-checked" | "checking" | "current" | "available" | "downloading" | "awaiting-system-confirmation" | "failed";
+type GitHubReleaseAsset = { name?: string; browser_download_url?: string; size?: number };
 type GitHubReleasePayload = { tag_name?: string; body?: string; published_at?: string; assets?: GitHubReleaseAsset[] };
-type AppUpdateRelease = { version: string; notes: string; apkUrl: string };
+type AppUpdateRelease = { version: string; notes: string; apkUrl: string; checksumUrl?: string; apkBytes?: number };
 type AppUpdateHistoryItem = { version: string; notes: string; publishedAt?: string };
 type SavedUpdateResume = FileSystem.DownloadPauseState & {
   version: string;
@@ -155,7 +166,10 @@ const formatReleaseDate = (value?: string) => {
 const formatUpdateMessage = (release: AppUpdateRelease) => {
   const notes = getUpdateNotesPreview(release);
   const securitySummary = getUpdateSecuritySummary(release);
-  return `目前版本：v${APP_VERSION}\n可更新至：v${release.version}\n\n更新內容\n${notes}\n\n安全性摘要\n${securitySummary}\n\n更新檔會直接在 App 內下載，完成後由 Android 系統要求你確認安裝。`;
+  const verification = release.checksumUrl
+    ? "此官方 Release 已隨附 SHA-256 校驗檔；App 只會使用官方 GitHub 下載連結。"
+    : "App 只會使用官方 GitHub Release 的下載連結。";
+  return `目前版本：v${APP_VERSION}\n可更新至：v${release.version}\n\n更新內容\n${notes}\n\n安全性摘要\n${securitySummary}\n\n來源與校驗\n${verification}\n\n更新檔會直接在 App 內下載，完成後由 Android 系統要求你確認安裝。`;
 };
 
 const isVersionNewer = (remote: string, local: string) => {
@@ -176,13 +190,18 @@ const fetchLatestAndroidRelease = async (): Promise<AppUpdateRelease | null> => 
   if (!response.ok) throw new Error("暫時無法取得更新資訊，請確認網路後再試一次。");
   const release = (await response.json()) as GitHubReleasePayload;
   const version = release.tag_name?.replace(/^v/i, "");
-  const apkUrl = release.assets?.find(asset =>
+  const apkAsset = release.assets?.find(asset =>
     asset.name === "together-ledger.apk" &&
     typeof asset.browser_download_url === "string" &&
     asset.browser_download_url.startsWith(OFFICIAL_APK_URL_PREFIX)
+  );
+  const checksumUrl = release.assets?.find(asset =>
+    asset.name === "together-ledger.apk.sha256" &&
+    typeof asset.browser_download_url === "string" &&
+    asset.browser_download_url.startsWith(OFFICIAL_APK_URL_PREFIX)
   )?.browser_download_url;
-  if (!version || !apkUrl) return null;
-  return { version, notes: release.body?.trim() || "包含最新功能、修正與穩定性改善。", apkUrl };
+  if (!version || !apkAsset?.browser_download_url) return null;
+  return { version, notes: release.body?.trim() || "包含最新功能、修正與穩定性改善。", apkUrl: apkAsset.browser_download_url, checksumUrl, apkBytes: apkAsset.size };
 };
 
 const fetchReleaseHistory = async (): Promise<AppUpdateHistoryItem[]> => {
@@ -953,6 +972,7 @@ function AppContent() {
   const [appUpdateProgress, setAppUpdateProgress] = useState(0);
   const [latestRelease, setLatestRelease] = useState<AppUpdateRelease | null>(null);
   const [updateCheckError, setUpdateCheckError] = useState("");
+  const [updateDiagnostic, setUpdateDiagnostic] = useState<AppUpdateDiagnostic>("not-checked");
   const [savedUpdateResume, setSavedUpdateResume] = useState<SavedUpdateResume | null>(null);
   const [accountDeletionVisible, setAccountDeletionVisible] = useState(false);
   const ledgerRequestRef = useRef(0);
@@ -992,6 +1012,7 @@ function AppContent() {
       return;
     }
     setAppUpdateStatus("downloading");
+    setUpdateDiagnostic("downloading");
     setAppUpdateProgress(resume?.resumeData ? 1 : 0);
     const cacheDirectory = FileSystem.cacheDirectory;
     if (!cacheDirectory) {
@@ -1028,8 +1049,10 @@ function AppContent() {
         flags: 1,
         type: APK_MIME_TYPE,
       });
+      setUpdateDiagnostic("awaiting-system-confirmation");
     } catch (updateError) {
       const message = updateError instanceof Error ? updateError.message : "更新失敗，請確認網路或安裝權限後再試一次。";
+      setUpdateDiagnostic("failed");
       let pauseState: FileSystem.DownloadPauseState | null = null;
       if (download) {
         try {
@@ -1069,15 +1092,18 @@ function AppContent() {
     if (appUpdateStatus !== "idle") return;
     setAppUpdateStatus("checking");
     setUpdateCheckError("");
+    setUpdateDiagnostic("checking");
     try {
       const release = await fetchLatestAndroidRelease();
       setLatestRelease(release);
       const resume = release ? await readSavedUpdateResume(release) : null;
       setSavedUpdateResume(resume);
       if (!release || !isVersionNewer(release.version, APP_VERSION)) {
+        setUpdateDiagnostic("current");
         if (manual) showToast("目前已是最新版本。");
         return;
       }
+      setUpdateDiagnostic("available");
       if (resume) {
         setConfirmRequest({
           title: "可繼續未完成的更新",
@@ -1105,6 +1131,7 @@ function AppContent() {
     } catch (updateError) {
       const message = updateError instanceof Error ? updateError.message : "無法檢查更新，請確認網路後再試一次。";
       setUpdateCheckError(message);
+      setUpdateDiagnostic("failed");
       if (manual) {
         showToast(message);
       }
@@ -1942,7 +1969,7 @@ function AppContent() {
         />
         <AccountDeletionModal visible={accountDeletionVisible} busy={busy} error={error} onClose={() => setAccountDeletionVisible(false)} onSubmit={deleteAccount} />
         {homePage === "profile" ? (
-          <PersonalSettingsPage user={user} error={error} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} updateCheckError={updateCheckError} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
+          <PersonalSettingsPage user={user} error={error} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} updateCheckError={updateCheckError} updateDiagnostic={updateDiagnostic} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
         ) : (
           <EmptyLedger
             error={error}
@@ -1988,7 +2015,7 @@ function AppContent() {
         />
         <AccountDeletionModal visible={accountDeletionVisible} busy={busy} error={error} onClose={() => setAccountDeletionVisible(false)} onSubmit={deleteAccount} />
         {homePage === "profile" ? (
-          <PersonalSettingsPage user={user} error={error} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} updateCheckError={updateCheckError} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
+          <PersonalSettingsPage user={user} error={error} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} updateCheckError={updateCheckError} updateDiagnostic={updateDiagnostic} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
         ) : (
           <LedgerHome
             ledgers={ledgers}
@@ -3767,6 +3794,7 @@ function PersonalSettingsPage({
   appUpdateStatus,
   appUpdateProgress,
   updateCheckError,
+  updateDiagnostic,
   onLogout,
   onDeleteAccount,
   onBack,
@@ -3782,6 +3810,7 @@ function PersonalSettingsPage({
   appUpdateStatus: AppUpdateStatus;
   appUpdateProgress: number;
   updateCheckError: string;
+  updateDiagnostic: AppUpdateDiagnostic;
   onLogout: () => void;
   onDeleteAccount: () => void;
   onBack: () => void;
@@ -3837,6 +3866,16 @@ function PersonalSettingsPage({
   ];
   const hasNewRelease = Boolean(latestRelease && isVersionNewer(latestRelease.version, APP_VERSION));
   const resumedMegabytes = savedUpdateResume?.resumeData ? (Number(savedUpdateResume.resumeData) / (1024 * 1024)).toFixed(1) : "0.0";
+  const updateDiagnosticContent: Record<AppUpdateDiagnostic, { icon: keyof typeof MaterialCommunityIcons.glyphMap; title: string; body: string; color: string }> = {
+    "not-checked": { icon: "information-outline", title: "尚未檢查版本", body: "點選下方按鈕取得官方 GitHub Release 與安全性摘要。", color: palette.muted },
+    checking: { icon: "cloud-sync-outline", title: "正在確認官方 Release", body: "正在查詢版本、APK 來源與公開校驗檔。", color: palette.blue },
+    current: { icon: "check-decagram-outline", title: "目前版本已是最新", body: "App 已成功比對官方 Release；之後可隨時再次檢查。", color: palette.sage },
+    available: { icon: "download-circle-outline", title: "新版已可下載", body: "可查看更新內容後，從 App 內下載官方 APK。", color: palette.rose },
+    downloading: { icon: "progress-download", title: "正在下載官方 APK", body: "下載中斷時會保留已完成部分，回到此頁可續傳。", color: palette.blue },
+    "awaiting-system-confirmation": { icon: "cellphone-check", title: "等待 Android 安裝確認", body: "已交由 Android 系統安裝器處理；請在系統畫面完成更新。", color: palette.sage },
+    failed: { icon: "alert-circle-outline", title: "需要重試或確認安裝條件", body: "請檢查網路、儲存空間與 Android 的「允許此來源安裝」設定。若系統提示簽章不相容，請先移除早期測試版後再安裝。", color: palette.orange },
+  };
+  const updateDiagnosticItem = updateDiagnosticContent[updateDiagnostic];
   const openReleaseHistory = async () => {
     setHistoryVisible(true);
     if (releaseHistory.length || historyLoading) return;
@@ -3853,7 +3892,7 @@ function PersonalSettingsPage({
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["bottom"]}>
       <ThemeAtmosphere />
-      <KeyboardAvoidingView style={styles.keyboardAvoiding} behavior={Platform.OS === "ios" ? "padding" : undefined} keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}>
+      <KeyboardAvoidingView style={styles.keyboardAvoiding} behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}>
       <ScrollView contentContainerStyle={styles.profileContent} keyboardShouldPersistTaps="handled" keyboardDismissMode="on-drag" automaticallyAdjustKeyboardInsets>
         <SectionIntro
           eyebrow="YOUR SPACE"
@@ -3931,6 +3970,20 @@ style={styles.input}
 		        </View> : <View style={styles.updateEmptyPanel}>
 		          <MaterialCommunityIcons name="information-outline" size={18} color={palette.muted} />
 		          <Text style={styles.updateEmptyText}>點選下方按鈕即可取得官方 GitHub Release 的版本內容與安全性摘要。</Text>
+		        </View>}
+		        <View style={styles.updateDiagnosticPanel} accessibilityLabel="更新安裝診斷">
+		          <MaterialCommunityIcons name={updateDiagnosticItem.icon} size={19} color={updateDiagnosticItem.color} />
+		          <View style={styles.preferenceCopy}>
+		            <Text style={styles.updateDetailTitle}>{updateDiagnosticItem.title}</Text>
+		            <Text style={styles.updateEmptyText}>{updateDiagnosticItem.body}</Text>
+		          </View>
+		        </View>
+		        {latestRelease && <View style={styles.updateVerificationPanel}>
+		          <MaterialCommunityIcons name="shield-check-outline" size={17} color={palette.rose} />
+		          <View style={styles.preferenceCopy}>
+		            <Text style={styles.updateDetailTitle}>來源與校驗</Text>
+		            <Text style={styles.updateEmptyText}>{latestRelease.checksumUrl ? "官方 GitHub Release 已附 SHA-256 校驗檔；僅使用官方 Release APK。" : "僅使用官方 GitHub Release APK；此版本未提供獨立 SHA-256 校驗檔。"}{latestRelease.apkBytes ? `\n檔案大小：約 ${(latestRelease.apkBytes / (1024 * 1024)).toFixed(1)} MB` : ""}</Text>
+		          </View>
 		        </View>}
 		        {!!updateCheckError && <View style={styles.updateEmptyPanel}>
 		          <MaterialCommunityIcons name="wifi-alert" size={18} color={palette.orange} />
@@ -6968,6 +7021,8 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
   updateDetailHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 2 },
   updateDetailTitle: { color: palette.ink, fontSize: 12, fontWeight: "800" },
   updateDetailBody: { color: palette.muted, fontSize: 12, lineHeight: 18 },
+  updateDiagnosticPanel: { flexDirection: "row", alignItems: "flex-start", gap: 9, marginBottom: 10, padding: 12, borderWidth: 1, borderColor: palette.border, borderRadius: 14, backgroundColor: palette.background },
+  updateVerificationPanel: { flexDirection: "row", alignItems: "flex-start", gap: 9, marginBottom: 12, padding: 12, borderWidth: 1, borderColor: palette.roseSoft, borderRadius: 14, backgroundColor: "rgba(181,108,120,0.06)" },
   updateEmptyPanel: {
     flexDirection: "row",
     alignItems: "flex-start",

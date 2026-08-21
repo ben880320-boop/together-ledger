@@ -6,6 +6,7 @@ const workspace = readFileSync(fileURLToPath(new URL("./LedgerWorkspace.tsx", im
 const savingsBuckets = readFileSync(fileURLToPath(new URL("../components/SavingsBucketsPanel.tsx", import.meta.url)), "utf8");
 const auth = readFileSync(fileURLToPath(new URL("./WebAuth.tsx", import.meta.url)), "utf8");
 const footer = readFileSync(fileURLToPath(new URL("../components/ReleaseFooter.tsx", import.meta.url)), "utf8");
+const pwa = readFileSync(fileURLToPath(new URL("../components/PwaInstallPanel.tsx", import.meta.url)), "utf8");
 
 describe("Together Ledger 真實網頁帳本入口", () => {
   it("使用既有的真實帳本 tRPC 讀寫流程，不使用靜態模擬交易資料", () => {
@@ -107,12 +108,22 @@ describe("Together Ledger 真實網頁帳本入口", () => {
   });
 
   it("提供可辨識的發布資訊與重新取得最新版本操作", () => {
-    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.3"');
+    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.4"');
     expect(footer).toContain("WEB_BUILD_TIMESTAMP");
     expect(footer).toContain("formatTaipeiTimestamp");
     expect(footer).toContain("重新載入最新版本");
     expect(footer).toContain("window.caches");
     expect(footer).toContain("url.searchParams.set(\"refresh\"");
+  });
+
+  it("在行動 Web／PWA 顯示同步狀態，並在未儲存草稿存在時阻擋新版重載", () => {
+    expect(workspace).toContain("setPwaDraftSafety");
+    expect(workspace).toContain("同步狀態");
+    expect(workspace).toContain("最後同步");
+    expect(workspace).toContain("重試同步");
+    expect(pwa).toContain("PwaDraftSafety");
+    expect(pwa).toContain("hasUnsavedChanges");
+    expect(pwa).toContain("避免草稿遺失");
   });
 
   it("以 Android App 的首頁資訊層級呈現成員支付、近期收支與結算資訊", () => {
