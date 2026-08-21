@@ -555,9 +555,9 @@
 - [x] 驗證 Android 可取得新版的完整流程，並更新使用說明與發布紀錄
 
 ## APK 發布與資產上傳補救
-- [ ] 13. 檢查 GitHub v1.3.3 Release 與本地產出物狀態
-- [ ] 14. 執行 Android 本機建置或透過 GitHub Actions 產出 v1.3.3 APK 檔案
-- [ ] 15. 將 APK 上傳至 GitHub v1.3.3 Release 並交付直接下載連結
+- [x] 13. 檢查 GitHub v1.3.3 Release 與本地產出物狀態
+- [x] 14. 執行 Android 本機建置或透過 GitHub Actions 產出 v1.3.3 APK 檔案
+- [x] 15. 將 APK 上傳至 GitHub v1.3.3 Release 並交付直接下載連結
 
 ## v1.3.3 跨平台同步與 APK 發布確認
 - [x] 完成 Android、Web 與 PWA 的 v1.3.3 版本同步，修正內部版本常數與更新來源
