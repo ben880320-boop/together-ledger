@@ -112,15 +112,21 @@ jobs:
             -storepass "$ANDROID_KEYSTORE_PASSWORD" \
             -alias "$ANDROID_KEY_ALIAS" >/dev/null
           cat > android/ci-release-signing.gradle <<'GRADLE'
-          gradle.projectsEvaluated {
-            def appProject = rootProject.findProject(":app")
-            def androidExtension = appProject.extensions.findByName("android")
-            def signingConfig = androidExtension.signingConfigs.findByName("ciRelease") ?: androidExtension.signingConfigs.create("ciRelease")
-            signingConfig.storeFile = appProject.file("together-ledger-release.jks")
-            signingConfig.storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
-            signingConfig.keyAlias = System.getenv("ANDROID_KEY_ALIAS")
-            signingConfig.keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
-            androidExtension.buildTypes.getByName("release").signingConfig = signingConfig
+          gradle.beforeProject { project ->
+            if (project.path == ":app") {
+              project.afterEvaluate {
+                def androidExtension = project.extensions.findByName("android")
+                if (androidExtension == null) {
+                  throw new GradleException("Android extension was not found for :app")
+                }
+                def signingConfig = androidExtension.signingConfigs.findByName("ciRelease") ?: androidExtension.signingConfigs.create("ciRelease")
+                signingConfig.storeFile = project.file("together-ledger-release.jks")
+                signingConfig.storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                signingConfig.keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                signingConfig.keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+                androidExtension.buildTypes.getByName("release").signingConfig = signingConfig
+              }
+            }
           }
           GRADLE
 
