@@ -564,6 +564,6 @@
 - [x] 核對 GitHub v1.3.3 Release，確認 APK 檔案名稱與交付連結正確無誤
 
 ## Android APK 固定簽章與更新相容性
-- [ ] 建立受保護的固定簽章金鑰並設定 GitHub Actions 僅從 GitHub Secrets 取用
-- [ ] 更新 Android 自動建置流程，避免每次建置產生不同簽章而無法覆蓋更新
-- [ ] 重新產出、驗證並發布可供後續版本穩定更新的 v1.3.3 APK
+- [x] 建立受保護的固定簽章金鑰並設定 GitHub Actions 僅從 GitHub Secrets 取用
+- [x] 更新 Android 自動建置流程，避免每次建置產生不同簽章而無法覆蓋更新
+- [x] 重新產出、驗證並發布可供後續版本穩定更新的 v1.3.3 APK

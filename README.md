@@ -65,7 +65,7 @@ Together Ledger 網頁版可安裝為 PWA，安裝後會以獨立視窗開啟，
 
 ## 下載、安裝與更新 Android App
 
-目前 Android App 版本為 **1.3.2**（versionCode 25）。請僅從本專案的 [GitHub Releases](https://github.com/ben880320-boop/together-ledger/releases) 下載官方 APK，並以 Release 頁面附列的檢查碼確認檔案來源。
+目前 Android App 版本為 **1.3.3**（versionCode 26）。請僅從本專案的 [GitHub Releases](https://github.com/ben880320-boop/together-ledger/releases) 下載官方 APK，並以 Release 頁面附列的檢查碼確認檔案來源。
 
 | 步驟 | 操作 |
 | --- | --- |
@@ -75,6 +75,8 @@ Together Ledger 網頁版可安裝為 PWA，安裝後會以獨立視窗開啟，
 | 4 | App 偵測到官方新版時，先閱讀版本更新內容與安全性摘要，再依提示下載及安裝。 |
 
 > 安裝 APK 的系統權限只用於完成你主動發起的更新安裝。請勿從非官方網站、聊天訊息或未知來源下載同名 APK。
+
+> **首次切換至固定簽章版本：** 若裝置上的舊版 App 顯示「無法更新」或「套件衝突」，請先移除舊版，再安裝 v1.3.3 的官方 APK 一次。v1.3.3 起，後續官方 APK 均使用同一組受保護簽章，可正常覆蓋更新；移除 App 不會刪除伺服器上的帳本資料。
 
 ## 隱私與資料安全
 
@@ -104,7 +106,7 @@ Together Ledger 網頁版可安裝為 PWA，安裝後會以獨立視窗開啟，
 | --- | --- |
 | 網頁版 | React 19、Vite、Tailwind CSS、tRPC、Express 與 MySQL／TiDB 資料層。 |
 | Android App | Expo SDK 54、React Native 0.81、TypeScript、Expo Router。 |
-| 發布 | GitHub Actions 建置 Android APK，並建立或更新對應 GitHub Release。 |
+| 發布 | GitHub Actions 使用受保護的固定簽章建置 Android APK，並建立或更新對應 GitHub Release。 |
 
 ```bash
 pnpm install
@@ -114,7 +116,7 @@ pnpm build
 pnpm exec tsx mobile/scripts/verify-core-flows.mjs
 ```
 
-請透過 feature branch 建立 Pull Request 並在合併審閱後觸發 **Android APK** 工作流程，或由 GitHub Actions 手動執行該工作流程；它會建置 Android Release APK、檢查版本資訊，並將檔案附加到對應的 GitHub Release。行動端詳細開發說明請見 [mobile/README.md](mobile/README.md)。
+請透過 feature branch 建立 Pull Request 並在合併審閱後觸發 **Android APK** 工作流程，或由 GitHub Actions 手動執行該工作流程；它會從 GitHub Actions Secrets 取得固定簽章、建置並驗證 Android Release APK、檢查版本資訊，並將檔案附加到對應的 GitHub Release。行動端詳細開發說明請見 [mobile/README.md](mobile/README.md)。
 
 ## 專案連結與回報問題
 
