@@ -92,11 +92,47 @@ jobs:
           fi
           test -f app/debug.keystore
 
+      - name: Prepare stable Android release signing
+        working-directory: mobile
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          test -n "$ANDROID_KEYSTORE_BASE64"
+          test -n "$ANDROID_KEYSTORE_PASSWORD"
+          test -n "$ANDROID_KEY_ALIAS"
+          test -n "$ANDROID_KEY_PASSWORD"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/together-ledger-release.jks
+          test -s android/app/together-ledger-release.jks
+          keytool -list -keystore android/app/together-ledger-release.jks \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -alias "$ANDROID_KEY_ALIAS" >/dev/null
+          cat > android/ci-release-signing.gradle <<'GRADLE'
+          gradle.projectsEvaluated {
+            def appProject = rootProject.findProject(":app")
+            def androidExtension = appProject.extensions.findByName("android")
+            def signingConfig = androidExtension.signingConfigs.findByName("ciRelease") ?: androidExtension.signingConfigs.create("ciRelease")
+            signingConfig.storeFile = appProject.file("together-ledger-release.jks")
+            signingConfig.storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+            signingConfig.keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+            signingConfig.keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            androidExtension.buildTypes.getByName("release").signingConfig = signingConfig
+          }
+          GRADLE
+
       - name: Build standalone release APK with embedded JavaScript bundle
         working-directory: mobile/android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           chmod +x ./gradlew
-          ./gradlew --no-daemon --stacktrace assembleRelease
+          ./gradlew --no-daemon --stacktrace -I ci-release-signing.gradle assembleRelease
 
       - name: Verify embedded JavaScript bundle and APK version
         working-directory: mobile/android
@@ -109,6 +145,9 @@ jobs:
           AAPT="${ANDROID_HOME}/build-tools/36.0.0/aapt"
           "$AAPT" dump badging "$APK" | grep -F "versionName='${{ steps.app-version.outputs.version }}'" >/dev/null
           "$AAPT" dump badging "$APK" | grep -F "versionCode='${{ steps.app-version.outputs.version_code }}'" >/dev/null
+          APKSIGNER="${ANDROID_HOME}/build-tools/36.0.0/apksigner"
+          "$APKSIGNER" verify --verbose "$APK" >/dev/null
+          "$APKSIGNER" verify --print-certs "$APK" | grep -F "certificate SHA-256 digest" >/dev/null
           cp "$APK" "app/build/outputs/apk/release/together-ledger.apk"
 
       - name: Upload APK artifact
@@ -166,8 +205,9 @@ jobs:
             echo ""
             echo "- Version: ${{ steps.app-version.outputs.version }}"
             echo "- Version code: ${{ steps.app-version.outputs.version_code }}"
-            echo "- Build type: standalone release APK (debug-signed for testing)"
+            echo "- Build type: standalone release APK (fixed release signing)"
             echo "- Embedded bundle: verified"
+            echo "- Release signing: fixed GitHub Secrets keystore verified"
             echo "- Artifact: together-ledger-${{ steps.app-version.outputs.version }}-release-apk"
             echo "- Download filename: together-ledger.apk"
             echo "- GitHub Release: v${{ steps.app-version.outputs.version }}"

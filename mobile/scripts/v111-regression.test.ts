@@ -288,6 +288,14 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     expect(workflow).toContain("android-actions/setup-android@v3");
     expect(workflow).toContain("pnpm run prebuild:android");
     expect(workflow).toContain("assembleRelease");
+    expect(workflow).toContain("Prepare stable Android release signing");
+    expect(workflow).toContain("secrets.ANDROID_KEYSTORE_BASE64");
+    expect(workflow).toContain("secrets.ANDROID_KEYSTORE_PASSWORD");
+    expect(workflow).toContain("secrets.ANDROID_KEY_ALIAS");
+    expect(workflow).toContain("secrets.ANDROID_KEY_PASSWORD");
+    expect(workflow).toContain("ci-release-signing.gradle");
+    expect(workflow).toContain("signingConfigs.create(\"ciRelease\")");
+    expect(workflow).toContain("apksigner");
     expect(workflow).toContain("actions/upload-artifact@v4");
     expect(workflow).toContain(
       "together-ledger-${{ steps.app-version.outputs.version }}-release-apk"
