@@ -586,11 +586,18 @@
 - [x] 將 Web、PWA 與 Android 的新增、編輯、刪除與設定變更接入即時失效／局部更新流程
 - [x] 擴充帳本可選圖示庫並支援建立與帳本設定中的選擇、儲存與同步顯示
 - [x] 補齊 tRPC 權限／樂觀鎖、即時同步、圖示與離線回復的自動化驗收
-- [ ] 同步 v1.3.5 版本、文件、固定簽章 APK 及 GitHub Release
+- [x] 同步 v1.3.5 版本、文件、固定簽章 APK 及 GitHub Release
 - [x] 分析並修復 Web／PWA SSE 快取失效與帳本圖示庫回歸斷言的實作／測試契約差異，重新完成完整驗收
 - [x] 抽取 Web／PWA 與 Android 共用的 70 個帳本圖示與「無圖示」資料契約，移除建立與管理彈窗的重複硬編碼選項
 - [x] 以 EventSource 模擬與防抖快取失效行為測試取代 SSE 內部變數名稱字串斷言，並驗證草稿不被遠端事件清空
 - [x] 更新 Android 核心流程腳本的 v1.3.5／versionCode 28 發行基準，重新完成型別、測試、核心流程與 Web／PWA 生產建置
 - [x] 將 Expo 設定、Android 套件資訊、App 顯示常數與核心流程版本比對收斂為同一 v1.3.5／versionCode 28 發行來源，重跑所有品質閘門
 - [x] 同步 v1.3.5 versionCode 28 的 Android 發行說明與品質驗收證據，完成 Web／PWA 生產建置前檢核
-- [ ] 修正 Android Metro 對 @shared/ledgerIcons 的解析設定，重新完成固定簽章 APK、校驗檔與 GitHub Release 驗證
+- [x] 修正 Android Metro 對 @shared/ledgerIcons 的解析設定，重新完成固定簽章 APK、校驗檔與 GitHub Release 驗證
+- [x] 查明並修復 Android 更新後帳本工作區取得非預期伺服器回應的相容性、授權或同步錯誤，提供可重試且可診斷的回復流程
+- [x] 在 Web、PWA 與 Android 統一「無圖示」值為不渲染任何圖示，並將 70 項圖示選擇器改為可搜尋／分區的緊湊介面
+- [x] 在 Web、PWA 與 Android 加入可發現的 GitHub Wiki 入口
+- [x] 修復更新歷程的版本篩選，確保每個版本只顯示其對應 Release Notes，並核對 GitHub Release 描述
+- [x] 補齊上述跨端回歸測試並通過 TypeScript、Vitest、Android 核心流程與 Web／PWA 生產建置
+- [ ] 將已驗收的 v1.3.5 後修復發行為可覆蓋更新的 v1.3.6／versionCode 29 固定簽章 APK，經 feature branch 與 Pull Request 流程發布
+- [x] 修正 Web／PWA 公開首頁仍顯示 v1.3.5 的最新版本標籤，使其與 v1.3.6 更新歷程及 Release Footer 一致
