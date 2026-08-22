@@ -124,7 +124,7 @@ describe("Together Ledger 真實網頁帳本入口", () => {
   });
 
   it("提供可辨識的發布資訊與重新取得最新版本操作", () => {
-    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.11"');
+    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.12"');
     expect(footer).toContain("WEB_BUILD_TIMESTAMP");
     expect(footer).toContain("formatTaipeiTimestamp");
     expect(footer).toContain("重新載入最新版本");
@@ -179,12 +179,26 @@ describe("Together Ledger 真實網頁帳本入口", () => {
   });
 
   it("以版本保護的每月結算快照提供提出、第二位成員確認與管理員重新開啟流程", () => {
+    expect(workspace).toContain("trpc.ledger.settlement.history.useQuery");
     expect(workspace).toContain("trpc.ledger.settlement.markSettled.useMutation");
     expect(workspace).toContain("trpc.ledger.settlement.confirm.useMutation");
     expect(workspace).toContain("trpc.ledger.settlement.reopen.useMutation");
     expect(workspace).toContain("等待另一位成員確認");
     expect(workspace).toContain("確認並鎖定");
     expect(workspace).toContain("重新開啟本月結算");
+  });
+
+  it("將本月待結算摘要置於總覽，並提供月份與狀態篩選的結算快照歷史", () => {
+    expect(workspace).toContain("本月待結算");
+    expect(workspace).toContain("結算快照與鎖定狀態");
+    expect(workspace).toContain("function SettlementHistoryPanel");
+    expect(workspace).toContain("const [monthFilter, setMonthFilter]");
+    expect(workspace).toContain("statusFilter");
+    expect(workspace).toContain("全部月份");
+    expect(workspace).toContain("全部狀態");
+    expect(workspace).toContain("等待確認");
+    expect(workspace).toContain("已重新開啟");
+    expect(workspace).toContain("utils.ledger.settlement.history.invalidate");
   });
 
   it("以 Android App 的首頁資訊層級呈現成員支付、近期收支與結算資訊", () => {

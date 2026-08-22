@@ -75,12 +75,15 @@ const colors = {
 };
 
 /**
- * Android needs an explicit height strategy even when a legacy form omitted
- * one. This centralises keyboard avoidance and prevents layout jumps when the
- * keyboard is dismissed.
+ * Android is configured with Expo's native `resize` keyboard mode. Applying a
+ * second `height` animation in React Native makes a closing keyboard compete
+ * with the resized window and can visibly bounce forms up and down. Keep the
+ * JS avoidance layer for iOS only; Android still resizes the window so focused
+ * fields remain reachable without a second layout transition.
  */
-function KeyboardAvoidingView({ behavior, keyboardVerticalOffset, ...props }: ComponentProps<typeof NativeKeyboardAvoidingView>) {
-  return <NativeKeyboardAvoidingView {...props} behavior={behavior ?? (Platform.OS === "ios" ? "padding" : "height")} keyboardVerticalOffset={keyboardVerticalOffset ?? 0} />;
+function KeyboardAvoidingView({ behavior, keyboardVerticalOffset, enabled, ...props }: ComponentProps<typeof NativeKeyboardAvoidingView>) {
+  const usesNativeAndroidResize = Platform.OS === "android";
+  return <NativeKeyboardAvoidingView {...props} enabled={enabled ?? !usesNativeAndroidResize} behavior={behavior ?? (Platform.OS === "ios" ? "padding" : undefined)} keyboardVerticalOffset={keyboardVerticalOffset ?? 0} />;
 }
 
 type AppearanceTheme =
@@ -127,7 +130,7 @@ const appearanceDefaults: AppearancePreferences = {
   colorMode: "system",
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.3.11";
+const APP_VERSION = "1.3.12";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 const GITHUB_WIKI_URL = "https://github.com/ben880320-boop/together-ledger/wiki";
@@ -809,8 +812,12 @@ type SettlementHistory = {
   fromUserId: number;
   toUserId: number;
   amount: number;
-  status: string;
-  settledAt: Date | string;
+  status: "pending" | "settled" | "reopened";
+  proposedAt?: Date | string | null;
+  confirmedAt?: Date | string | null;
+  reopenedAt?: Date | string | null;
+  updatedAt?: Date | string | null;
+  settledAt?: Date | string | null;
 };
 type MonthlySettlementSnapshot = {
   id: number;
@@ -1339,8 +1346,9 @@ function AppContent() {
     const queryWorkspace = () => Promise.all([
       api.ledger.workspace.query({ ledgerId, month }),
       api.ledger.savings.buckets.query({ ledgerId }),
+      api.ledger.settlement.history.query({ ledgerId }),
     ]);
-    const [workspace, bucketRows] = await (async () => {
+    const [workspace, bucketRows, settlementHistoryRows] = await (async () => {
       try {
         return await queryWorkspace();
       } catch (initialError) {
@@ -1359,7 +1367,7 @@ function AppContent() {
     setPreviousAnalytics(workspace.previousAnalytics as Analytics);
     setSettlement(workspace.settlement as Settlement);
     setSettlementSnapshot((workspace.settlementSnapshot as MonthlySettlementSnapshot | null) ?? null);
-    setSettlementHistory(workspace.settlementHistory as SettlementHistory[]);
+    setSettlementHistory(settlementHistoryRows as SettlementHistory[]);
     setBudgets(workspace.budgets as Budget[]);
     setTravelPlans(workspace.travelPlans as TravelPlan[]);
     setRecurring(workspace.recurring as Recurring[]);
@@ -3360,43 +3368,48 @@ function Overview({
           </Text>
         </View>
       </View>
-      <View style={styles.settlementCard}>
-        <View style={styles.settlementIcon}>
-          <MaterialCommunityIcons
-            name="hand-coin-outline"
-            size={22}
-            color={palette.rose}
-          />
+      <View style={[styles.settlementCard, styles.settlementSummaryCard]}>
+        <View style={styles.settlementSummaryHeading}>
+          <View style={styles.settlementIcon}>
+            <MaterialCommunityIcons name="hand-coin-outline" size={22} color={palette.rose} />
+          </View>
+          <View style={styles.settlementText}>
+            <Text style={styles.settlementEyebrow}>本月待結算</Text>
+            <Text style={styles.settlementTitle}>{monthLabel(currentMonth())} 結算快照</Text>
+          </View>
+          <View style={[styles.settlementStatusPill, snapshotSettled ? styles.settlementStatusSettled : settlementSnapshot?.status === "reopened" ? styles.settlementStatusReopened : snapshotPending ? styles.settlementStatusPending : styles.settlementStatusBalanced]}>
+            <Text style={styles.settlementStatusText}>{snapshotSettled ? "已鎖定" : settlementSnapshot?.status === "reopened" ? "已重開" : snapshotPending ? "待確認" : pending ? "待結算" : "已平衡"}</Text>
+          </View>
         </View>
-        <View style={styles.settlementText}>
-          <Text style={styles.settlementTitle}>目前結算狀態</Text>
-          <Text style={styles.settlementBody}>
-            {snapshotPending
-              ? proposedByCurrentUser
-                ? "已提出本月結算，等待另一位成員確認。"
-                : "另一位成員已提出本月結算，請核對後確認。"
-              : snapshotSettled
-                ? "本月結算已由雙方確認並鎖定。"
+        {(settlementSnapshot || pending) ? <View style={styles.settlementAmountPanel}>
+          <Text style={styles.settlementAmountLabel}>待結算金額</Text>
+          <Text style={styles.settlementAmountValue}>{money(settlementSnapshot?.amount ?? pending?.amount ?? 0)}</Text>
+          <Text style={styles.settlementDirection}>{members.find(member => member.user.id === (settlementSnapshot?.fromUserId ?? pending?.fromUserId))?.user.name || "成員"} → {members.find(member => member.user.id === (settlementSnapshot?.toUserId ?? pending?.toUserId))?.user.name || "成員"}</Text>
+        </View> : <View style={styles.settlementAmountPanel}><Text style={styles.settlementEmptyText}>目前沒有待結算差額；新增共同支出後會在這裡更新。</Text></View>}
+        <Text style={styles.settlementBody}>
+          {snapshotPending
+            ? proposedByCurrentUser
+              ? "已提出本月結算，等待另一位成員確認。"
+              : "另一位成員已提出本月結算，請核對後確認。"
+            : snapshotSettled
+              ? "本月結算已由雙方確認並鎖定。"
+              : settlementSnapshot?.status === "reopened"
+                ? "管理員已重新開啟本月結算；修正後可再次提出。"
                 : pending
-                  ? `由 ${members.find(member => member.user.id === pending.fromUserId)?.user.name || "成員"} 支付 ${money(pending.amount)} 給 ${members.find(member => member.user.id === pending.toUserId)?.user.name || "成員"}`
+                  ? "提出後需由另一位成員確認，才會鎖定本月收支。"
                   : "目前沒有待結算差額。"}
-          </Text>
+        </Text>
+        <View style={styles.settlementActionRow}>
+          {(!settlementSnapshot || settlementSnapshot.status === "reopened") && pending && (
+            <Pressable onPress={onSettle} style={styles.smallButton}><Text style={styles.smallButtonText}>提出結算</Text></Pressable>
+          )}
+          {snapshotPending && !proposedByCurrentUser && (
+            <Pressable onPress={() => onConfirmSettlement(settlementSnapshot.version)} style={styles.smallButton}><Text style={styles.smallButtonText}>確認結算</Text></Pressable>
+          )}
+          {snapshotSettled && currentMember?.member.role === "admin" && (
+            <Pressable onPress={() => onReopenSettlement(settlementSnapshot.version)} style={styles.smallButton}><Text style={styles.smallButtonText}>重新開啟</Text></Pressable>
+          )}
         </View>
-        {(!settlementSnapshot || settlementSnapshot.status === "reopened") && pending && (
-          <Pressable onPress={onSettle} style={styles.smallButton}>
-            <Text style={styles.smallButtonText}>提出結算</Text>
-          </Pressable>
-        )}
-        {snapshotPending && !proposedByCurrentUser && (
-          <Pressable onPress={() => onConfirmSettlement(settlementSnapshot.version)} style={styles.smallButton}>
-            <Text style={styles.smallButtonText}>確認結算</Text>
-          </Pressable>
-        )}
-        {snapshotSettled && currentMember?.member.role === "admin" && (
-          <Pressable onPress={() => onReopenSettlement(settlementSnapshot.version)} style={styles.smallButton}>
-            <Text style={styles.smallButtonText}>重新開啟</Text>
-          </Pressable>
-        )}
       </View>
       <Modal visible={showAllTransactions} transparent animationType="slide" onRequestClose={() => setShowAllTransactions(false)}>
         <View style={styles.modalBackdrop}>
@@ -4696,6 +4709,8 @@ function SettingsSection({
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [managerModal, setManagerModal] = useState<"category" | "payment" | "activity" | null>(null);
   const [activityFilter, setActivityFilter] = useState<"all" | "transaction" | "settings" | "members">("all");
+  const [settlementMonthFilter, setSettlementMonthFilter] = useState("all");
+  const [settlementStatusFilter, setSettlementStatusFilter] = useState<"all" | SettlementHistory["status"]>("all");
   const [pendingItemAction, setPendingItemAction] = useState<{
     kind: "category" | "payment";
     id: number;
@@ -4736,6 +4751,14 @@ function SettingsSection({
     return "settings";
   };
   const filteredActivityLogs = activityLogs.filter(item => activityFilter === "all" || activityKind(item) === activityFilter);
+  const settlementMonths = useMemo(() => Array.from(new Set(history.map(item => item.month).filter(Boolean))).sort((left, right) => right.localeCompare(left)), [history]);
+  const filteredSettlementHistory = useMemo(() => history.filter(item => (settlementMonthFilter === "all" || item.month === settlementMonthFilter) && (settlementStatusFilter === "all" || item.status === settlementStatusFilter)), [history, settlementMonthFilter, settlementStatusFilter]);
+  const settlementStatusLabel = (status: SettlementHistory["status"]) => status === "pending" ? "待確認" : status === "settled" ? "已鎖定" : "已重開";
+  const settlementTimestamp = (item: SettlementHistory) => {
+    const value = item.confirmedAt ?? item.reopenedAt ?? item.proposedAt ?? item.updatedAt ?? item.settledAt;
+    const date = value ? new Date(value) : null;
+    return date && !Number.isNaN(date.getTime()) ? date.toLocaleString("zh-TW", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "時間待確認";
+  };
   const resolveItemAction = async (choice: "archive" | "delete") => {
     const target = pendingItemAction;
     if (!target) return;
@@ -4988,23 +5011,33 @@ function SettingsSection({
       <View style={styles.card}>
         <View style={styles.cardHeading}>
           <Text style={styles.cardTitle}>結算紀錄</Text>
-          <Text style={styles.cardHint}>{history.length} 筆</Text>
+          <Text style={styles.cardHint}>{filteredSettlementHistory.length} / {history.length} 筆</Text>
         </View>
-        {history.length === 0 ? (
-          <EmptyInline text="尚未有已結算紀錄。" />
+        <Text style={styles.rowSubtitle}>依月份與狀態查看待確認、已鎖定或已重新開啟的結算快照。</Text>
+        <Text style={styles.filterLabel}>月份</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipRow} keyboardShouldPersistTaps="handled">
+          <Pressable onPress={() => setSettlementMonthFilter("all")} style={[styles.filterChip, settlementMonthFilter === "all" && styles.filterChipActive]}><Text style={[styles.filterChipText, settlementMonthFilter === "all" && styles.filterChipTextActive]}>全部月份</Text></Pressable>
+          {settlementMonths.map(value => <Pressable key={value} onPress={() => setSettlementMonthFilter(value)} style={[styles.filterChip, settlementMonthFilter === value && styles.filterChipActive]}><Text style={[styles.filterChipText, settlementMonthFilter === value && styles.filterChipTextActive]}>{monthLabel(value)}</Text></Pressable>)}
+        </ScrollView>
+        <Text style={styles.filterLabel}>狀態</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterChipRow} keyboardShouldPersistTaps="handled">
+          {(["all", "pending", "settled", "reopened"] as const).map(status => <Pressable key={status} onPress={() => setSettlementStatusFilter(status)} style={[styles.filterChip, settlementStatusFilter === status && styles.filterChipActive]}><Text style={[styles.filterChipText, settlementStatusFilter === status && styles.filterChipTextActive]}>{status === "all" ? "全部狀態" : settlementStatusLabel(status)}</Text></Pressable>)}
+        </ScrollView>
+        {filteredSettlementHistory.length === 0 ? (
+          <EmptyInline text={history.length ? "找不到符合篩選條件的結算快照。" : "尚未有結算快照。"} />
         ) : (
-          history.slice(0, 6).map(item => {
+          filteredSettlementHistory.map(item => {
             const from = members.find(member => member.user.id === item.fromUserId)?.user;
             const to = members.find(member => member.user.id === item.toUserId)?.user;
             return (
               <View key={item.id} style={styles.historyRow}>
-                <View style={styles.historyIcon}>
-                  <MaterialCommunityIcons name="check" size={16} color={palette.sage} />
+                <View style={[styles.historyIcon, item.status === "settled" ? styles.historyIconSettled : item.status === "reopened" ? styles.historyIconReopened : styles.historyIconPending]}>
+                  <MaterialCommunityIcons name={item.status === "settled" ? "check" : item.status === "reopened" ? "restore" : "clock-outline"} size={16} color={item.status === "settled" ? palette.sage : item.status === "reopened" ? "#795C8D" : "#966E3D"} />
                 </View>
                 <View style={styles.memberPaymentName}>
-                  <Text style={styles.rowTitle}>{monthLabel(item.month)} 已結算</Text>
+                  <Text style={styles.rowTitle}>{monthLabel(item.month)} · {settlementStatusLabel(item.status)}</Text>
                   <Text style={styles.rowSubtitle}>
-                    {from?.name || from?.email || "成員"} → {to?.name || to?.email || "成員"}
+                    {from?.name || from?.email || "成員"} → {to?.name || to?.email || "成員"} · {settlementTimestamp(item)}
                   </Text>
                 </View>
                 <Text style={styles.historyAmount}>{money(item.amount)}</Text>
@@ -7872,6 +7905,9 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     justifyContent: "center",
     backgroundColor: "#EAF0EB",
   },
+  historyIconSettled: { backgroundColor: "#EAF0EB" },
+  historyIconPending: { backgroundColor: "#FFF1DB" },
+  historyIconReopened: { backgroundColor: "#F2EAF7" },
   historyAmount: {
     color: palette.ink,
     fontSize: 13,
@@ -7906,8 +7942,6 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     lineHeight: 19,
   },
   settlementCard: {
-    flexDirection: "row",
-    alignItems: "center",
     gap: 12,
     marginBottom: 14,
     padding: 17,
@@ -7916,6 +7950,8 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     borderColor: palette.border,
     backgroundColor: palette.surface,
   },
+  settlementSummaryCard: { borderColor: "#E7CBC8", backgroundColor: "#FFF8F6" },
+  settlementSummaryHeading: { flexDirection: "row", alignItems: "center", gap: 12 },
   settlementIcon: {
     width: 42,
     height: 42,
@@ -7925,13 +7961,32 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     backgroundColor: palette.roseSoft,
   },
   settlementText: { flex: 1 },
+  settlementEyebrow: { color: palette.rose, fontSize: 11, fontWeight: "800", letterSpacing: 1 },
   settlementTitle: { color: palette.ink, fontSize: 14, fontWeight: "700" },
+  settlementStatusPill: { borderRadius: 99, paddingHorizontal: 9, paddingVertical: 6 },
+  settlementStatusPending: { backgroundColor: "#FFF0D6" },
+  settlementStatusSettled: { backgroundColor: "#EAF0EB" },
+  settlementStatusReopened: { backgroundColor: "#F2EAF7" },
+  settlementStatusBalanced: { backgroundColor: "#EDF4ED" },
+  settlementStatusText: { color: palette.ink, fontSize: 11, fontWeight: "800" },
+  settlementAmountPanel: { marginTop: 2, borderRadius: 15, padding: 13, backgroundColor: "#FFFFFF" },
+  settlementAmountLabel: { color: palette.muted, fontSize: 11, fontWeight: "700" },
+  settlementAmountValue: { marginTop: 3, color: palette.rose, fontSize: 25, fontWeight: "800" },
+  settlementDirection: { marginTop: 4, color: palette.ink, fontSize: 12, fontWeight: "600" },
+  settlementEmptyText: { color: palette.sage, fontSize: 12, lineHeight: 18 },
   settlementBody: {
     marginTop: 5,
     color: palette.muted,
     fontSize: 12,
     lineHeight: 18,
   },
+  settlementActionRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 2 },
+  filterLabel: { marginTop: 13, color: palette.muted, fontSize: 11, fontWeight: "800" },
+  filterChipRow: { gap: 8, paddingTop: 7, paddingBottom: 1, paddingRight: 16 },
+  filterChip: { minHeight: 34, justifyContent: "center", borderRadius: 12, paddingHorizontal: 11, backgroundColor: palette.soft },
+  filterChipActive: { backgroundColor: palette.rose },
+  filterChipText: { color: palette.muted, fontSize: 11, fontWeight: "700" },
+  filterChipTextActive: { color: "#FFFFFF" },
   smallButton: {
     paddingHorizontal: 12,
     paddingVertical: 9,

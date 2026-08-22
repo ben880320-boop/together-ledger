@@ -174,6 +174,9 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     expect(app).not.toContain("transactionModalScrollContent: { flexGrow: 1, justifyContent: \"flex-end\"");
     expect(app).not.toContain("transactionModalCard: { minHeight: \"100%\"");
     expect((app.match(/contentContainerStyle=\{styles\.modalScrollableContent\}/g) || []).length).toBeGreaterThanOrEqual(5);
+    expect(app).toContain('const usesNativeAndroidResize = Platform.OS === "android"');
+    expect(app).toContain('enabled={enabled ?? !usesNativeAndroidResize}');
+    expect(app).toContain('behavior={Platform.OS === "ios" ? "padding" : undefined}');
   });
 
   it("renders clear ocean, cherry and sunset scene elements without fixed light surfaces", () => {
@@ -182,12 +185,22 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     expect(app).toContain("key={`wave-${left}`}");
     expect(app).toContain("key={`reflection-${index}`}");
     expect(app).toContain("KeyboardAvoidingView");
-    expect(app).toContain('Platform.OS === "ios" ? "padding" : "height"');
+    expect(app).toContain('Platform.OS === "ios" ? "padding" : undefined');
     expect(app).toContain("keyboardVerticalOffset={Platform.OS === \"ios\" ? 12 : 0}");
     expect((app.match(/automaticallyAdjustKeyboardInsets/g) || []).length).toBeGreaterThanOrEqual(8);
     expect(app).not.toContain('android: "height"');
     expect(app).toContain("confirmContent");
     expect(app).toContain('maxHeight: "88%"');
+  });
+
+  it("在總覽顯示本月待結算摘要，並能依月份與狀態篩選受保護的快照歷史", () => {
+    const app = readMobile("app/index.tsx");
+    expect(app).toContain("本月待結算");
+    expect(app).toContain("api.ledger.settlement.history.query");
+    expect(app).toContain("settlementMonthFilter");
+    expect(app).toContain("settlementStatusFilter");
+    expect(app).toContain("settlementStatusLabel");
+    expect(app).toContain('"pending" | "settled" | "reopened"');
   });
 
   it("keeps all notification delivery and reminder scheduling disabled", () => {
@@ -320,9 +333,9 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
       expo?: { version?: string; scheme?: string; android?: { versionCode?: number } };
     };
-    expect(appJson.expo?.version).toBe("1.3.11");
-    expect(appJson.expo?.android?.versionCode).toBe(34);
-    expect(readMobile("package.json")).toContain('"version": "1.3.11"');
+    expect(appJson.expo?.version).toBe("1.3.12");
+    expect(appJson.expo?.android?.versionCode).toBe(35);
+    expect(readMobile("package.json")).toContain('"version": "1.3.12"');
     expect(appJson.expo?.scheme).toBe("togetherledger");
     expect(readMobile("app.json")).not.toContain("expo-notifications");
     expect(readMobile("app.json")).toContain('"googleServicesFile": "./google-services.json"');
