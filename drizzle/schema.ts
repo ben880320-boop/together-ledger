@@ -226,10 +226,24 @@ export const notificationPreferences = mysqlTable("notificationPreferences", {
   monthlyReminderDay: int("monthlyReminderDay").default(28).notNull(),
   budgetAlert80Enabled: int("budgetAlert80Enabled").default(1).notNull(),
   budgetAlert100Enabled: int("budgetAlert100Enabled").default(1).notNull(),
+  /** Explicit opt-in only. Diagnostic reporting remains disabled by default. */
+  diagnosticReportsEnabled: int("diagnosticReportsEnabled").default(0).notNull(),
   scheduleCronTaskUid: varchar("scheduleCronTaskUid", { length: 65 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
+
+/** Minimal opt-in diagnostics. Ledger, transaction, invite and account data are not stored here. */
+export const diagnosticReports = mysqlTable("diagnosticReports", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  platform: mysqlEnum("platform", ["android", "ios", "web"]).notNull(),
+  appVersion: varchar("appVersion", { length: 32 }).notNull(),
+  errorCode: varchar("errorCode", { length: 80 }).notNull(),
+  message: varchar("message", { length: 512 }).notNull(),
+  stack: text("stack"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [index("diagnosticReports_user_created_idx").on(table.userId, table.createdAt)]);
 
 /** Multiple phones may belong to one user; tokens are disabled rather than deleted when unregistered. */
 export const pushDevices = mysqlTable("pushDevices", {

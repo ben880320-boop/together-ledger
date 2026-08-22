@@ -127,6 +127,13 @@
       "when": 1787340215201,
       "tag": "0017_furry_fenris",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "5",
+      "when": 1787383315110,
+      "tag": "0018_past_richard_fisk",
+      "breakpoints": true
     }
   ]
 }

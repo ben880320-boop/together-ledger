@@ -624,4 +624,18 @@
 - [x] 將分類與支付方式圖示改為初始常用圖示加上展開／搜尋完整圖示庫，避免行動裝置畫面過長
 - [x] 補齊跨端回歸測試，執行型別、Vitest、Android 核心流程及 Web／PWA production build 驗收
 - [x] 將 Android、Web／PWA、測試、README 與 Release Notes 同步升版至 v1.3.8／versionCode 31
-- [ ] 以 feature branch 與 Pull Request 發行已驗收的固定簽章修正版 APK
+- [x] 以 feature branch 與 Pull Request 發行已驗收的固定簽章修正版 APK
+
+## Android 帳本設定閃退修正
+
+- [x] 蒐集 Android 進入帳本設定時的原生閃退堆疊與 JavaScript 例外，定位 v1.3.8 圖示選擇器相關執行期錯誤
+- [x] 修正帳本設定與圖示選擇器的空值、搜尋或 React Native 相容性問題，避免設定頁在開啟時崩潰
+- [x] 新增帳本設定開啟與圖示選擇器資料契約的 Android 回歸測試，完成完整自動化驗收
+- [ ] 以 Pull Request 發行通過驗收的固定簽章 Android 修正版 APK
+
+## 使用者同意式錯誤回報
+
+- [x] 設計並實作個人設定中的「協助改善 App：傳送錯誤診斷」開關，預設關閉並清楚說明資料用途與可隨時停用
+- [x] 建立受驗證的伺服器端錯誤回報端點與最小化資料模型，只接受去識別化錯誤碼、堆疊、App 版本、平台與時間，排除帳本、收支、邀請碼與帳號內容
+- [x] 在 Android 未處理 JavaScript 例外及可恢復的同步失敗中，僅在使用者啟用後以非阻塞方式傳送診斷資料，失敗時不影響正常使用
+- [x] 補齊預設關閉、使用者同意、敏感欄位遮蔽、重試與伺服器權限驗證的測試，再納入完整發行驗收
