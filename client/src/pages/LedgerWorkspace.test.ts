@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 const workspace = readFileSync(fileURLToPath(new URL("./LedgerWorkspace.tsx", import.meta.url)), "utf8");
 const savingsBuckets = readFileSync(fileURLToPath(new URL("../components/SavingsBucketsPanel.tsx", import.meta.url)), "utf8");
 const auth = readFileSync(fileURLToPath(new URL("./WebAuth.tsx", import.meta.url)), "utf8");
+const inviteJoin = readFileSync(fileURLToPath(new URL("./InviteJoin.tsx", import.meta.url)), "utf8");
 const footer = readFileSync(fileURLToPath(new URL("../components/ReleaseFooter.tsx", import.meta.url)), "utf8");
 const pwa = readFileSync(fileURLToPath(new URL("../components/PwaInstallPanel.tsx", import.meta.url)), "utf8");
 const appearance = readFileSync(fileURLToPath(new URL("../components/WebAppearancePanel.tsx", import.meta.url)), "utf8");
@@ -123,7 +124,7 @@ describe("Together Ledger 真實網頁帳本入口", () => {
   });
 
   it("提供可辨識的發布資訊與重新取得最新版本操作", () => {
-    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.10"');
+    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.11"');
     expect(footer).toContain("WEB_BUILD_TIMESTAMP");
     expect(footer).toContain("formatTaipeiTimestamp");
     expect(footer).toContain("重新載入最新版本");
@@ -155,13 +156,35 @@ describe("Together Ledger 真實網頁帳本入口", () => {
     expect(workspace).toContain("refetchInterval: online ? 30000 : false");
     expect(workspace).toContain("refetchInterval: online && !ledgerHome ? 20000 : false");
     expect(workspace).toContain("staleTime: 10_000");
-    expect(workspace).toContain("staleTime: 5_000");
+    expect(workspace).toContain("staleTime: 15_000");
     expect(workspace).toContain("const workspace = useMemo(() => normalizeLedgerWorkspace");
     expect(workspace).toContain("const memberNames = useMemo(() => new Map");
     expect(workspace).toContain("const categoriesById = useMemo(() => new Map");
     expect(workspace).toContain("const paymentsById = useMemo(() => new Map");
     expect(workspace).toContain("if (ledgerList.isFetching || workspaceQuery.isFetching) return;");
     expect(workspace).not.toContain("void refresh().catch(() => undefined);");
+  });
+
+  it("提供 HTTPS 邀請備援，讓未安裝 Android App 的使用者也能登入後安全加入帳本", () => {
+    expect(inviteJoin).toContain("const joinOrSignIn = () => {");
+    expect(inviteJoin).toContain("if (!user) {");
+    expect(inviteJoin).toContain('setLocation(`/login?invite=${encodeURIComponent(code)}`)');
+    expect(inviteJoin).toContain("intent://join?code=${encodeURIComponent(code)}");
+    expect(inviteJoin).toContain("package=com.togetherledger.app");
+    expect(inviteJoin).toContain('fallback.searchParams.set("web", "1")');
+    expect(inviteJoin).toContain('join.mutate({ inviteCode: code })');
+    expect(inviteJoin).toContain("onClick={joinOrSignIn}");
+    expect(inviteJoin).toContain("未安裝 App 也能在此網頁加入");
+    expect(inviteJoin).toContain("帳本存取權仍由伺服器驗證");
+  });
+
+  it("以版本保護的每月結算快照提供提出、第二位成員確認與管理員重新開啟流程", () => {
+    expect(workspace).toContain("trpc.ledger.settlement.markSettled.useMutation");
+    expect(workspace).toContain("trpc.ledger.settlement.confirm.useMutation");
+    expect(workspace).toContain("trpc.ledger.settlement.reopen.useMutation");
+    expect(workspace).toContain("等待另一位成員確認");
+    expect(workspace).toContain("確認並鎖定");
+    expect(workspace).toContain("重新開啟本月結算");
   });
 
   it("以 Android App 的首頁資訊層級呈現成員支付、近期收支與結算資訊", () => {

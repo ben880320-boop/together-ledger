@@ -14,6 +14,7 @@ import {
   ledgerMembers,
   ledgerSyncEvents,
   ledgers,
+  monthlySettlementSnapshots,
   notificationPreferences,
   paymentMethods,
   pushDevices,
@@ -709,6 +710,16 @@ export async function getTransactions(ledgerId: number, limit = 100) {
   return db.select().from(transactions).where(eq(transactions.ledgerId, ledgerId)).orderBy(desc(transactions.date)).limit(limit);
 }
 
+export async function getTransactionForLedger(ledgerId: number, id: number) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select({ id: transactions.id, date: transactions.date })
+    .from(transactions)
+    .where(and(eq(transactions.ledgerId, ledgerId), eq(transactions.id, id)))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
 export async function createTransaction(input: {
   ledgerId: number;
   userId: number;
@@ -1369,15 +1380,119 @@ export function calculateSettlement(rows: SettlementRow[]) {
   };
 }
 
-export async function getSettlementSummary(ledgerId: number) {
+function settlementMonthBounds(month: string) {
+  const [year, monthNumber] = month.split("-").map(Number);
+  if (!Number.isInteger(year) || !Number.isInteger(monthNumber) || monthNumber < 1 || monthNumber > 12) {
+    throw new Error("月份格式必須為 YYYY-MM");
+  }
+  return { start: new Date(Date.UTC(year, monthNumber - 1, 1)), end: new Date(Date.UTC(year, monthNumber, 1)) };
+}
+
+export async function getSettlementSummary(ledgerId: number, month: string) {
   const db = await getDb();
   if (!db) return { balances: [], settlement: null };
+  const { start, end } = settlementMonthBounds(month);
   const rows = await db
     .select({ transactionId: transactions.id, payerId: transactions.payerId, splitUserId: transactionSplits.userId, amount: transactions.amount, shareAmount: transactionSplits.shareAmount })
     .from(transactions)
     .innerJoin(transactionSplits, eq(transactions.id, transactionSplits.transactionId))
-    .where(and(eq(transactions.ledgerId, ledgerId), eq(transactions.type, "expense")));
+    .where(and(
+      eq(transactions.ledgerId, ledgerId),
+      eq(transactions.type, "expense"),
+      gte(transactions.date, start),
+      lt(transactions.date, end),
+    ));
   return calculateSettlement(rows);
+}
+
+export async function getMonthlySettlementSnapshot(ledgerId: number, month: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(monthlySettlementSnapshots)
+    .where(and(eq(monthlySettlementSnapshots.ledgerId, ledgerId), eq(monthlySettlementSnapshots.month, month)))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function listMonthlySettlementSnapshots(ledgerId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db.select().from(monthlySettlementSnapshots)
+    .where(eq(monthlySettlementSnapshots.ledgerId, ledgerId))
+    .orderBy(desc(monthlySettlementSnapshots.updatedAt));
+}
+
+export async function createMonthlySettlementSnapshot(input: {
+  ledgerId: number;
+  month: string;
+  fromUserId: number;
+  toUserId: number;
+  amount: number;
+  proposedByUserId: number;
+}) {
+  const db = requireDb();
+  const result = await db.insert(monthlySettlementSnapshots).values(input);
+  return Number(result[0].insertId);
+}
+
+export async function reproposeMonthlySettlementSnapshot(input: {
+  ledgerId: number;
+  month: string;
+  expectedVersion: number;
+  fromUserId: number;
+  toUserId: number;
+  amount: number;
+  proposedByUserId: number;
+}) {
+  const db = requireDb();
+  const result = await db.update(monthlySettlementSnapshots).set({
+    fromUserId: input.fromUserId,
+    toUserId: input.toUserId,
+    amount: input.amount,
+    proposedByUserId: input.proposedByUserId,
+    confirmedByUserId: null,
+    confirmedAt: null,
+    status: "pending",
+    version: input.expectedVersion + 1,
+    proposedAt: new Date(),
+  }).where(and(
+    eq(monthlySettlementSnapshots.ledgerId, input.ledgerId),
+    eq(monthlySettlementSnapshots.month, input.month),
+    eq(monthlySettlementSnapshots.status, "reopened"),
+    eq(monthlySettlementSnapshots.version, input.expectedVersion),
+  ));
+  return Number(result[0].affectedRows ?? 0) === 1;
+}
+
+export async function confirmMonthlySettlementSnapshot(input: { ledgerId: number; month: string; expectedVersion: number; confirmedByUserId: number }) {
+  const db = requireDb();
+  const result = await db.update(monthlySettlementSnapshots).set({
+    status: "settled",
+    confirmedByUserId: input.confirmedByUserId,
+    confirmedAt: new Date(),
+    version: input.expectedVersion + 1,
+  }).where(and(
+    eq(monthlySettlementSnapshots.ledgerId, input.ledgerId),
+    eq(monthlySettlementSnapshots.month, input.month),
+    eq(monthlySettlementSnapshots.status, "pending"),
+    eq(monthlySettlementSnapshots.version, input.expectedVersion),
+  ));
+  return Number(result[0].affectedRows ?? 0) === 1;
+}
+
+export async function reopenMonthlySettlementSnapshot(input: { ledgerId: number; month: string; expectedVersion: number }) {
+  const db = requireDb();
+  const result = await db.update(monthlySettlementSnapshots).set({
+    status: "reopened",
+    reopenedAt: new Date(),
+    version: input.expectedVersion + 1,
+  }).where(and(
+    eq(monthlySettlementSnapshots.ledgerId, input.ledgerId),
+    eq(monthlySettlementSnapshots.month, input.month),
+    eq(monthlySettlementSnapshots.status, "settled"),
+    eq(monthlySettlementSnapshots.version, input.expectedVersion),
+  ));
+  return Number(result[0].affectedRows ?? 0) === 1;
 }
 
 export async function listSettlements(ledgerId: number) {

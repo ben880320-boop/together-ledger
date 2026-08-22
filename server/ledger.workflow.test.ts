@@ -12,6 +12,10 @@ const mocks = vi.hoisted(() => ({
   setPaymentMethodActive: vi.fn(),
   createRecurring: vi.fn(),
   createSettlement: vi.fn(),
+  createMonthlySettlementSnapshot: vi.fn(),
+  reproposeMonthlySettlementSnapshot: vi.fn(),
+  confirmMonthlySettlementSnapshot: vi.fn(),
+  reopenMonthlySettlementSnapshot: vi.fn(),
   createTransaction: vi.fn(),
   getAnalytics: vi.fn(),
   syncDueRecurring: vi.fn(),
@@ -23,6 +27,7 @@ const mocks = vi.hoisted(() => ({
   updateLedgerMemberRole: vi.fn(),
   updateUserName: vi.fn(),
   getSettlementSummary: vi.fn(),
+  getMonthlySettlementSnapshot: vi.fn(),
   getTransactions: vi.fn(),
   joinLedgerByInviteCode: vi.fn(),
   leaveLedger: vi.fn(),
@@ -37,6 +42,7 @@ const mocks = vi.hoisted(() => ({
   listLedgersForUser: vi.fn(),
   listRecurring: vi.fn(),
   listSettlements: vi.fn(),
+  listMonthlySettlementSnapshots: vi.fn(),
   upsertBudget: vi.fn(),
   updateRecurring: vi.fn(),
   deleteRecurring: vi.fn(),
@@ -111,6 +117,12 @@ describe("typed ledger workflow contract", () => {
       settlement: { fromUserId: 2, toUserId: 1, amount: 500 },
     });
     mocks.createSettlement.mockResolvedValue(16);
+    mocks.getMonthlySettlementSnapshot.mockResolvedValue(null);
+    mocks.createMonthlySettlementSnapshot.mockResolvedValue(41);
+    mocks.reproposeMonthlySettlementSnapshot.mockResolvedValue(true);
+    mocks.confirmMonthlySettlementSnapshot.mockResolvedValue(true);
+    mocks.reopenMonthlySettlementSnapshot.mockResolvedValue(true);
+    mocks.listMonthlySettlementSnapshots.mockResolvedValue([]);
     mocks.logActivity.mockResolvedValue(undefined);
     mocks.listSavingsBuckets.mockResolvedValue([]);
     mocks.listSavingsAllocations.mockResolvedValue([]);
@@ -382,7 +394,7 @@ describe("typed ledger workflow contract", () => {
     expect(mocks.logActivity).toHaveBeenCalledWith(expect.objectContaining({ entityType: "savingsBucket", summary: "重新顯示已封存儲蓄桶" }));
   });
 
-  it("enforces admin role changes and marks a computed settlement", async () => {
+  it("enforces admin role changes and manages a versioned monthly settlement", async () => {
     const caller = appRouter.createCaller(createTestContext());
     mocks.getLedgerAccess.mockResolvedValueOnce({ ...adminAccess, member: { ...adminAccess.member, role: "viewer" as const } });
     await expect(
@@ -393,12 +405,22 @@ describe("typed ledger workflow contract", () => {
     expect(mocks.updateLedgerMemberRole).toHaveBeenCalledWith({ ledgerId: 1, userId: 2, role: "admin" });
 
     await caller.ledger.settlement.markSettled({ ledgerId: 1, month: "2026-08" });
-    expect(mocks.createSettlement).toHaveBeenCalledWith({
+    expect(mocks.createMonthlySettlementSnapshot).toHaveBeenCalledWith({
       ledgerId: 1,
       month: "2026-08",
+      proposedByUserId: 1,
       fromUserId: 2,
       toUserId: 1,
       amount: 500,
     });
+
+    mocks.getMonthlySettlementSnapshot.mockResolvedValue({ id: 41, ledgerId: 1, month: "2026-08", fromUserId: 2, toUserId: 1, amount: 500, proposedByUserId: 1, confirmedByUserId: null, status: "pending", version: 1 });
+    const secondMember = appRouter.createCaller(createTestContext(2));
+    await secondMember.ledger.settlement.confirm({ ledgerId: 1, month: "2026-08", version: 1 });
+    expect(mocks.confirmMonthlySettlementSnapshot).toHaveBeenCalledWith({ ledgerId: 1, month: "2026-08", expectedVersion: 1, confirmedByUserId: 2 });
+
+    mocks.getLedgerAccess.mockResolvedValue(adminAccess);
+    await caller.ledger.settlement.reopen({ ledgerId: 1, month: "2026-08", version: 2 });
+    expect(mocks.reopenMonthlySettlementSnapshot).toHaveBeenCalledWith({ ledgerId: 1, month: "2026-08", expectedVersion: 2 });
   });
 });

@@ -25,10 +25,12 @@ export default function WebAuth() {
   const [password, setPassword] = useState("");
   const [formError, setFormError] = useState("");
   const [checkingSession, setCheckingSession] = useState(false);
+  const inviteCode = new URLSearchParams(window.location.search).get("invite")?.trim().toUpperCase();
+  const afterAuthPath = inviteCode ? `/invite?code=${encodeURIComponent(inviteCode)}` : "/app";
 
   useEffect(() => {
-    if (!loading && user) setLocation("/app");
-  }, [loading, setLocation, user]);
+    if (!loading && user) setLocation(afterAuthPath);
+  }, [afterAuthPath, loading, setLocation, user]);
 
   const establishSession = async (token: string) => {
     setCheckingSession(true);
@@ -48,7 +50,7 @@ export default function WebAuth() {
         setFormError("登入狀態尚未建立，請確認瀏覽器允許本站的 Cookie 後再試一次。");
         return;
       }
-      setLocation("/app");
+      setLocation(afterAuthPath);
     } catch {
       setFormError("登入狀態確認失敗，請稍後再試一次。");
     } finally {

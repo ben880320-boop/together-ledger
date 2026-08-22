@@ -21,7 +21,8 @@ import {
   updateRecurring,
   setPaymentMethodActive,
   createRecurring,
-  createSettlement,
+  confirmMonthlySettlementSnapshot,
+  createMonthlySettlementSnapshot,
   createTransaction,
   getActivityLogs,
   getAnalytics,
@@ -34,6 +35,8 @@ import {
   getPaymentMethods,
   updateLedgerMemberRole,
   getSettlementSummary,
+  getMonthlySettlementSnapshot,
+  getTransactionForLedger,
   getTransactions,
   updateTransaction,
   deleteTransaction,
@@ -44,6 +47,7 @@ import {
   listLedgersForUser,
   listRecurring,
   listSettlements,
+  listMonthlySettlementSnapshots,
   upsertBudget,
   renameLedger,
   transferLedgerOwnership,
@@ -64,6 +68,8 @@ import {
   addSavingsDeposit,
   getNotificationPreferences,
   updateDiagnosticReportingEnabled,
+  reopenMonthlySettlementSnapshot,
+  reproposeMonthlySettlementSnapshot,
 } from "./db";
 import { TRPCError } from "@trpc/server";
 import { invokeLLM } from "./_core/llm";
@@ -103,6 +109,13 @@ function previousMonthKey(month: string) {
   if (!match) throw new TRPCError({ code: "BAD_REQUEST", message: "月份格式必須為 YYYY-MM" });
   const current = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 2, 1));
   return `${current.getUTCFullYear()}-${String(current.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+async function assertMonthOpenForTransactions(ledgerId: number, month: string) {
+  const snapshot = await getMonthlySettlementSnapshot(ledgerId, month);
+  if (snapshot?.status === "settled") {
+    throw new TRPCError({ code: "CONFLICT", message: `${month} 已完成雙方結算。請由管理員重新開啟該月份後再修改收支。` });
+  }
 }
 
 export function persistLocalSessionCookie(
@@ -221,6 +234,7 @@ export const appRouter = router({
           analytics,
           previousAnalytics,
           settlement,
+          settlementSnapshot,
           settlementHistory,
           budgets,
           travelPlans,
@@ -234,7 +248,8 @@ export const appRouter = router({
           getCalendarTransactions(input.ledgerId, start, end),
           getAnalytics(input.ledgerId, start, end),
           getAnalytics(input.ledgerId, previous.start, previous.end),
-          getSettlementSummary(input.ledgerId),
+          getSettlementSummary(input.ledgerId, input.month),
+          getMonthlySettlementSnapshot(input.ledgerId, input.month),
           listSettlements(input.ledgerId),
           listBudgets(input.ledgerId, input.month),
           listTravelPlans(input.ledgerId),
@@ -250,6 +265,7 @@ export const appRouter = router({
           analytics,
           previousAnalytics,
           settlement,
+          settlementSnapshot,
           settlementHistory,
           budgets,
           travelPlans,
@@ -417,7 +433,8 @@ export const appRouter = router({
         splits: z.array(memberInput).default([]),
       }))
       .mutation(async ({ ctx, input }) => {
-        const access = await requireLedger(input.ledgerId, ctx.user.id);
+        await requireLedger(input.ledgerId, ctx.user.id);
+        await assertMonthOpenForTransactions(input.ledgerId, input.date.toISOString().slice(0, 7));
         if (input.type === "expense" && input.splitType !== "none") {
           if (input.splits.length === 0 || input.splits.reduce((sum, split) => sum + split.shareAmount, 0) !== input.amount) {
             throw new TRPCError({ code: "BAD_REQUEST", message: "分攤金額必須剛好等於交易金額" });
@@ -442,7 +459,11 @@ export const appRouter = router({
         splits: z.array(memberInput).default([]),
       }))
       .mutation(async ({ ctx, input }) => {
-        const access = await requireLedger(input.ledgerId, ctx.user.id);
+        await requireLedger(input.ledgerId, ctx.user.id);
+        const existing = await getTransactionForLedger(input.ledgerId, input.transactionId);
+        if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "找不到要編輯的收支記錄" });
+        await assertMonthOpenForTransactions(input.ledgerId, existing.date.toISOString().slice(0, 7));
+        await assertMonthOpenForTransactions(input.ledgerId, input.date.toISOString().slice(0, 7));
         if (input.type === "expense" && input.splitType !== "none" && input.splits.reduce((sum, split) => sum + split.shareAmount, 0) !== input.amount) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "分攤金額必須剛好等於交易金額" });
         }
@@ -454,6 +475,9 @@ export const appRouter = router({
       .input(z.object({ ledgerId: z.number().int().positive(), transactionId: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {
         await requireLedger(input.ledgerId, ctx.user.id);
+        const existing = await getTransactionForLedger(input.ledgerId, input.transactionId);
+        if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "找不到要移除的收支記錄" });
+        await assertMonthOpenForTransactions(input.ledgerId, existing.date.toISOString().slice(0, 7));
         const id = await deleteTransaction({ ledgerId: input.ledgerId, id: input.transactionId });
         await logActivity({ ledgerId: input.ledgerId, userId: ctx.user.id, action: "delete", entityType: "transaction", entityId: id, summary: "移除收支記錄" });
         return id;
@@ -515,18 +539,52 @@ export const appRouter = router({
       }),
     settlement: router({
       summary: protectedProcedure
-        .input(z.object({ ledgerId: z.number().int().positive() }))
-        .query(({ ctx, input }) => requireLedger(input.ledgerId, ctx.user.id).then(() => getSettlementSummary(input.ledgerId))),
+        .input(z.object({ ledgerId: z.number().int().positive(), month: z.string().regex(/^\d{4}-\d{2}$/) }))
+        .query(({ ctx, input }) => requireLedger(input.ledgerId, ctx.user.id).then(() => getSettlementSummary(input.ledgerId, input.month))),
       history: protectedProcedure
         .input(z.object({ ledgerId: z.number().int().positive() }))
-        .query(({ ctx, input }) => requireLedger(input.ledgerId, ctx.user.id).then(() => listSettlements(input.ledgerId))),
+        .query(({ ctx, input }) => requireLedger(input.ledgerId, ctx.user.id).then(() => listMonthlySettlementSnapshots(input.ledgerId))),
       markSettled: protectedProcedure
         .input(z.object({ ledgerId: z.number().int().positive(), month: z.string().regex(/^\d{4}-\d{2}$/) }))
         .mutation(async ({ ctx, input }) => {
           await requireLedger(input.ledgerId, ctx.user.id);
-          const summary = await getSettlementSummary(input.ledgerId);
+          const existing = await getMonthlySettlementSnapshot(input.ledgerId, input.month);
+          if (existing?.status === "settled") throw new TRPCError({ code: "CONFLICT", message: "此月份已結算；如需修改請由管理員重新開啟。" });
+          if (existing?.status === "pending") throw new TRPCError({ code: "CONFLICT", message: "此月份已有待確認結算，請由另一位成員確認。" });
+          const summary = await getSettlementSummary(input.ledgerId, input.month);
           if (!summary.settlement) throw new TRPCError({ code: "BAD_REQUEST", message: "目前沒有需要結算的差額" });
-          return createSettlement({ ledgerId: input.ledgerId, month: input.month, ...summary.settlement });
+          if (existing?.status === "reopened") {
+            const updated = await reproposeMonthlySettlementSnapshot({ ledgerId: input.ledgerId, month: input.month, expectedVersion: existing.version, proposedByUserId: ctx.user.id, ...summary.settlement });
+            if (!updated) throw new TRPCError({ code: "CONFLICT", message: "結算狀態已被其他成員更新，請重新整理後再試。" });
+            return { status: "pending" as const };
+          }
+          try {
+            const id = await createMonthlySettlementSnapshot({ ledgerId: input.ledgerId, month: input.month, proposedByUserId: ctx.user.id, ...summary.settlement });
+            return { id, status: "pending" as const };
+          } catch {
+            throw new TRPCError({ code: "CONFLICT", message: "結算狀態已被其他成員更新，請重新整理後再試。" });
+          }
+        }),
+      confirm: protectedProcedure
+        .input(z.object({ ledgerId: z.number().int().positive(), month: z.string().regex(/^\d{4}-\d{2}$/), version: z.number().int().positive() }))
+        .mutation(async ({ ctx, input }) => {
+          await requireLedger(input.ledgerId, ctx.user.id);
+          const snapshot = await getMonthlySettlementSnapshot(input.ledgerId, input.month);
+          if (!snapshot || snapshot.status !== "pending") throw new TRPCError({ code: "CONFLICT", message: "沒有可確認的待結算快照，請重新整理。" });
+          if (snapshot.proposedByUserId === ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "請由另一位帳本成員確認本月結算。" });
+          if (snapshot.version !== input.version) throw new TRPCError({ code: "CONFLICT", message: "結算狀態已更新，請重新整理後再確認。" });
+          const confirmed = await confirmMonthlySettlementSnapshot({ ledgerId: input.ledgerId, month: input.month, expectedVersion: input.version, confirmedByUserId: ctx.user.id });
+          if (!confirmed) throw new TRPCError({ code: "CONFLICT", message: "結算狀態已更新，請重新整理後再確認。" });
+          return { status: "settled" as const };
+        }),
+      reopen: protectedProcedure
+        .input(z.object({ ledgerId: z.number().int().positive(), month: z.string().regex(/^\d{4}-\d{2}$/), version: z.number().int().positive() }))
+        .mutation(async ({ ctx, input }) => {
+          const access = await requireLedger(input.ledgerId, ctx.user.id);
+          if (access.member.role !== "admin") throw new TRPCError({ code: "FORBIDDEN", message: "只有管理員可以重新開啟已結算月份。" });
+          const reopened = await reopenMonthlySettlementSnapshot({ ledgerId: input.ledgerId, month: input.month, expectedVersion: input.version });
+          if (!reopened) throw new TRPCError({ code: "CONFLICT", message: "結算狀態已更新，請重新整理後再試。" });
+          return { status: "reopened" as const };
         }),
     }),
     budgets: protectedProcedure
