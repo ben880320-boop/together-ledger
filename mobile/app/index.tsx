@@ -127,7 +127,7 @@ const appearanceDefaults: AppearancePreferences = {
   colorMode: "system",
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.3.10";
+const APP_VERSION = "1.3.11";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 const GITHUB_WIKI_URL = "https://github.com/ben880320-boop/together-ledger/wiki";
@@ -812,6 +812,17 @@ type SettlementHistory = {
   status: string;
   settledAt: Date | string;
 };
+type MonthlySettlementSnapshot = {
+  id: number;
+  month: string;
+  fromUserId: number;
+  toUserId: number;
+  amount: number;
+  proposedByUserId: number;
+  confirmedByUserId: number | null;
+  status: "pending" | "settled" | "reopened";
+  version: number;
+};
 type Budget = { id: number; categoryId: number; amount: number; month: string };
 type TravelPlan = {
   id: number;
@@ -990,6 +1001,7 @@ function AppContent() {
     null
   );
   const [settlement, setSettlement] = useState<Settlement | null>(null);
+  const [settlementSnapshot, setSettlementSnapshot] = useState<MonthlySettlementSnapshot | null>(null);
   const [settlementHistory, setSettlementHistory] = useState<SettlementHistory[]>([]);
   const [budgets, setBudgets] = useState<Budget[]>([]);
   const [travelPlans, setTravelPlans] = useState<TravelPlan[]>([]);
@@ -1346,6 +1358,7 @@ function AppContent() {
     setAnalytics(workspace.analytics as Analytics);
     setPreviousAnalytics(workspace.previousAnalytics as Analytics);
     setSettlement(workspace.settlement as Settlement);
+    setSettlementSnapshot((workspace.settlementSnapshot as MonthlySettlementSnapshot | null) ?? null);
     setSettlementHistory(workspace.settlementHistory as SettlementHistory[]);
     setBudgets(workspace.budgets as Budget[]);
     setTravelPlans(workspace.travelPlans as TravelPlan[]);
@@ -1424,6 +1437,7 @@ function AppContent() {
         setAnalytics(null);
         setPreviousAnalytics(null);
         setSettlement(null);
+        setSettlementSnapshot(null);
         setSettlementHistory([]);
         setBudgets([]);
         setTravelPlans([]);
@@ -1557,6 +1571,7 @@ function AppContent() {
     setAnalytics(null);
     setPreviousAnalytics(null);
     setSettlement(null);
+    setSettlementSnapshot(null);
     setSettlementHistory([]);
     setBudgets([]);
     setTravelPlans([]);
@@ -2307,27 +2322,23 @@ function AppContent() {
         members={members}
         analytics={analytics}
         settlement={settlement}
+        settlementSnapshot={settlementSnapshot}
         transactions={transactions}
         categories={categories}
         onAdd={openNewTransaction}
         onEdit={openEditTransaction}
         onDelete={removeTransaction}
-        onSettle={async () => {
+        onSettle={() => {
           if (!activeLedger) return;
-          setBusy(true);
-          try {
-            await api.ledger.settlement.markSettled.mutate({
-              ledgerId: activeLedger.id,
-              month: currentMonth(),
-            });
-            await refresh();
-          } catch (settleError) {
-            setError(
-              settleError instanceof Error ? settleError.message : "結算失敗。"
-            );
-          } finally {
-            setBusy(false);
-          }
+          setConfirmRequest({ title: "提出本月結算？", message: "系統會建立本月差額快照，需由另一位成員確認後才會鎖定。", cancelText: "取消", confirmText: "提出結算", onConfirm: async () => { setBusy(true); try { await api.ledger.settlement.markSettled.mutate({ ledgerId: activeLedger.id, month: currentMonth() }); await refresh(); } catch (settleError) { setError(settleError instanceof Error ? settleError.message : "結算失敗。"); } finally { setBusy(false); } } });
+        }}
+        onConfirmSettlement={(version: number) => {
+          if (!activeLedger) return;
+          setConfirmRequest({ title: "確認本月結算？", message: "確認後會鎖定本月收支；若需修正，必須由管理員重新開啟。", cancelText: "取消", confirmText: "確認並鎖定", onConfirm: async () => { setBusy(true); try { await api.ledger.settlement.confirm.mutate({ ledgerId: activeLedger.id, month: currentMonth(), version }); await refresh(); } catch (settleError) { setError(settleError instanceof Error ? settleError.message : "確認結算失敗。"); } finally { setBusy(false); } } });
+        }}
+        onReopenSettlement={(version: number) => {
+          if (!activeLedger) return;
+          setConfirmRequest({ title: "重新開啟本月結算？", message: "重新開啟後才能修改本月收支；修正完成後需再次提出並確認。", cancelText: "取消", confirmText: "重新開啟", onConfirm: async () => { setBusy(true); try { await api.ledger.settlement.reopen.mutate({ ledgerId: activeLedger.id, month: currentMonth(), version }); await refresh(); } catch (settleError) { setError(settleError instanceof Error ? settleError.message : "重新開啟結算失敗。"); } finally { setBusy(false); } } });
         }}
       />
     ) : activeAction === "calendar" ? (
@@ -3149,24 +3160,30 @@ function Overview({
   members,
   analytics,
   settlement,
+  settlementSnapshot,
   transactions,
   categories,
   onAdd,
   onEdit,
   onDelete,
   onSettle,
+  onConfirmSettlement,
+  onReopenSettlement,
 }: {
   ledger: Ledger;
   user: User;
   members: LedgerMember[];
   analytics: Analytics | null;
   settlement: Settlement | null;
+  settlementSnapshot: MonthlySettlementSnapshot | null;
   transactions: Transaction[];
   categories: Category[];
   onAdd: () => void;
   onEdit: (transaction: Transaction) => void;
   onDelete: (transaction: Transaction) => void;
   onSettle: () => void;
+  onConfirmSettlement: (version: number) => void;
+  onReopenSettlement: (version: number) => void;
 }) {
   const { palette } = useAppearance();
   const [showAllTransactions, setShowAllTransactions] = useState(false);
@@ -3182,6 +3199,10 @@ function Overview({
   }));
   const topCategory = analytics?.categories[0];
   const pending = settlement?.settlement;
+  const snapshotPending = settlementSnapshot?.status === "pending";
+  const snapshotSettled = settlementSnapshot?.status === "settled";
+  const proposedByCurrentUser = settlementSnapshot?.proposedByUserId === user.id;
+  const currentMember = members.find(member => member.user.id === user.id);
   const now = new Date();
   const startOfRange = new Date(now.getFullYear(), now.getMonth(), 1);
   if (transactionRange === "week") {
@@ -3350,14 +3371,30 @@ function Overview({
         <View style={styles.settlementText}>
           <Text style={styles.settlementTitle}>目前結算狀態</Text>
           <Text style={styles.settlementBody}>
-            {pending
-              ? `由 ${members.find(member => member.user.id === pending.fromUserId)?.user.name || "成員"} 支付 ${money(pending.amount)} 給 ${members.find(member => member.user.id === pending.toUserId)?.user.name || "成員"}`
-              : "目前沒有待結算差額。"}
+            {snapshotPending
+              ? proposedByCurrentUser
+                ? "已提出本月結算，等待另一位成員確認。"
+                : "另一位成員已提出本月結算，請核對後確認。"
+              : snapshotSettled
+                ? "本月結算已由雙方確認並鎖定。"
+                : pending
+                  ? `由 ${members.find(member => member.user.id === pending.fromUserId)?.user.name || "成員"} 支付 ${money(pending.amount)} 給 ${members.find(member => member.user.id === pending.toUserId)?.user.name || "成員"}`
+                  : "目前沒有待結算差額。"}
           </Text>
         </View>
-        {pending && (
+        {(!settlementSnapshot || settlementSnapshot.status === "reopened") && pending && (
           <Pressable onPress={onSettle} style={styles.smallButton}>
-            <Text style={styles.smallButtonText}>已結算</Text>
+            <Text style={styles.smallButtonText}>提出結算</Text>
+          </Pressable>
+        )}
+        {snapshotPending && !proposedByCurrentUser && (
+          <Pressable onPress={() => onConfirmSettlement(settlementSnapshot.version)} style={styles.smallButton}>
+            <Text style={styles.smallButtonText}>確認結算</Text>
+          </Pressable>
+        )}
+        {snapshotSettled && currentMember?.member.role === "admin" && (
+          <Pressable onPress={() => onReopenSettlement(settlementSnapshot.version)} style={styles.smallButton}>
+            <Text style={styles.smallButtonText}>重新開啟</Text>
           </Pressable>
         )}
       </View>
@@ -4591,7 +4628,7 @@ function SettingsSection({
   const [copied, setCopied] = useState(false);
   const me = members.find(item => item.user.id === user.id);
   const isAdmin = me?.member.role === "admin";
-  const inviteLink = `togetherledger://join?code=${ledger.inviteCode}`;
+  const inviteLink = `https://togetherapp-hdbmsjkf.manus.space/invite?code=${encodeURIComponent(ledger.inviteCode)}`;
   const shareInvite = async () => {
     await Share.share({
       message: `加入我的共帳「${ledger.name}」\n邀請碼：${ledger.inviteCode}\n邀請連結：${inviteLink}`,

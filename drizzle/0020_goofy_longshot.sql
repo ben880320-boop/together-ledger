@@ -1,0 +1,2 @@
+DROP INDEX `monthly_settlements_ledger_month_idx` ON `monthlySettlementSnapshots`;--> statement-breakpoint
+ALTER TABLE `monthlySettlementSnapshots` ADD CONSTRAINT `monthly_settlements_ledger_month_idx` UNIQUE(`ledgerId`,`month`);

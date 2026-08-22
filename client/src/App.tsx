@@ -6,6 +6,7 @@ import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
+import InviteJoin from "./pages/InviteJoin";
 import LedgerWorkspace from "./pages/LedgerWorkspace";
 import WebAuth from "./pages/WebAuth";
 
@@ -15,6 +16,7 @@ function Router() {
     <Switch>
       <Route path={"/"} component={Home} />
       <Route path={"/login"} component={WebAuth} />
+      <Route path={"/invite"} component={InviteJoin} />
       <Route path={"/app"} component={LedgerWorkspace} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}

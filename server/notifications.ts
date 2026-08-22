@@ -178,7 +178,7 @@ export async function processMonthlySettlementReminders(now = new Date(), userId
     if (!isMonthlyReminderDue(preference.monthlyReminderDay, day)) continue;
     const ledgers = await listLedgersForUser(preference.userId);
     for (const row of ledgers) {
-      const summary = await getSettlementSummary(row.ledger.id);
+      const summary = await getSettlementSummary(row.ledger.id, monthKey);
       const amount = summary.settlement?.amount ?? 0;
       const body = amount > 0
         ? `${row.ledger.name} 目前待結算 ${currency(amount)}，可開啟 App 查看分攤。`

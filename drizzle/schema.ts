@@ -1,4 +1,4 @@
-import { index, int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { index, int, mysqlEnum, mysqlTable, text, timestamp, uniqueIndex, varchar } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -84,7 +84,9 @@ export const transactions = mysqlTable("transactions", {
   receiptUrl: text("receiptUrl"),
   splitType: mysqlEnum("splitType", ["equal", "custom", "amount", "none"]).default("equal").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
-});
+}, table => ({
+  ledgerDateIdx: index("transactions_ledger_date_idx").on(table.ledgerId, table.date),
+}));
 
 export const transactionSplits = mysqlTable("transactionSplits", {
   id: int("id").autoincrement().primaryKey(),
@@ -214,6 +216,30 @@ export const settlements = mysqlTable("settlements", {
   status: mysqlEnum("status", ["pending", "settled"]).default("settled").notNull(),
   settledAt: timestamp("settledAt").defaultNow().notNull(),
 });
+
+/**
+ * The current monthly settlement workflow. It remains separate from the
+ * legacy history because old records can contain repeated ledger/month rows.
+ */
+export const monthlySettlementSnapshots = mysqlTable("monthlySettlementSnapshots", {
+  id: int("id").autoincrement().primaryKey(),
+  ledgerId: int("ledgerId").notNull(),
+  month: varchar("month", { length: 16 }).notNull(),
+  fromUserId: int("fromUserId").notNull(),
+  toUserId: int("toUserId").notNull(),
+  amount: int("amount").notNull(),
+  proposedByUserId: int("proposedByUserId").notNull(),
+  confirmedByUserId: int("confirmedByUserId"),
+  status: mysqlEnum("status", ["pending", "settled", "reopened"]).default("pending").notNull(),
+  version: int("version").default(1).notNull(),
+  proposedAt: timestamp("proposedAt").defaultNow().notNull(),
+  confirmedAt: timestamp("confirmedAt"),
+  reopenedAt: timestamp("reopenedAt"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, table => ({
+  ledgerMonthIdx: uniqueIndex("monthly_settlements_ledger_month_idx").on(table.ledgerId, table.month),
+  ledgerStatusIdx: index("monthly_settlements_ledger_status_idx").on(table.ledgerId, table.status),
+}));
 
 /** Per-user choices for transaction and monthly settlement notifications. */
 export const notificationPreferences = mysqlTable("notificationPreferences", {
