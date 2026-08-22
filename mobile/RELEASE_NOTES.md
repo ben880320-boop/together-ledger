@@ -1,5 +1,16 @@
 ## Together Ledger v1.3.8
 
+## Together Ledger v1.3.10
+
+### 診斷偏好與讀取體驗
+
+- 修正首次開啟「協助改善 App：傳送錯誤診斷」時，讀取與寫入偏好同時發生可能造成儲存失敗的競態問題；設定頁會提供可見錯誤與重新嘗試入口。
+- Android 合併重複帳本載入請求；Web/PWA 優先使用 SSE 同步並減少不必要的正規化與快取失效。骨架載入採低干擾動畫，並尊重減少動態效果偏好。
+
+### 發布與安全性
+
+- Android 版升級為 `versionName=1.3.10`、`versionCode=33`，延續 GitHub Actions 固定受保護簽章與 SHA-256 校驗檔。
+
 ## Together Ledger v1.3.9
 
 ### Android 帳本設定穩定性與隱私診斷

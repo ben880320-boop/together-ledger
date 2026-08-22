@@ -127,7 +127,7 @@ const appearanceDefaults: AppearancePreferences = {
   colorMode: "system",
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.3.9";
+const APP_VERSION = "1.3.10";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 const GITHUB_WIKI_URL = "https://github.com/ben880320-boop/together-ledger/wiki";
@@ -1046,7 +1046,9 @@ function AppContent() {
   const [savedUpdateResume, setSavedUpdateResume] = useState<SavedUpdateResume | null>(null);
   const [accountDeletionVisible, setAccountDeletionVisible] = useState(false);
   const [diagnosticsEnabled, setDiagnosticsEnabled] = useState(false);
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
   const [diagnosticsSaving, setDiagnosticsSaving] = useState(false);
+  const [diagnosticsError, setDiagnosticsError] = useState("");
   const ledgerRequestRef = useRef(0);
   const ledgerSelectionRef = useRef(0);
   const mutationGuardRef = useRef(new Set<string>());
@@ -1055,6 +1057,7 @@ function AppContent() {
   const savingsHistoryRequestRef = useRef(0);
   const toastSequenceRef = useRef(0);
   const realtimeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ledgerReloadInFlightRef = useRef(new Map<string, Promise<boolean>>());
   const diagnosticsEnabledRef = useRef(false);
   const diagnosticRequestInFlightRef = useRef(false);
 
@@ -1081,35 +1084,51 @@ function AppContent() {
     });
   }, []);
 
-  useEffect(() => {
-    let isCurrent = true;
+  const loadDiagnosticsPreference = useCallback(async () => {
+    if (!user) return;
     diagnosticsEnabledRef.current = false;
     setDiagnosticsEnabled(false);
-    if (!user) return () => { isCurrent = false; };
-    void api.profile.diagnosticsPreference.query()
-      .then(preference => {
-        if (!isCurrent) return;
-        const enabled = Boolean(preference.enabled);
-        diagnosticsEnabledRef.current = enabled;
-        setDiagnosticsEnabled(enabled);
-      })
-      .catch(() => {
-        // Consent defaults to disabled. A failed preference read must never turn it on.
-        if (isCurrent) setDiagnosticsEnabled(false);
-      });
-    return () => { isCurrent = false; };
+    setDiagnosticsError("");
+    setDiagnosticsLoading(true);
+    try {
+      const preference = await api.profile.diagnosticsPreference.query();
+      const enabled = Boolean(preference.enabled);
+      diagnosticsEnabledRef.current = enabled;
+      setDiagnosticsEnabled(enabled);
+    } catch {
+      // Consent must remain disabled when the preference cannot be read.
+      diagnosticsEnabledRef.current = false;
+      setDiagnosticsEnabled(false);
+      setDiagnosticsError("無法確認錯誤診斷設定；目前會維持關閉。請確認網路後重試。");
+    } finally {
+      setDiagnosticsLoading(false);
+    }
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!user) {
+      diagnosticsEnabledRef.current = false;
+      setDiagnosticsEnabled(false);
+      setDiagnosticsLoading(false);
+      setDiagnosticsError("");
+      return;
+    }
+    void loadDiagnosticsPreference();
+  }, [user?.id, loadDiagnosticsPreference]);
 
   const changeDiagnosticsPreference = useCallback((enabled: boolean) => {
     const savePreference = async () => {
       setDiagnosticsSaving(true);
+      setDiagnosticsError("");
       try {
         const result = await api.profile.updateDiagnosticsPreference.mutate({ enabled });
         diagnosticsEnabledRef.current = result.enabled;
         setDiagnosticsEnabled(result.enabled);
         showToast(result.enabled ? "已開啟去識別化錯誤診斷，可隨時在個人設定關閉。" : "已關閉錯誤診斷；之後不會再傳送新的診斷資料。");
       } catch {
-        showToast("無法儲存錯誤診斷設定，請確認網路後重試。 ");
+        const message = "錯誤診斷設定尚未儲存；請確認網路後點選重試。若持續失敗，請重新登入後再試。";
+        setDiagnosticsError(message);
+        showToast(message);
       } finally {
         setDiagnosticsSaving(false);
       }
@@ -1294,13 +1313,17 @@ function AppContent() {
   }, [appUpdateStatus, installAndroidUpdate, preferences.autoDownloadUpdatesOnWifi, readSavedUpdateResume, resumeAndroidUpdate, showToast]);
 
   const reloadLedger = useCallback(async (ledgerId: number) => {
+    const month = currentMonth();
+    const reloadKey = `${ledgerId}:${month}`;
+    const inFlight = ledgerReloadInFlightRef.current.get(reloadKey);
+    if (inFlight) return inFlight;
+    const operation = (async () => {
     const requestId = ++ledgerRequestRef.current;
     const lastRecurringSync = recurringSyncRef.current.get(ledgerId) || 0;
     if (Date.now() - lastRecurringSync > 5 * 60_000) {
       await api.ledger.syncRecurring.mutate({ ledgerId }).catch(() => undefined);
       recurringSyncRef.current.set(ledgerId, Date.now());
     }
-    const month = currentMonth();
     const queryWorkspace = () => Promise.all([
       api.ledger.workspace.query({ ledgerId, month }),
       api.ledger.savings.buckets.query({ ledgerId }),
@@ -1330,6 +1353,15 @@ function AppContent() {
     setSavingsBuckets(bucketRows as SavingsBucket[]);
     setActivityLogs(workspace.activityLogs as ActivityLog[]);
     return true;
+    })();
+    ledgerReloadInFlightRef.current.set(reloadKey, operation);
+    try {
+      return await operation;
+    } finally {
+      if (ledgerReloadInFlightRef.current.get(reloadKey) === operation) {
+        ledgerReloadInFlightRef.current.delete(reloadKey);
+      }
+    }
   }, []);
 
   useEffect(() => {
@@ -2179,7 +2211,7 @@ function AppContent() {
         />
         <AccountDeletionModal visible={accountDeletionVisible} busy={busy} error={error} onClose={() => setAccountDeletionVisible(false)} onSubmit={deleteAccount} />
         {homePage === "profile" ? (
-          <PersonalSettingsPage user={user} error={error} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} updateCheckError={updateCheckError} updateDiagnostic={updateDiagnostic} diagnosticsEnabled={diagnosticsEnabled} diagnosticsSaving={diagnosticsSaving} onDiagnosticsChange={changeDiagnosticsPreference} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
+          <PersonalSettingsPage user={user} error={error} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} updateCheckError={updateCheckError} updateDiagnostic={updateDiagnostic} diagnosticsEnabled={diagnosticsEnabled} diagnosticsLoading={diagnosticsLoading} diagnosticsSaving={diagnosticsSaving} diagnosticsError={diagnosticsError} onDiagnosticsChange={changeDiagnosticsPreference} onRetryDiagnostics={() => void loadDiagnosticsPreference()} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
         ) : (
           <EmptyLedger
             error={error}
@@ -2225,7 +2257,7 @@ function AppContent() {
         />
         <AccountDeletionModal visible={accountDeletionVisible} busy={busy} error={error} onClose={() => setAccountDeletionVisible(false)} onSubmit={deleteAccount} />
         {homePage === "profile" ? (
-          <PersonalSettingsPage user={user} error={error} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} updateCheckError={updateCheckError} updateDiagnostic={updateDiagnostic} diagnosticsEnabled={diagnosticsEnabled} diagnosticsSaving={diagnosticsSaving} onDiagnosticsChange={changeDiagnosticsPreference} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
+          <PersonalSettingsPage user={user} error={error} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} updateCheckError={updateCheckError} updateDiagnostic={updateDiagnostic} diagnosticsEnabled={diagnosticsEnabled} diagnosticsLoading={diagnosticsLoading} diagnosticsSaving={diagnosticsSaving} diagnosticsError={diagnosticsError} onDiagnosticsChange={changeDiagnosticsPreference} onRetryDiagnostics={() => void loadDiagnosticsPreference()} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
         ) : (
           <LedgerHome
             ledgers={ledgers}
@@ -2735,21 +2767,41 @@ function ContentTransition({ children, transitionKey }: { children: ReactNode; t
   return <Animated.View style={{ opacity }}>{children}</Animated.View>;
 }
 
+function LoadingPulse({ children }: { children: ReactNode }) {
+  const { preferences } = useAppearance();
+  const opacity = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (preferences.reduceMotion) {
+      opacity.setValue(1);
+      return;
+    }
+    const pulse = Animated.loop(Animated.sequence([
+      Animated.timing(opacity, { toValue: 0.56, duration: 620, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      Animated.timing(opacity, { toValue: 1, duration: 620, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+    ]));
+    pulse.start();
+    return () => pulse.stop();
+  }, [opacity, preferences.reduceMotion]);
+  return <Animated.View style={{ opacity }}>{children}</Animated.View>;
+}
+
 function AppBootstrapSkeleton() {
   const { palette } = useAppearance();
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "bottom"]}>
       <ThemeAtmosphere />
       <View style={styles.bootstrapSkeleton} accessibilityRole="progressbar" accessibilityLabel="正在安全準備共帳">
-        <View style={[styles.skeletonMark, { backgroundColor: palette.roseSoft }]} />
-        <View style={[styles.skeletonLine, styles.skeletonTitle, { backgroundColor: palette.roseSoft }]} />
-        <View style={[styles.skeletonLine, styles.skeletonSubtitle, { backgroundColor: palette.roseSoft }]} />
-        <View style={[styles.skeletonCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
-          <View style={[styles.skeletonLine, styles.skeletonBody, { backgroundColor: palette.roseSoft }]} />
-          <View style={[styles.skeletonLine, styles.skeletonBodyShort, { backgroundColor: palette.roseSoft }]} />
-          <View style={[styles.skeletonField, { backgroundColor: palette.roseSoft }]} />
-          <View style={[styles.skeletonField, { backgroundColor: palette.roseSoft }]} />
-        </View>
+        <LoadingPulse>
+          <View style={[styles.skeletonMark, { backgroundColor: palette.roseSoft }]} />
+          <View style={[styles.skeletonLine, styles.skeletonTitle, { backgroundColor: palette.roseSoft }]} />
+          <View style={[styles.skeletonLine, styles.skeletonSubtitle, { backgroundColor: palette.roseSoft }]} />
+          <View style={[styles.skeletonCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+            <View style={[styles.skeletonLine, styles.skeletonBody, { backgroundColor: palette.roseSoft }]} />
+            <View style={[styles.skeletonLine, styles.skeletonBodyShort, { backgroundColor: palette.roseSoft }]} />
+            <View style={[styles.skeletonField, { backgroundColor: palette.roseSoft }]} />
+            <View style={[styles.skeletonField, { backgroundColor: palette.roseSoft }]} />
+          </View>
+        </LoadingPulse>
         <Text style={[styles.loadingText, { color: palette.muted }]}>正在安全準備共帳…</Text>
       </View>
     </SafeAreaView>
@@ -2760,13 +2812,15 @@ function LedgerContentSkeleton() {
   const { palette } = useAppearance();
   return (
     <View style={styles.ledgerContentSkeleton} accessibilityRole="progressbar" accessibilityLabel="正在同步帳本資料">
-      <View style={[styles.skeletonHero, { backgroundColor: palette.roseSoft }]} />
-      <View style={styles.skeletonMetricRow}>
-        {[0, 1, 2].map(index => <View key={index} style={[styles.skeletonMetric, { backgroundColor: palette.surface, borderColor: palette.border }]} />)}
-      </View>
-      <View style={[styles.skeletonPanel, { backgroundColor: palette.surface, borderColor: palette.border }]}>
-        {[0, 1, 2, 3].map(index => <View key={index} style={[styles.skeletonRow, { borderBottomColor: palette.border }]}><View style={[styles.skeletonDot, { backgroundColor: palette.roseSoft }]} /><View style={[styles.skeletonLine, styles.skeletonRowLine, { backgroundColor: palette.roseSoft }]} /></View>)}
-      </View>
+      <LoadingPulse>
+        <View style={[styles.skeletonHero, { backgroundColor: palette.roseSoft }]} />
+        <View style={styles.skeletonMetricRow}>
+          {[0, 1, 2].map(index => <View key={index} style={[styles.skeletonMetric, { backgroundColor: palette.surface, borderColor: palette.border }]} />)}
+        </View>
+        <View style={[styles.skeletonPanel, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+          {[0, 1, 2, 3].map(index => <View key={index} style={[styles.skeletonRow, { borderBottomColor: palette.border }]}><View style={[styles.skeletonDot, { backgroundColor: palette.roseSoft }]} /><View style={[styles.skeletonLine, styles.skeletonRowLine, { backgroundColor: palette.roseSoft }]} /></View>)}
+        </View>
+      </LoadingPulse>
       <Text style={[styles.ledgerLoadingText, { color: palette.muted }]}>正在同步最新帳本資料…</Text>
     </View>
   );
@@ -4009,8 +4063,11 @@ function PersonalSettingsPage({
   updateCheckError,
   updateDiagnostic,
   diagnosticsEnabled,
+  diagnosticsLoading,
   diagnosticsSaving,
+  diagnosticsError,
   onDiagnosticsChange,
+  onRetryDiagnostics,
   onLogout,
   onDeleteAccount,
   onBack,
@@ -4028,8 +4085,11 @@ function PersonalSettingsPage({
   updateCheckError: string;
   updateDiagnostic: AppUpdateDiagnostic;
   diagnosticsEnabled: boolean;
+  diagnosticsLoading: boolean;
   diagnosticsSaving: boolean;
+  diagnosticsError: string;
   onDiagnosticsChange: (enabled: boolean) => void;
+  onRetryDiagnostics: () => void;
   onLogout: () => void;
   onDeleteAccount: () => void;
   onBack: () => void;
@@ -4410,8 +4470,17 @@ style={styles.input}
           <Text style={styles.rowTitle}>協助改善 App：傳送錯誤診斷</Text>
           <Text style={styles.rowSubtitle}>預設關閉。開啟後僅傳送 App 版本、平台、錯誤代碼與去識別化技術堆疊；不會傳送帳本、收支、邀請碼、帳號、電子信箱、密碼或收據圖片，可隨時關閉。</Text>
         </View>
-        {diagnosticsSaving ? <ActivityIndicator color={palette.rose} /> : <Switch value={diagnosticsEnabled} onValueChange={onDiagnosticsChange} trackColor={{ false: palette.border, true: palette.roseSoft }} thumbColor={diagnosticsEnabled ? palette.rose : palette.muted} accessibilityLabel="開啟或關閉錯誤診斷" />}
+        {diagnosticsLoading || diagnosticsSaving ? <ActivityIndicator color={palette.rose} /> : <Switch value={diagnosticsEnabled} onValueChange={onDiagnosticsChange} trackColor={{ false: palette.border, true: palette.roseSoft }} thumbColor={diagnosticsEnabled ? palette.rose : palette.muted} accessibilityLabel="開啟或關閉錯誤診斷" />}
       </View>
+      {!!diagnosticsError && (
+        <View style={styles.diagnosticsRetryRow} accessibilityRole="alert">
+          <Text style={styles.diagnosticsRetryText}>{diagnosticsError}</Text>
+          <Pressable onPress={onRetryDiagnostics} style={({ pressed }) => [styles.diagnosticsRetryButton, pressed && styles.pressed]} accessibilityLabel="重新讀取錯誤診斷設定">
+            <MaterialCommunityIcons name="reload" size={16} color={palette.rose} />
+            <Text style={styles.diagnosticsRetryButtonText}>重試</Text>
+          </Pressable>
+        </View>
+      )}
       <Pressable
         onPress={onLogout}
         style={({ pressed }) => [styles.outlineButton, pressed && styles.pressed]}
@@ -7003,6 +7072,27 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     backgroundColor: palette.background,
   },
   loadingText: { marginTop: 12, color: palette.muted, fontSize: 13 },
+  diagnosticsRetryRow: {
+    marginTop: 10,
+    gap: 8,
+    padding: 11,
+    borderWidth: 1,
+    borderColor: palette.roseSoft,
+    borderRadius: 12,
+    backgroundColor: palette.surface,
+  },
+  diagnosticsRetryText: { color: palette.muted, fontSize: 12, lineHeight: 18 },
+  diagnosticsRetryButton: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 9,
+    backgroundColor: palette.roseSoft,
+  },
+  diagnosticsRetryButtonText: { color: palette.rose, fontSize: 12, fontWeight: "700" },
   bootstrapSkeleton: {
     flex: 1,
     justifyContent: "center",

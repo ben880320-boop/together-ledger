@@ -26,7 +26,7 @@ import { useLocation } from "wouter";
 
 type Page = "overview" | "records" | "calendar" | "analysis" | "planning" | "settings" | "profile";
 type Sheet = "ledger" | "join" | "transaction" | "budget" | "total-budget" | "recurring" | "travel" | "category" | "payment" | "manage" | null;
-const APP_VERSION = "1.3.9";
+const APP_VERSION = "1.3.10";
 function StableTransactionDialog(props: any) {
   const workspaceSnapshot = useRef<any>(null);
   const activeDraftKey = useRef<string | null>(null);
@@ -122,16 +122,20 @@ export default function LedgerWorkspace() {
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [syncError, setSyncError] = useState("");
   const [online, setOnline] = useState(() => typeof navigator === "undefined" ? true : navigator.onLine);
-  const ledgerList = trpc.ledger.list.useQuery(undefined, { enabled: Boolean(user), refetchOnWindowFocus: true, refetchInterval: online ? 15000 : false, refetchIntervalInBackground: false });
-  const workspaceQuery = trpc.ledger.workspace.useQuery({ ledgerId: ledgerId ?? 0, month }, { enabled: Boolean(ledgerId) && !ledgerHome, refetchOnWindowFocus: true, refetchInterval: online && !ledgerHome ? 8000 : false, refetchIntervalInBackground: false });
-  const ledgers = (ledgerList.data ?? []) as any[];
-  const workspace = normalizeLedgerWorkspace(workspaceQuery.data ?? cachedWorkspace) as any;
-  const ledger = ledgers.find(item => item.ledger.id === ledgerId)?.ledger as any;
+  const ledgerList = trpc.ledger.list.useQuery(undefined, { enabled: Boolean(user), refetchOnWindowFocus: true, refetchInterval: online ? 30000 : false, refetchIntervalInBackground: false, staleTime: 10_000 });
+  const workspaceQuery = trpc.ledger.workspace.useQuery({ ledgerId: ledgerId ?? 0, month }, { enabled: Boolean(ledgerId) && !ledgerHome, refetchOnWindowFocus: true, refetchInterval: online && !ledgerHome ? 20000 : false, refetchIntervalInBackground: false, staleTime: 5_000 });
+  const ledgers = useMemo(() => (ledgerList.data ?? []) as any[], [ledgerList.data]);
+  const workspace = useMemo(() => normalizeLedgerWorkspace(workspaceQuery.data ?? cachedWorkspace) as any, [cachedWorkspace, workspaceQuery.data]);
+  const ledger = useMemo(() => ledgers.find(item => item.ledger.id === ledgerId)?.ledger as any, [ledgerId, ledgers]);
+  const memberNames = useMemo(() => new Map((workspace?.members ?? []).map((item: any) => [item.member.userId, item.user?.name || "帳本成員"])), [workspace?.members]);
+  const categoriesById = useMemo(() => new Map((workspace?.categories ?? []).map((item: any) => [item.id, item])), [workspace?.categories]);
+  const paymentsById = useMemo(() => new Map((workspace?.paymentMethods ?? []).map((item: any) => [item.id, item])), [workspace?.paymentMethods]);
   const isWorkspaceRefreshing = Boolean(workspace) && workspaceQuery.isFetching && !workspaceQuery.isLoading;
 
   const refresh = async () => {
     setSyncError("");
     try {
+      if (ledgerList.isFetching || workspaceQuery.isFetching) return;
       await Promise.all([
         ledgerList.refetch(),
         ledgerId ? workspaceQuery.refetch() : Promise.resolve(),
@@ -144,11 +148,9 @@ export default function LedgerWorkspace() {
   const done = (message: string) => async () => {
     setSheet(null); setEditing(null); toast.success(message);
     await Promise.all([utils.ledger.list.invalidate(), utils.ledger.workspace.invalidate()]);
-    void refresh().catch(() => undefined);
   };
 
   const enterLedger = async (item: any, message: string) => {
-    await utils.ledger.list.invalidate();
     const refreshed = await ledgerList.refetch();
     const joined = (refreshed.data ?? []).find((entry: any) => entry.ledger.id === item.id)?.ledger;
     setLedgerId(joined?.id ?? item.id);
@@ -244,9 +246,9 @@ export default function LedgerWorkspace() {
   if (loading) return <AuthLoadingSkeleton />;
   if (!user) return <AccessGate onLogin={() => navigate("/login")} />;
 
-  const memberName = (userId: number) => workspace?.members?.find((item: any) => item.member.userId === userId)?.user?.name || "帳本成員";
-  const category = (categoryId: number) => workspace?.categories?.find((item: any) => item.id === categoryId);
-  const payment = (paymentId: number) => workspace?.paymentMethods?.find((item: any) => item.id === paymentId);
+  const memberName = (userId: number) => memberNames.get(userId) || "帳本成員";
+  const category = (categoryId: number) => categoriesById.get(categoryId);
+  const payment = (paymentId: number) => paymentsById.get(paymentId);
   const openTransaction = (transaction?: any) => { setEditing(transaction ?? null); setSheet("transaction"); };
   const navigation: Array<[Page, string, any]> = [["overview", "總覽", LayoutDashboard], ["records", "收支紀錄", Receipt], ["calendar", "月曆", CalendarDays], ["analysis", "分析", BarChart3], ["planning", "規劃", ListChecks], ["settings", "帳本設定", Settings2], ["profile", "個人設定", Sparkles]];
   const mobileNavigation = navigation.filter(([key]) => ["overview", "calendar", "analysis", "planning", "settings"].includes(key));

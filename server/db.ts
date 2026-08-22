@@ -95,9 +95,12 @@ export function normalizeNotificationPreferences(input: Partial<NotificationPref
 
 export async function getNotificationPreferences(userId: number) {
   const db = requireDb();
-  const existing = await db.select().from(notificationPreferences).where(eq(notificationPreferences.userId, userId)).limit(1);
-  if (existing[0]) return existing[0];
-  await db.insert(notificationPreferences).values({ userId, ...defaultNotificationPreferences });
+  // The profile screen can read the preference while a user taps a setting.
+  // Ensure the first-row creation is atomic so two overlapping requests cannot
+  // both observe no row and then collide on the unique userId index.
+  await db.insert(notificationPreferences).values({ userId, ...defaultNotificationPreferences }).onDuplicateKeyUpdate({
+    set: { userId: sql`${notificationPreferences.userId}` },
+  });
   const created = await db.select().from(notificationPreferences).where(eq(notificationPreferences.userId, userId)).limit(1);
   return created[0]!;
 }
@@ -129,10 +132,15 @@ export async function getNotificationPreferencesByScheduleTaskUid(taskUid: strin
 
 export async function updateDiagnosticReportingEnabled(userId: number, enabled: boolean) {
   const db = requireDb();
-  await getNotificationPreferences(userId);
-  await db.update(notificationPreferences)
-    .set({ diagnosticReportsEnabled: enabled ? 1 : 0 })
-    .where(eq(notificationPreferences.userId, userId));
+  // Keep explicit consent as a single database operation. This eliminates the
+  // read-then-insert race with diagnosticsPreference on first use.
+  await db.insert(notificationPreferences).values({
+    userId,
+    ...defaultNotificationPreferences,
+    diagnosticReportsEnabled: enabled ? 1 : 0,
+  }).onDuplicateKeyUpdate({
+    set: { diagnosticReportsEnabled: enabled ? 1 : 0 },
+  });
   return getNotificationPreferences(userId);
 }
 

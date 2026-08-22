@@ -123,7 +123,7 @@ describe("Together Ledger 真實網頁帳本入口", () => {
   });
 
   it("提供可辨識的發布資訊與重新取得最新版本操作", () => {
-    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.9"');
+    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.10"');
     expect(footer).toContain("WEB_BUILD_TIMESTAMP");
     expect(footer).toContain("formatTaipeiTimestamp");
     expect(footer).toContain("重新載入最新版本");
@@ -149,6 +149,19 @@ describe("Together Ledger 真實網頁帳本入口", () => {
     expect(realtime).toContain("/api/ledgers/${ledgerId}/events");
     expect(realtime).toContain('source.addEventListener("ledger-change"');
     expect(realtime).toContain("source.close()");
+  });
+
+  it("以 SSE 優先、節流輪詢與 memoized 查找降低讀取和重繪成本", () => {
+    expect(workspace).toContain("refetchInterval: online ? 30000 : false");
+    expect(workspace).toContain("refetchInterval: online && !ledgerHome ? 20000 : false");
+    expect(workspace).toContain("staleTime: 10_000");
+    expect(workspace).toContain("staleTime: 5_000");
+    expect(workspace).toContain("const workspace = useMemo(() => normalizeLedgerWorkspace");
+    expect(workspace).toContain("const memberNames = useMemo(() => new Map");
+    expect(workspace).toContain("const categoriesById = useMemo(() => new Map");
+    expect(workspace).toContain("const paymentsById = useMemo(() => new Map");
+    expect(workspace).toContain("if (ledgerList.isFetching || workspaceQuery.isFetching) return;");
+    expect(workspace).not.toContain("void refresh().catch(() => undefined);");
   });
 
   it("以 Android App 的首頁資訊層級呈現成員支付、近期收支與結算資訊", () => {
