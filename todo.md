@@ -586,11 +586,11 @@
 - [x] 將 Web、PWA 與 Android 的新增、編輯、刪除與設定變更接入即時失效／局部更新流程
 - [x] 擴充帳本可選圖示庫並支援建立與帳本設定中的選擇、儲存與同步顯示
 - [x] 補齊 tRPC 權限／樂觀鎖、即時同步、圖示與離線回復的自動化驗收
-- [ ] 同步 v1.3.5 版本、文件、固定簽章 APK 及 GitHub Release
+- [x] 同步 v1.3.5 版本、文件、固定簽章 APK 及 GitHub Release
 - [x] 分析並修復 Web／PWA SSE 快取失效與帳本圖示庫回歸斷言的實作／測試契約差異，重新完成完整驗收
 - [x] 抽取 Web／PWA 與 Android 共用的 70 個帳本圖示與「無圖示」資料契約，移除建立與管理彈窗的重複硬編碼選項
 - [x] 以 EventSource 模擬與防抖快取失效行為測試取代 SSE 內部變數名稱字串斷言，並驗證草稿不被遠端事件清空
 - [x] 更新 Android 核心流程腳本的 v1.3.5／versionCode 28 發行基準，重新完成型別、測試、核心流程與 Web／PWA 生產建置
 - [x] 將 Expo 設定、Android 套件資訊、App 顯示常數與核心流程版本比對收斂為同一 v1.3.5／versionCode 28 發行來源，重跑所有品質閘門
 - [x] 同步 v1.3.5 versionCode 28 的 Android 發行說明與品質驗收證據，完成 Web／PWA 生產建置前檢核
-- [ ] 修正 Android Metro 對 @shared/ledgerIcons 的解析設定，重新完成固定簽章 APK、校驗檔與 GitHub Release 驗證
+- [x] 修正 Android Metro 對 @shared/ledgerIcons 的解析設定，重新完成固定簽章 APK、校驗檔與 GitHub Release 驗證
