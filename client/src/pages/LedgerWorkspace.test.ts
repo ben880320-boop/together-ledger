@@ -91,6 +91,18 @@ describe("Together Ledger 真實網頁帳本入口", () => {
     expect(workspace).not.toContain('["expense", "income", "transfer"].map(item');
   });
 
+  it("讓分類與支付方式選擇器固定提供無圖示入口，並可展開搜尋完整圖示庫", () => {
+    expect(workspace).toContain("function CategoryPaymentIconPicker");
+    expect(workspace).toContain("CATEGORY_EMOJI_OPTIONS");
+    expect(workspace).toContain("PAYMENT_EMOJI_OPTIONS");
+    expect(workspace).toContain("searchCategoryPaymentIconOptions(query, choices)");
+    expect(workspace).toContain("const options = expanded ? filteredOptions : choices.slice(0, 12);");
+    expect(workspace).toContain("不使用圖示");
+    expect(workspace).toContain("搜尋圖示，例如：車、旅行、愛心");
+    expect(workspace).toContain('icon === "" ? "" : categoryEmoji({ name, icon })');
+    expect(workspace).toContain('icon === "" ? "" : paymentEmoji({ name, icon })');
+  });
+
   it("在儲蓄目標首次達標時提供可減少動態效果的慶祝、封存與重新顯示流程", () => {
     expect(savingsBuckets).toContain('trpc.ledger.savings.archive.useMutation');
     expect(savingsBuckets).toContain('trpc.ledger.savings.restore.useMutation');
@@ -111,7 +123,7 @@ describe("Together Ledger 真實網頁帳本入口", () => {
   });
 
   it("提供可辨識的發布資訊與重新取得最新版本操作", () => {
-    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.7"');
+    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.8"');
     expect(footer).toContain("WEB_BUILD_TIMESTAMP");
     expect(footer).toContain("formatTaipeiTimestamp");
     expect(footer).toContain("重新載入最新版本");

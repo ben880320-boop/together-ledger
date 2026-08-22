@@ -10,6 +10,7 @@ const PAYMENT_LEGACY_EMOJI: Record<string, string> = {
 };
 
 export function categoryEmoji(item?: LedgerIconItem) {
+  if (item?.icon === "") return "";
   const icon = item?.icon?.trim() || "";
   const legacy = CATEGORY_LEGACY_EMOJI[icon.toLowerCase()];
   if (legacy && icon !== "◌") return legacy;
@@ -25,6 +26,7 @@ export function categoryEmoji(item?: LedgerIconItem) {
 }
 
 export function paymentEmoji(item?: LedgerIconItem) {
+  if (item?.icon === "") return "";
   const icon = item?.icon?.trim() || "";
   const legacy = PAYMENT_LEGACY_EMOJI[icon.toLowerCase()];
   if (legacy) return legacy;

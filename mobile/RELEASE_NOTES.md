@@ -1,3 +1,14 @@
+## Together Ledger v1.3.8
+
+### 分類與支付方式圖示選擇器修正
+
+- Android App、Web 與 PWA 的新增／編輯分類及支付方式，現在固定顯示「不使用圖示」；選取後會保留真正的無圖示值，不會顯示預設圖案。
+- 圖示選擇器先顯示常用項目，可再展開完整圖示庫並以「車」、「旅行」、「愛心」等中文關鍵字搜尋。
+
+### 發布與安全性
+
+- Android 版升級為 `versionName=1.3.8`、`versionCode=31`，延續 GitHub Actions 固定受保護簽章與 SHA-256 校驗檔。
+
 ## Together Ledger v1.3.2
 
 ## Together Ledger v1.3.7

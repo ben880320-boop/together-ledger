@@ -6,7 +6,7 @@
 
 ## 下載最新版本
 
-請從 [GitHub Releases](https://github.com/ben880320-boop/together-ledger/releases) 下載最新的 `together-ledger.apk`。目前正式版本為 **v1.3.7**（versionCode 30）。Android 可能會在首次安裝非商店來源的 APK 時要求允許此來源安裝應用程式；請只安裝本專案 Release 頁面所提供的檔案，並可比對同頁的 SHA-256 檢查碼。
+請從 [GitHub Releases](https://github.com/ben880320-boop/together-ledger/releases) 下載最新的 `together-ledger.apk`。目前正式版本為 **v1.3.8**（versionCode 31）。Android 可能會在首次安裝非商店來源的 APK 時要求允許此來源安裝應用程式；請只安裝本專案 Release 頁面所提供的檔案，並可比對同頁的 SHA-256 檢查碼。
 
 | 安裝步驟 | 說明 |
 | --- | --- |
