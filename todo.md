@@ -669,5 +669,5 @@
 - [x] 建立 HTTPS 通用邀請連結與 QR Code 備援頁：已安裝 App 優先開啟 deep link，未安裝 App 可在 Web/PWA 登入並安全加入帳本，Android 提供下載入口
 - [x] 依使用者確認的「每月結算快照」規則，實作待結算摘要、雙方明確確認、鎖定當月差額與可追溯結算紀錄；修正舊收支前必須明確重新開啟該月結算
 - [x] 優化帳本工作區讀取、快取失效與衍生資料計算，降低重複請求與不必要重繪，同時保護離線快照與未提交草稿
-- [ ] 補齊 tRPC 權限／樂觀鎖、Web/PWA／Android 核心流程與效能回歸測試，更新 README／Wiki，完成 feature branch、Pull Request 與新版發布
-- [ ] 依使用者選擇整理 GitHub Wiki 的兩篇人工同步內容，不直接推送 Wiki 的 master 分支
+- [x] 補齊 tRPC 權限／樂觀鎖、Web/PWA／Android 核心流程與效能回歸測試，更新 README／Wiki，完成 feature branch、Pull Request 與新版發布
+- [x] 依使用者選擇整理 GitHub Wiki 的兩篇人工同步內容，不直接推送 Wiki 的 master 分支
