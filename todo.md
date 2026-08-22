@@ -604,4 +604,4 @@
 - [x] 稽核 GitHub 各版本 Release 說明，確認每個版本只含對應的更新內容並修正不一致處
 - [x] 稽核並同步 GitHub README，確認功能、版本、安裝與 Wiki 導覽資訊符合 v1.3.6 現況
 - [x] 稽核 GitHub Wiki，並將 v1.3.6 的首頁、開始使用、帳本、收支與疑難排解修正推送至審閱分支
-- [ ] 在核准 Wiki 文件修正後，將 `docs/v1.3.6-release-wiki-audit` 合併至 Wiki master 並再次核對公開頁面
+- [x] 在核准 Wiki 文件修正後，將 `docs/v1.3.6-release-wiki-audit` 合併至 Wiki master 並再次核對公開頁面
