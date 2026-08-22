@@ -65,7 +65,7 @@ Together Ledger 網頁版可安裝為 PWA，安裝後會以獨立視窗開啟，
 
 ## 下載、安裝與更新 Android App
 
-目前 Android App 版本為 **1.3.6**（versionCode 29）。請僅從本專案的 [GitHub Releases](https://github.com/ben880320-boop/together-ledger/releases) 下載官方 APK，並以 Release 頁面附列的 SHA-256 檢查碼確認檔案來源。
+目前 Android App 版本為 **1.3.7**（versionCode 30）。請僅從本專案的 [GitHub Releases](https://github.com/ben880320-boop/together-ledger/releases) 下載官方 APK，並以 Release 頁面附列的 SHA-256 檢查碼確認檔案來源。
 
 | 步驟 | 操作 |
 | --- | --- |
@@ -76,7 +76,7 @@ Together Ledger 網頁版可安裝為 PWA，安裝後會以獨立視窗開啟，
 
 > 安裝 APK 的系統權限只用於完成你主動發起的更新安裝。請勿從非官方網站、聊天訊息或未知來源下載同名 APK。
 
-> **首次切換至固定簽章版本：** 若裝置上的舊版 App 顯示「無法更新」或「套件衝突」，請先移除舊版，再安裝 v1.3.6 的官方 APK 一次。v1.3.3 起，後續官方 APK 均使用同一組受保護簽章，可正常覆蓋更新；移除 App 不會刪除伺服器上的帳本資料。
+> **首次切換至固定簽章版本：** 若裝置上的舊版 App 顯示「無法更新」或「套件衝突」，請先移除舊版，再安裝 v1.3.7 的官方 APK 一次。v1.3.3 起，後續官方 APK 均使用同一組受保護簽章，可正常覆蓋更新；移除 App 不會刪除伺服器上的帳本資料。
 
 ## 隱私與資料安全
 
