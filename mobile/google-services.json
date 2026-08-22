@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "825569282908",
+    "project_id": "together-ledger-8a616",
+    "storage_bucket": "together-ledger-8a616.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:825569282908:android:347438ad5075939bbc0f99",
+        "android_client_info": {
+          "package_name": "com.togetherledger.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCQoMURGTfCIm5VFa3fKdDiSQkYrTBQFuw"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

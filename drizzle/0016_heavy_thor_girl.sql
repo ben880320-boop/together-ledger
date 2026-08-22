@@ -1,0 +1,1 @@
+ALTER TABLE `savingsAllocations` ADD `source` enum('automatic','manual') DEFAULT 'automatic' NOT NULL;

@@ -1,0 +1,1 @@
+ALTER TABLE `ledgers` ADD `icon` varchar(16);
