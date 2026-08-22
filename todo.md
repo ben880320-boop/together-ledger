@@ -601,3 +601,5 @@
 - [x] 補齊上述跨端回歸測試並通過 TypeScript、Vitest、Android 核心流程與 Web／PWA 生產建置
 - [ ] 將已驗收的 v1.3.5 後修復發行為可覆蓋更新的 v1.3.6／versionCode 29 固定簽章 APK，經 feature branch 與 Pull Request 流程發布
 - [x] 修正 Web／PWA 公開首頁仍顯示 v1.3.5 的最新版本標籤，使其與 v1.3.6 更新歷程及 Release Footer 一致
+- [ ] 稽核 GitHub 各版本 Release 說明，確認每個版本只含對應的更新內容並修正不一致處
+- [ ] 稽核並同步 GitHub README 與 Wiki，確認功能、版本、安裝與導覽資訊符合 v1.3.6 現況
