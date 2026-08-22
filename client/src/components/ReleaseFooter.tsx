@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 
 declare const __WEB_BUILD_TIMESTAMP__: number;
 
-export const WEB_RELEASE_VERSION = "1.3.6";
+export const WEB_RELEASE_VERSION = "1.3.7";
 export const WEB_BUILD_TIMESTAMP = typeof __WEB_BUILD_TIMESTAMP__ === "number" ? __WEB_BUILD_TIMESTAMP__ : Date.now();
 
 export function formatTaipeiTimestamp(timestamp: number) {

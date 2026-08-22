@@ -129,7 +129,7 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     expect(app).toContain("FlatList");
     expect(app).toContain("maxToRenderPerBatch={4}");
     expect(app).toContain("backgroundColor: palette.surface");
-    expect(app).toContain('import { LEDGER_ICON_OPTIONS } from "@shared/ledgerIcons"');
+    expect(app).toContain('import { LEDGER_ICON_OPTIONS, searchLedgerIconOptions } from "@shared/ledgerIcons"');
     expect(ledgerIcons).toContain("LEDGER_ICON_OPTIONS");
     expect(ledgerIcons).toContain('"🌊"');
     expect(readMobile("app.json")).toContain("softwareKeyboardLayoutMode");
@@ -254,9 +254,9 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
       expo?: { version?: string; scheme?: string; android?: { versionCode?: number } };
     };
-    expect(appJson.expo?.version).toBe("1.3.6");
-    expect(appJson.expo?.android?.versionCode).toBe(29);
-    expect(readMobile("package.json")).toContain('"version": "1.3.6"');
+    expect(appJson.expo?.version).toBe("1.3.7");
+    expect(appJson.expo?.android?.versionCode).toBe(30);
+    expect(readMobile("package.json")).toContain('"version": "1.3.7"');
     expect(appJson.expo?.scheme).toBe("togetherledger");
     expect(readMobile("app.json")).not.toContain("expo-notifications");
     expect(readMobile("app.json")).toContain('"googleServicesFile": "./google-services.json"');
@@ -303,7 +303,7 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     expect(apiSource).toContain("controller.abort()");
     expect(apiSource).toContain("realtimeRetryDelay");
     expect(app).toContain("subscribeLedgerEvents");
-    expect(app).toContain('import { LEDGER_ICON_OPTIONS } from "@shared/ledgerIcons"');
+    expect(app).toContain('import { LEDGER_ICON_OPTIONS, searchLedgerIconOptions } from "@shared/ledgerIcons"');
     expect(iconSource.match(/"[^"\n]+"/g)?.length ?? 0).toBeGreaterThanOrEqual(69);
   });
 
@@ -316,7 +316,11 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     expect(app).toContain("setUsingOfflineSnapshot(true)");
     expect(app).toContain("GITHUB_WIKI_URL");
     expect(app).toContain("function CompactLedgerIconPicker");
-    expect(app).toContain('選擇圖示（${LEDGER_ICON_OPTIONS.length}）');
+    expect(app).toContain("const matchedOptions = searchLedgerIconOptions(normalizedQuery);");
+    expect(app).toContain('const options = expanded ? matchedOptions : emojiOptions.slice(0, 12);');
+    expect(app).toContain('accessibilityLabel="不顯示帳本圖示"');
+    expect(app).toContain("不使用圖示");
+    expect(app).toContain('placeholder="搜尋圖示，例如：車、旅行、愛心"');
     expect(app).toContain("{ledger.icon ? <View style={styles.ledgerHomeIcon}><Text style={{ fontSize: 23 }}>{ledger.icon}</Text></View> : null}");
     expect(app).toContain("{ledger.icon ? <Text style={{ fontSize: 15 }}>{ledger.icon}</Text> : null}");
   });
