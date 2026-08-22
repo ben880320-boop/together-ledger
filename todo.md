@@ -631,7 +631,7 @@
 - [x] 蒐集 Android 進入帳本設定時的原生閃退堆疊與 JavaScript 例外，定位 v1.3.8 圖示選擇器相關執行期錯誤
 - [x] 修正帳本設定與圖示選擇器的空值、搜尋或 React Native 相容性問題，避免設定頁在開啟時崩潰
 - [x] 新增帳本設定開啟與圖示選擇器資料契約的 Android 回歸測試，完成完整自動化驗收
-- [ ] 以 Pull Request 發行通過驗收的固定簽章 Android 修正版 APK
+- [x] 以 Pull Request 發行通過驗收的固定簽章 Android 修正版 APK
 
 ## 使用者同意式錯誤回報
 
