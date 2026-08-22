@@ -254,9 +254,9 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
       expo?: { version?: string; scheme?: string; android?: { versionCode?: number } };
     };
-    expect(appJson.expo?.version).toBe("1.3.5");
-    expect(appJson.expo?.android?.versionCode).toBe(28);
-    expect(readMobile("package.json")).toContain('"version": "1.3.5"');
+    expect(appJson.expo?.version).toBe("1.3.6");
+    expect(appJson.expo?.android?.versionCode).toBe(29);
+    expect(readMobile("package.json")).toContain('"version": "1.3.6"');
     expect(appJson.expo?.scheme).toBe("togetherledger");
     expect(readMobile("app.json")).not.toContain("expo-notifications");
     expect(readMobile("app.json")).toContain('"googleServicesFile": "./google-services.json"');
@@ -305,6 +305,20 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     expect(app).toContain("subscribeLedgerEvents");
     expect(app).toContain('import { LEDGER_ICON_OPTIONS } from "@shared/ledgerIcons"');
     expect(iconSource.match(/"[^"\n]+"/g)?.length ?? 0).toBeGreaterThanOrEqual(69);
+  });
+
+  it("在暫時帳本載入失敗時重試並回到快照，且將圖示、Wiki 與版本歷程修復維持在 App 內", () => {
+    const app = readMobile("app/index.tsx");
+    expect(app).toContain('import { extractVersionNotes } from "@shared/releaseNotes"');
+    expect(app).toContain("extractVersionNotes(release.body, release.tag_name)");
+    expect(app).toContain("isTemporaryLedgerLoadError");
+    expect(app).toContain("waitForLedgerRetry");
+    expect(app).toContain("setUsingOfflineSnapshot(true)");
+    expect(app).toContain("GITHUB_WIKI_URL");
+    expect(app).toContain("function CompactLedgerIconPicker");
+    expect(app).toContain('選擇圖示（${LEDGER_ICON_OPTIONS.length}）');
+    expect(app).toContain("{ledger.icon ? <View style={styles.ledgerHomeIcon}><Text style={{ fontSize: 23 }}>{ledger.icon}</Text></View> : null}");
+    expect(app).toContain("{ledger.icon ? <Text style={{ fontSize: 15 }}>{ledger.icon}</Text> : null}");
   });
 
   it("keeps a quota-independent GitHub Actions Android APK workflow", () => {

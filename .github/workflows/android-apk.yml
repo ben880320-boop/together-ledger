@@ -195,7 +195,7 @@ jobs:
           }
           if retry_gh release view "$TAG_NAME" >/dev/null 2>&1; then
             echo "GitHub Release $TAG_NAME already exists."
-          elif retry_gh release create "$TAG_NAME" --title "Together Ledger $TAG_NAME" --notes-file mobile/RELEASE_NOTES.md; then
+          elif retry_gh release create "$TAG_NAME" --title "Together Ledger $TAG_NAME" --notes-file "mobile/RELEASE_NOTES_${TAG_NAME}.md"; then
             echo "Created GitHub Release $TAG_NAME."
           else
             retry_gh release view "$TAG_NAME" >/dev/null

@@ -594,3 +594,9 @@
 - [x] 將 Expo 設定、Android 套件資訊、App 顯示常數與核心流程版本比對收斂為同一 v1.3.5／versionCode 28 發行來源，重跑所有品質閘門
 - [x] 同步 v1.3.5 versionCode 28 的 Android 發行說明與品質驗收證據，完成 Web／PWA 生產建置前檢核
 - [x] 修正 Android Metro 對 @shared/ledgerIcons 的解析設定，重新完成固定簽章 APK、校驗檔與 GitHub Release 驗證
+- [x] 查明並修復 Android 更新後帳本工作區取得非預期伺服器回應的相容性、授權或同步錯誤，提供可重試且可診斷的回復流程
+- [x] 在 Web、PWA 與 Android 統一「無圖示」值為不渲染任何圖示，並將 70 項圖示選擇器改為可搜尋／分區的緊湊介面
+- [x] 在 Web、PWA 與 Android 加入可發現的 GitHub Wiki 入口
+- [x] 修復更新歷程的版本篩選，確保每個版本只顯示其對應 Release Notes，並核對 GitHub Release 描述
+- [x] 補齊上述跨端回歸測試並通過 TypeScript、Vitest、Android 核心流程與 Web／PWA 生產建置
+- [ ] 將已驗收的 v1.3.5 後修復發行為可覆蓋更新的 v1.3.6／versionCode 29 固定簽章 APK，經 feature branch 與 Pull Request 流程發布

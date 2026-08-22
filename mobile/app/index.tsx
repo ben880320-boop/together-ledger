@@ -51,6 +51,7 @@ import {
   subscribeLedgerEvents,
 } from "../lib/api";
 import { LEDGER_ICON_OPTIONS } from "@shared/ledgerIcons";
+import { extractVersionNotes } from "@shared/releaseNotes";
 
 const colors = {
   background: "#FBF7F3",
@@ -119,9 +120,10 @@ const appearanceDefaults: AppearancePreferences = {
   colorMode: "system",
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.3.5";
+const APP_VERSION = "1.3.6";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
+const GITHUB_WIKI_URL = "https://github.com/ben880320-boop/together-ledger/wiki";
 const GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/ben880320-boop/together-ledger/releases/latest";
 const GITHUB_RELEASE_HISTORY_API = "https://api.github.com/repos/ben880320-boop/together-ledger/releases?per_page=20";
 const OFFICIAL_APK_URL_PREFIX = "https://github.com/ben880320-boop/together-ledger/releases/download/";
@@ -146,6 +148,13 @@ const getUpdateNotesPreview = (release: AppUpdateRelease) => {
   const notes = release.notes.length > 420 ? `${release.notes.slice(0, 420)}…` : release.notes;
   return notes;
 };
+
+const isTemporaryLedgerLoadError = (error: unknown) => {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return /伺服器暫時回傳了非預期內容|暫時|Network request failed|Failed to fetch|timeout|Unexpected token|JSON/i.test(message);
+};
+
+const waitForLedgerRetry = () => new Promise<void>(resolve => setTimeout(resolve, 450));
 
 const getUpdateSecuritySummary = (release: AppUpdateRelease) => {
   const hasSecurityNotes = /安全|security|漏洞|修補|修复|隱私|privacy|權限|permission|認證|authentication|加密/i.test(release.notes);
@@ -203,7 +212,7 @@ const fetchLatestAndroidRelease = async (): Promise<AppUpdateRelease | null> => 
     asset.browser_download_url.startsWith(OFFICIAL_APK_URL_PREFIX)
   )?.browser_download_url;
   if (!version || !apkAsset?.browser_download_url) return null;
-  return { version, notes: release.body?.trim() || "包含最新功能、修正與穩定性改善。", apkUrl: apkAsset.browser_download_url, checksumUrl, apkBytes: apkAsset.size };
+  return { version, notes: extractVersionNotes(release.body, release.tag_name) || "包含最新功能、修正與穩定性改善。", apkUrl: apkAsset.browser_download_url, checksumUrl, apkBytes: apkAsset.size };
 };
 
 const fetchReleaseHistory = async (): Promise<AppUpdateHistoryItem[]> => {
@@ -216,7 +225,7 @@ const fetchReleaseHistory = async (): Promise<AppUpdateHistoryItem[]> => {
   return releases
     .map(release => ({
       version: release.tag_name?.replace(/^v/i, "") || "",
-      notes: release.body?.trim() || "包含功能更新、錯誤修正與穩定性改善。",
+      notes: extractVersionNotes(release.body, release.tag_name) || "包含功能更新、錯誤修正與穩定性改善。",
       publishedAt: release.published_at,
     }))
     .filter(release => Boolean(release.version));
@@ -1151,10 +1160,19 @@ function AppContent() {
       recurringSyncRef.current.set(ledgerId, Date.now());
     }
     const month = currentMonth();
-    const [workspace, bucketRows] = await Promise.all([
+    const queryWorkspace = () => Promise.all([
       api.ledger.workspace.query({ ledgerId, month }),
       api.ledger.savings.buckets.query({ ledgerId }),
     ]);
+    const [workspace, bucketRows] = await (async () => {
+      try {
+        return await queryWorkspace();
+      } catch (initialError) {
+        if (!isTemporaryLedgerLoadError(initialError)) throw initialError;
+        await waitForLedgerRetry();
+        return queryWorkspace();
+      }
+    })();
     if (requestId !== ledgerRequestRef.current) return false;
     setMembers(workspace.members as LedgerMember[]);
     setCategories(workspace.categories as Category[]);
@@ -1320,10 +1338,31 @@ function AppContent() {
     try {
       await reloadLedger(ledger.id);
     } catch (selectionError) {
+      if (selectionId !== ledgerSelectionRef.current) return;
+      let restoredSnapshot = false;
+      try {
+        const cached = await AsyncStorage.getItem(ledgerHomeSnapshotStorageKey);
+        const snapshot = cached ? JSON.parse(cached) as LedgerHomeSnapshot : null;
+        if (snapshot?.ledgers?.length) {
+          setLedgers(snapshot.ledgers);
+          setLastSyncedAt(snapshot.syncedAt);
+          setUsingOfflineSnapshot(true);
+          restoredSnapshot = true;
+        }
+      } catch {
+        // 快照無法解析時，保留原始錯誤與既有帳本列表。
+      }
+      setActiveLedger(null);
+      setLedgerHome(true);
+      setHomePage("ledgers");
       setError(
-        selectionError instanceof Error
-          ? selectionError.message
-          : "切換帳本失敗。"
+        isTemporaryLedgerLoadError(selectionError)
+          ? restoredSnapshot
+            ? "暫時無法開啟帳本，已自動重試並回到最近同步的帳本清單。請稍後下拉重新整理再試。"
+            : "暫時無法開啟帳本，已自動重試。請確認網路後下拉重新整理再試。"
+          : selectionError instanceof Error
+            ? selectionError.message
+            : "切換帳本失敗。"
       );
     } finally {
       if (selectionId === ledgerSelectionRef.current) setBusy(false);
@@ -2741,7 +2780,7 @@ function LedgerSelector({
               ledger.id === activeLedgerId && styles.ledgerChipActive,
             ]}
           >
-            {ledger.icon ? <Text style={{ fontSize: 15 }}>{ledger.icon}</Text> : <MaterialCommunityIcons name={ledger.type === "couple" ? "heart-outline" : "account-group-outline"} size={15} color={ledger.id === activeLedgerId ? palette.rose : palette.muted} />}
+            {ledger.icon ? <Text style={{ fontSize: 15 }}>{ledger.icon}</Text> : null}
             <Text
               numberOfLines={1}
               style={[
@@ -2826,9 +2865,7 @@ function LedgerHome({
           onPress={() => onSelect(ledger)}
           style={({ pressed }) => [styles.ledgerHomeCard, pressed && styles.pressed]}
         >
-          <View style={styles.ledgerHomeIcon}>
-            {ledger.icon ? <Text style={{ fontSize: 23 }}>{ledger.icon}</Text> : <MaterialCommunityIcons name={ledger.type === "couple" ? "heart-outline" : "account-group-outline"} size={23} color={palette.rose} />}
-          </View>
+          {ledger.icon ? <View style={styles.ledgerHomeIcon}><Text style={{ fontSize: 23 }}>{ledger.icon}</Text></View> : null}
           <View style={styles.memberPaymentName}>
             <Text style={styles.cardTitle}>{ledger.name}</Text>
             <Text style={styles.rowSubtitle}>點擊進入共同帳本</Text>
@@ -4198,12 +4235,21 @@ style={styles.input}
 	      </View>
       <View style={styles.preferenceRow}>
         <View style={styles.preferenceCopy}>
-<Text style={styles.rowTitle}>Together Ledger GitHub</Text>
-<Text style={styles.rowSubtitle}>查看專案介紹、問題回報與開發更新</Text>
+	<Text style={styles.rowTitle}>Together Ledger GitHub</Text>
+	<Text style={styles.rowSubtitle}>查看專案介紹、問題回報與開發更新</Text>
           <Text style={styles.appVersionText}>目前版本 v{APP_VERSION}</Text>
 </View>
         <Pressable onPress={() => void Linking.openURL(GITHUB_REPOSITORY_URL)} style={styles.iconButton} accessibilityLabel="開啟 GitHub 專案頁">
           <MaterialCommunityIcons name="github" size={20} color={palette.rose} />
+        </Pressable>
+      </View>
+      <View style={styles.preferenceRow}>
+        <View style={styles.preferenceCopy}>
+          <Text style={styles.rowTitle}>使用說明 Wiki</Text>
+          <Text style={styles.rowSubtitle}>查看帳本、分攤、同步與更新問題的操作說明</Text>
+        </View>
+        <Pressable onPress={() => void Linking.openURL(GITHUB_WIKI_URL)} style={styles.iconButton} accessibilityLabel="開啟 Together Ledger Wiki 使用說明">
+          <MaterialCommunityIcons name="book-open-variant" size={20} color={palette.rose} />
         </Pressable>
       </View>
       <Pressable
@@ -5005,13 +5051,7 @@ function LedgerModal({
           {mode === "create" ? (
             <>
               <Text style={styles.fieldLabel}>帳本圖示（可選）</Text>
-              <View style={styles.iconPicker}>
-                {LEDGER_ICON_OPTIONS.map(item => (
-                  <Pressable key={item ?? "none"} onPress={() => setLedgerIcon(item)} style={[styles.iconPickerItem, ledgerIcon === item && styles.iconPickerItemActive]} accessibilityRole="button" accessibilityState={{ selected: ledgerIcon === item }}>
-                    <Text style={styles.iconPickerText}>{item ?? "無"}</Text>
-                  </Pressable>
-                ))}
-              </View>
+              <CompactLedgerIconPicker value={ledgerIcon} onChange={setLedgerIcon} />
               <TextInput
               value={ledgerName}
               onChangeText={setLedgerName}
@@ -5060,6 +5100,33 @@ function LedgerModal({
         </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
+  );
+}
+
+function CompactLedgerIconPicker({ value, onChange }: { value: string | null; onChange: (value: string | null) => void }) {
+  const { palette } = useAppearance();
+  const [expanded, setExpanded] = useState(false);
+  const options = expanded ? LEDGER_ICON_OPTIONS : LEDGER_ICON_OPTIONS.slice(0, 13);
+  const selectIcon = (icon: string | null) => {
+    onChange(icon);
+    setExpanded(false);
+  };
+  return (
+    <View>
+      <View style={styles.iconPickerSummary}>
+        <Text style={styles.iconPickerSummaryText}>目前：{value ?? "無圖示"}</Text>
+        <Pressable onPress={() => setExpanded(current => !current)} accessibilityRole="button" accessibilityState={{ expanded }} style={({ pressed }) => [styles.iconPickerToggle, pressed && styles.pressed]}>
+          <Text style={[styles.iconPickerToggleText, { color: palette.rose }]}>{expanded ? "收合圖示" : `選擇圖示（${LEDGER_ICON_OPTIONS.length}）`}</Text>
+        </Pressable>
+      </View>
+      <View style={styles.iconPicker}>
+        {options.map(item => (
+          <Pressable key={item ?? "none"} onPress={() => selectIcon(item)} style={[styles.iconPickerItem, value === item && styles.iconPickerItemActive]} accessibilityRole="button" accessibilityState={{ selected: value === item }} accessibilityLabel={item ? `使用 ${item} 作為帳本圖示` : "不顯示帳本圖示"}>
+            <Text style={styles.iconPickerText}>{item ?? "無"}</Text>
+          </Pressable>
+        ))}
+      </View>
+    </View>
   );
 }
 
@@ -5113,13 +5180,7 @@ function LedgerManageModal({
           {mode === "rename" ? (
             <>
               <Text style={styles.fieldLabel}>帳本圖示</Text>
-              <View style={styles.iconPicker}>
-                {LEDGER_ICON_OPTIONS.map(item => (
-                  <Pressable key={item ?? "none"} onPress={() => setDraftIcon(item)} style={[styles.iconPickerItem, draftIcon === item && styles.iconPickerItemActive]} accessibilityRole="button" accessibilityState={{ selected: draftIcon === item }}>
-                    <Text style={styles.iconPickerText}>{item ?? "無"}</Text>
-                  </Pressable>
-                ))}
-              </View>
+              <CompactLedgerIconPicker value={draftIcon} onChange={setDraftIcon} />
               <TextInput
                 value={draftName}
                 onChangeText={setDraftName}
@@ -7955,6 +8016,10 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
   emojiChoiceActive: { borderColor: palette.rose, backgroundColor: palette.roseSoft },
   emojiChoiceText: { fontSize: 20 },
   iconPicker: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 14 },
+  iconPickerSummary: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 10 },
+  iconPickerSummaryText: { flex: 1, color: palette.muted, fontSize: 13, fontWeight: "600" },
+  iconPickerToggle: { minHeight: 34, justifyContent: "center", borderRadius: 10, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface, paddingHorizontal: 10 },
+  iconPickerToggleText: { fontSize: 12, fontWeight: "700" },
   iconPickerItem: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: palette.border, borderRadius: 12, backgroundColor: palette.surface },
   iconPickerItemActive: { borderColor: palette.rose, backgroundColor: palette.roseSoft },
   iconPickerText: { color: palette.ink, fontSize: 18, fontWeight: "600" },

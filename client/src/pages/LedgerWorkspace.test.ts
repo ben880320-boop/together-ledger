@@ -7,6 +7,7 @@ const savingsBuckets = readFileSync(fileURLToPath(new URL("../components/Savings
 const auth = readFileSync(fileURLToPath(new URL("./WebAuth.tsx", import.meta.url)), "utf8");
 const footer = readFileSync(fileURLToPath(new URL("../components/ReleaseFooter.tsx", import.meta.url)), "utf8");
 const pwa = readFileSync(fileURLToPath(new URL("../components/PwaInstallPanel.tsx", import.meta.url)), "utf8");
+const appearance = readFileSync(fileURLToPath(new URL("../components/WebAppearancePanel.tsx", import.meta.url)), "utf8");
 const realtime = readFileSync(fileURLToPath(new URL("../lib/ledgerRealtime.ts", import.meta.url)), "utf8");
 const ledgerIcons = readFileSync(fileURLToPath(new URL("../../../shared/ledgerIcons.ts", import.meta.url)), "utf8");
 
@@ -110,7 +111,7 @@ describe("Together Ledger 真實網頁帳本入口", () => {
   });
 
   it("提供可辨識的發布資訊與重新取得最新版本操作", () => {
-    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.5"');
+    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.6"');
     expect(footer).toContain("WEB_BUILD_TIMESTAMP");
     expect(footer).toContain("formatTaipeiTimestamp");
     expect(footer).toContain("重新載入最新版本");
@@ -175,7 +176,10 @@ describe("Together Ledger 真實網頁帳本入口", () => {
     expect(workspace).toContain("function CreateLedgerDialog");
     expect(workspace).toContain("帳本圖示（可選）");
     expect(workspace).toContain("aria-pressed={icon === null}");
-    expect(workspace).toContain("item.ledger.icon ||");
+    expect(workspace).toContain("function CompactLedgerIconPicker");
+    expect(workspace).toContain('選擇圖示（${LEDGER_EMOJI_OPTIONS.length}）');
+    expect(workspace).toContain("item.ledger.icon ? <span");
+    expect(workspace).not.toContain("item.ledger.icon ||");
     expect(workspace).toContain("LEDGER_EMOJI_OPTIONS");
     expect(ledgerIcons).toContain("LEDGER_ICON_OPTIONS");
     expect(ledgerIcons).toContain('"🏠"');
@@ -183,6 +187,13 @@ describe("Together Ledger 真實網頁帳本入口", () => {
     expect(workspace).toContain("<CreateLedgerDialog");
     expect(workspace).toContain("<Profile workspace={null}");
     expect(workspace).toContain("<WebAppearancePanel /></div></div></div>");
+  });
+
+  it("在 Web／PWA Wiki 與更新歷程只顯示對應版本說明", () => {
+    expect(workspace).toContain("使用說明 Wiki");
+    expect(appearance).toContain("Wiki 使用說明");
+    expect(appearance).toContain("extractVersionNotes(release.body, release.tag_name)");
+    expect(appearance).toContain("const WIKI_URL");
   });
 
   it("在完整收支、分析、規劃與設定頁保留 Android App 同等的行動重點互動", () => {

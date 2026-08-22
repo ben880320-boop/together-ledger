@@ -273,7 +273,8 @@ function LegacyWorkspacePreview() {
 
 function LoginLanding({ onLogin }: { onLogin: () => void }) {
   const updates = [
-    { version: "1.3.5", date: "最新版本", title: "SSE 即時同步與擴充帳本圖示", detail: "Android App、網頁與 PWA 透過可重連 SSE 事件流更快同步帳本異動；建立與帳本設定可選擇 70 個生活情境圖示或無圖示。" },
+    { version: "1.3.6", date: "最新版本", title: "帳本載入、圖示與版本歷程修復", detail: "Android 暫時載入失敗會安全重試並保留離線快照；三端的無圖示、緊湊圖示選擇器、Wiki 入口及版本專屬更新內容已同步修正。" },
+    { version: "1.3.5", date: "前一版", title: "SSE 即時同步與擴充帳本圖示", detail: "Android App、網頁與 PWA 透過可重連 SSE 事件流更快同步帳本異動；建立與帳本設定可選擇 70 個生活情境圖示或無圖示。" },
     { version: "1.3.4", date: "前一版", title: "P0 體驗改善與更新診斷", detail: "網頁與 PWA 新增草稿安全更新與同步狀態中心；Android 補強官方來源、SHA-256 校驗、安裝診斷，以及全表單鍵盤安全處理。" },
     { version: "1.3.1", date: "前一版", title: "儲蓄目標達標慶祝與草稿保護", detail: "儲蓄目標達標時可慶祝、封存或重新顯示；背景同步不會再清除任何開啟中表單的未提交輸入。" },
     { version: "1.3.0", date: "前一版", title: "跨平台儲蓄桶與正式轉存", detail: "可建立不限數量的儲蓄目標、設定扣款支付方式、日期與優先順序；每月分配會保留完整歷程，且自動轉存不納入消費分析。" },
