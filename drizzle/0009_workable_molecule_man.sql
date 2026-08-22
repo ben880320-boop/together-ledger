@@ -1,0 +1,1 @@
+ALTER TABLE `activityLogs` MODIFY COLUMN `entityType` enum('transaction','category','paymentMethod','budget','recurring') NOT NULL;
