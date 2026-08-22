@@ -599,7 +599,9 @@
 - [x] 在 Web、PWA 與 Android 加入可發現的 GitHub Wiki 入口
 - [x] 修復更新歷程的版本篩選，確保每個版本只顯示其對應 Release Notes，並核對 GitHub Release 描述
 - [x] 補齊上述跨端回歸測試並通過 TypeScript、Vitest、Android 核心流程與 Web／PWA 生產建置
-- [ ] 將已驗收的 v1.3.5 後修復發行為可覆蓋更新的 v1.3.6／versionCode 29 固定簽章 APK，經 feature branch 與 Pull Request 流程發布
+- [x] 將已驗收的 v1.3.5 後修復發行為可覆蓋更新的 v1.3.6／versionCode 29 固定簽章 APK，經 feature branch 與 Pull Request 流程發布
 - [x] 修正 Web／PWA 公開首頁仍顯示 v1.3.5 的最新版本標籤，使其與 v1.3.6 更新歷程及 Release Footer 一致
-- [ ] 稽核 GitHub 各版本 Release 說明，確認每個版本只含對應的更新內容並修正不一致處
-- [ ] 稽核並同步 GitHub README 與 Wiki，確認功能、版本、安裝與導覽資訊符合 v1.3.6 現況
+- [x] 稽核 GitHub 各版本 Release 說明，確認每個版本只含對應的更新內容並修正不一致處
+- [x] 稽核並同步 GitHub README，確認功能、版本、安裝與 Wiki 導覽資訊符合 v1.3.6 現況
+- [x] 稽核 GitHub Wiki，並將 v1.3.6 的首頁、開始使用、帳本、收支與疑難排解修正推送至審閱分支
+- [ ] 在核准 Wiki 文件修正後，將 `docs/v1.3.6-release-wiki-audit` 合併至 Wiki master 並再次核對公開頁面
