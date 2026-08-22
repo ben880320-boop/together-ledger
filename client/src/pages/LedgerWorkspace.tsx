@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { categoryEmoji, formatActivityTimestamp, normalizeLedgerWorkspace, paymentEmoji } from "@/lib/ledgerPresentation";
 import { subscribeLedgerChanges } from "@/lib/ledgerRealtime";
-import { LEDGER_EMOJI_OPTIONS } from "@shared/ledgerIcons";
+import { LEDGER_EMOJI_OPTIONS, searchLedgerIconOptions } from "@shared/ledgerIcons";
 import { BarChart3, CalendarDays, Check, ChevronLeft, ChevronRight, Clipboard, Download, Heart, LayoutDashboard, ListChecks, LoaderCircle, LogOut, Pencil, Plus, Receipt, Search, Settings2, Sparkles, Trash2, UserRound, Users, WalletCards, WifiOff } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -20,7 +20,7 @@ import { useLocation } from "wouter";
 
 type Page = "overview" | "records" | "calendar" | "analysis" | "planning" | "settings" | "profile";
 type Sheet = "ledger" | "join" | "transaction" | "budget" | "total-budget" | "recurring" | "travel" | "category" | "payment" | "manage" | null;
-const APP_VERSION = "1.3.6";
+const APP_VERSION = "1.3.7";
 function StableTransactionDialog(props: any) {
   const workspaceSnapshot = useRef<any>(null);
   const activeDraftKey = useRef<string | null>(null);
@@ -444,9 +444,11 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 function TextDialog({ open, title, description, label, submit, onClose, onSubmit }: any) { const [value, setValue] = useState(""); useEffect(() => { if (open) setValue(""); }, [open]); return <Dialog open={open} onOpenChange={next => !next && onClose()}><DialogContent className="rounded-3xl"><DialogHeader><DialogTitle>{title}</DialogTitle><DialogDescription>{description}</DialogDescription></DialogHeader><form className="mt-3 space-y-4" onSubmit={event => { event.preventDefault(); onSubmit(value.trim()); }}><Field label={label}><Input value={value} onChange={event => setValue(event.target.value)} required /></Field><Button type="submit" className="w-full bg-[#B56C78]">{submit}</Button></form></DialogContent></Dialog> }
 function CompactLedgerIconPicker({ icon, onChange }: { icon: string | null; onChange: (value: string | null) => void }) {
   const [expanded, setExpanded] = useState(false);
-  const options = expanded ? LEDGER_EMOJI_OPTIONS : LEDGER_EMOJI_OPTIONS.slice(0, 17);
+  const [query, setQuery] = useState("");
+  const filteredOptions = searchLedgerIconOptions(query);
+  const options = expanded ? filteredOptions : LEDGER_EMOJI_OPTIONS.slice(0, 12);
   const selectIcon = (value: string | null) => { onChange(value); setExpanded(false); };
-  return <div><div className="mb-2 flex items-center justify-between gap-3"><span className="min-w-0 truncate text-xs text-[#876F67]">目前：{icon ?? "無圖示"}</span><button type="button" onClick={() => setExpanded(value => !value)} aria-expanded={expanded} className="shrink-0 rounded-lg border border-[#E7D9D3] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#9E5867]">{expanded ? "收合圖示" : `選擇圖示（${LEDGER_EMOJI_OPTIONS.length}）`}</button></div><div className="grid grid-cols-6 gap-2"><button type="button" onClick={() => selectIcon(null)} className={`flex h-11 items-center justify-center rounded-xl border text-xs font-medium transition-colors ${icon === null ? "border-[#C77B88] bg-[#FBF0F1] text-[#9E5867]" : "border-[#E7D9D3] bg-white text-[#77645C]"}`} aria-pressed={icon === null}>無</button>{options.map(item => <button key={item} type="button" onClick={() => selectIcon(item)} className={`flex h-11 items-center justify-center rounded-xl border text-xl transition-colors ${icon === item ? "border-[#C77B88] bg-[#FBF0F1]" : "border-[#E7D9D3] bg-white hover:bg-[#FFF7F4]"}`} aria-label={`使用 ${item} 作為帳本圖示`} aria-pressed={icon === item}>{item}</button>)}</div></div>;
+  return <div><div className="mb-2 flex items-center justify-between gap-3"><span className="min-w-0 truncate text-xs text-[#876F67]">目前：{icon ?? "無圖示"}</span><button type="button" onClick={() => { setExpanded(value => !value); setQuery(""); }} aria-expanded={expanded} className="shrink-0 rounded-lg border border-[#E7D9D3] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#9E5867]">{expanded ? "收合圖示" : `瀏覽全部（${LEDGER_EMOJI_OPTIONS.length}）`}</button></div><button type="button" onClick={() => selectIcon(null)} className={`mb-2 flex h-11 w-full items-center justify-center rounded-xl border text-sm font-semibold transition-colors ${icon === null ? "border-[#C77B88] bg-[#FBF0F1] text-[#9E5867]" : "border-[#E7D9D3] bg-white text-[#77645C] hover:bg-[#FFF7F4]"}`} aria-pressed={icon === null}>不使用圖示</button>{expanded && <><Input value={query} onChange={event => setQuery(event.target.value)} placeholder="搜尋圖示，例如：車、旅行、愛心" aria-label="搜尋帳本圖示" className="mb-2 border-[#E7D9D3] bg-white" /><p className="mb-2 text-xs text-[#876F67]">{query.trim() ? `找到 ${filteredOptions.length} 個圖示` : `全部 ${LEDGER_EMOJI_OPTIONS.length} 個圖示`}</p></>}<div className="grid grid-cols-6 gap-2">{options.map(item => <button key={item} type="button" onClick={() => selectIcon(item)} className={`flex h-11 items-center justify-center rounded-xl border text-xl transition-colors ${icon === item ? "border-[#C77B88] bg-[#FBF0F1]" : "border-[#E7D9D3] bg-white hover:bg-[#FFF7F4]"}`} aria-label={`使用 ${item} 作為帳本圖示`} aria-pressed={icon === item}>{item}</button>)}</div></div>;
 }
 function CreateLedgerDialog({ open, onClose, onSubmit }: { open: boolean; onClose: () => void; onSubmit: (input: { name: string; type: "couple"; icon?: string }) => void }) {
   const [name, setName] = useState(""); const [icon, setIcon] = useState<string | null>(null);

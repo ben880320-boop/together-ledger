@@ -111,7 +111,7 @@ describe("Together Ledger 真實網頁帳本入口", () => {
   });
 
   it("提供可辨識的發布資訊與重新取得最新版本操作", () => {
-    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.6"');
+    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.7"');
     expect(footer).toContain("WEB_BUILD_TIMESTAMP");
     expect(footer).toContain("formatTaipeiTimestamp");
     expect(footer).toContain("重新載入最新版本");
@@ -177,10 +177,15 @@ describe("Together Ledger 真實網頁帳本入口", () => {
     expect(workspace).toContain("帳本圖示（可選）");
     expect(workspace).toContain("aria-pressed={icon === null}");
     expect(workspace).toContain("function CompactLedgerIconPicker");
-    expect(workspace).toContain('選擇圖示（${LEDGER_EMOJI_OPTIONS.length}）');
+    expect(workspace).toContain("const filteredOptions = searchLedgerIconOptions(query);");
+    expect(workspace).toContain("const options = expanded ? filteredOptions : LEDGER_EMOJI_OPTIONS.slice(0, 12);");
+    expect(workspace).toContain("不使用圖示");
+    expect(workspace).toContain('placeholder="搜尋圖示，例如：車、旅行、愛心"');
+    expect(workspace).toContain('aria-label="搜尋帳本圖示"');
     expect(workspace).toContain("item.ledger.icon ? <span");
     expect(workspace).not.toContain("item.ledger.icon ||");
     expect(workspace).toContain("LEDGER_EMOJI_OPTIONS");
+    expect(workspace).toContain("searchLedgerIconOptions");
     expect(ledgerIcons).toContain("LEDGER_ICON_OPTIONS");
     expect(ledgerIcons).toContain('"🏠"');
     expect(ledgerIcons).toContain('"🌊"');

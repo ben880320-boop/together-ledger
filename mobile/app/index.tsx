@@ -50,7 +50,7 @@ import {
   saveSessionToken,
   subscribeLedgerEvents,
 } from "../lib/api";
-import { LEDGER_ICON_OPTIONS } from "@shared/ledgerIcons";
+import { LEDGER_ICON_OPTIONS, searchLedgerIconOptions } from "@shared/ledgerIcons";
 import { extractVersionNotes } from "@shared/releaseNotes";
 
 const colors = {
@@ -120,7 +120,7 @@ const appearanceDefaults: AppearancePreferences = {
   colorMode: "system",
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.3.6";
+const APP_VERSION = "1.3.7";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 const GITHUB_WIKI_URL = "https://github.com/ben880320-boop/together-ledger/wiki";
@@ -5106,23 +5106,35 @@ function LedgerModal({
 function CompactLedgerIconPicker({ value, onChange }: { value: string | null; onChange: (value: string | null) => void }) {
   const { palette } = useAppearance();
   const [expanded, setExpanded] = useState(false);
-  const options = expanded ? LEDGER_ICON_OPTIONS : LEDGER_ICON_OPTIONS.slice(0, 13);
+  const [query, setQuery] = useState("");
+  const emojiOptions = LEDGER_ICON_OPTIONS.filter((item): item is string => item !== null);
+  const normalizedQuery = query.trim();
+  const matchedOptions = searchLedgerIconOptions(normalizedQuery);
+  const options = expanded ? matchedOptions : emojiOptions.slice(0, 12);
   const selectIcon = (icon: string | null) => {
     onChange(icon);
     setExpanded(false);
+    setQuery("");
   };
   return (
     <View>
       <View style={styles.iconPickerSummary}>
         <Text style={styles.iconPickerSummaryText}>目前：{value ?? "無圖示"}</Text>
-        <Pressable onPress={() => setExpanded(current => !current)} accessibilityRole="button" accessibilityState={{ expanded }} style={({ pressed }) => [styles.iconPickerToggle, pressed && styles.pressed]}>
-          <Text style={[styles.iconPickerToggleText, { color: palette.rose }]}>{expanded ? "收合圖示" : `選擇圖示（${LEDGER_ICON_OPTIONS.length}）`}</Text>
+        <Pressable onPress={() => { setExpanded(current => !current); setQuery(""); }} accessibilityRole="button" accessibilityState={{ expanded }} style={({ pressed }) => [styles.iconPickerToggle, pressed && styles.pressed]}>
+          <Text style={[styles.iconPickerToggleText, { color: palette.rose }]}>{expanded ? "收合圖示" : `瀏覽全部（${emojiOptions.length}）`}</Text>
         </Pressable>
       </View>
+      <Pressable onPress={() => selectIcon(null)} style={[styles.iconPickerNoneButton, value === null && styles.iconPickerItemActive]} accessibilityRole="button" accessibilityState={{ selected: value === null }} accessibilityLabel="不顯示帳本圖示">
+        <Text style={[styles.iconPickerNoneButtonText, { color: value === null ? palette.rose : palette.text }]}>不使用圖示</Text>
+      </Pressable>
+      {expanded && <>
+        <TextInput value={query} onChangeText={setQuery} placeholder="搜尋圖示，例如：車、旅行、愛心" placeholderTextColor={palette.muted} accessibilityLabel="搜尋帳本圖示" style={[styles.iconPickerSearch, { color: palette.text, borderColor: palette.border, backgroundColor: palette.inputBackground }]} />
+        <Text style={[styles.iconPickerResultText, { color: palette.muted }]}>{normalizedQuery ? `找到 ${matchedOptions.length} 個圖示` : `全部 ${emojiOptions.length} 個圖示`}</Text>
+      </>}
       <View style={styles.iconPicker}>
         {options.map(item => (
-          <Pressable key={item ?? "none"} onPress={() => selectIcon(item)} style={[styles.iconPickerItem, value === item && styles.iconPickerItemActive]} accessibilityRole="button" accessibilityState={{ selected: value === item }} accessibilityLabel={item ? `使用 ${item} 作為帳本圖示` : "不顯示帳本圖示"}>
-            <Text style={styles.iconPickerText}>{item ?? "無"}</Text>
+          <Pressable key={item} onPress={() => selectIcon(item)} style={[styles.iconPickerItem, value === item && styles.iconPickerItemActive]} accessibilityRole="button" accessibilityState={{ selected: value === item }} accessibilityLabel={`使用 ${item} 作為帳本圖示`}>
+            <Text style={styles.iconPickerText}>{item}</Text>
           </Pressable>
         ))}
       </View>
@@ -8020,6 +8032,10 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
   iconPickerSummaryText: { flex: 1, color: palette.muted, fontSize: 13, fontWeight: "600" },
   iconPickerToggle: { minHeight: 34, justifyContent: "center", borderRadius: 10, borderWidth: 1, borderColor: palette.border, backgroundColor: palette.surface, paddingHorizontal: 10 },
   iconPickerToggleText: { fontSize: 12, fontWeight: "700" },
+  iconPickerNoneButton: { minHeight: 42, alignItems: "center", justifyContent: "center", marginBottom: 10, borderWidth: 1, borderColor: palette.border, borderRadius: 12, backgroundColor: palette.surface },
+  iconPickerNoneButtonText: { fontSize: 13, fontWeight: "700" },
+  iconPickerSearch: { minHeight: 42, marginBottom: 7, borderWidth: 1, borderRadius: 12, paddingHorizontal: 12, fontSize: 14 },
+  iconPickerResultText: { marginBottom: 8, fontSize: 12, fontWeight: "600" },
   iconPickerItem: { width: 42, height: 42, alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: palette.border, borderRadius: 12, backgroundColor: palette.surface },
   iconPickerItemActive: { borderColor: palette.rose, backgroundColor: palette.roseSoft },
   iconPickerText: { color: palette.ink, fontSize: 18, fontWeight: "600" },
