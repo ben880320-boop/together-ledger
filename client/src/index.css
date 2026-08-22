@@ -121,6 +121,22 @@ button { cursor: pointer; }
   button:active { transform: scale(0.98); }
 }
 
+.web-public-landing :is(header button, main button, main a[href], main summary, main article) {
+  transition: color 180ms ease-out, background-color 180ms ease-out, border-color 180ms ease-out, box-shadow 180ms ease-out, transform 180ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.web-public-landing :is(header button, main button, main a[href], main summary):focus-visible {
+  outline: 2px solid #b56c78;
+  outline-offset: 3px;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .web-public-landing :is(header button, main button, main a[href]):hover { transform: translateY(-2px); }
+  .web-public-landing main article:hover { transform: translateY(-4px); border-color: #ddbbb6; box-shadow: 0 18px 35px rgba(89, 61, 51, 0.11); }
+  .web-public-landing .landing-faq-summary:hover { background: #fff8f5; color: #87555f; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .web-public-landing :is(header button, main button, main a[href], main summary, main article) { transition: none !important; transform: none !important; }
+}
+
 @media (max-width: 639px) {
   .font-serif { letter-spacing: -0.02em; }
 }

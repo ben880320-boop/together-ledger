@@ -304,6 +304,50 @@ function LoginLanding({ onLogin }: { onLogin: () => void }) {
     { icon: HandCoins, title: "分攤清楚，結算簡單", detail: "支援平均、自訂與不分攤；所有金額以整數分運算，妥善處理餘數。", tone: "bg-[#F8F1E7] text-[#B38657]" },
     { icon: Smartphone, title: "手機、電腦都能接續", detail: "Android 隨手記錄；Web/PWA 適合大螢幕查看收支、預算與分析。", tone: "bg-[#EEF5F0] text-[#668575]" },
   ];
+  const usageScenarios = [
+    {
+      icon: Receipt,
+      step: "晚餐分攤",
+      title: "一筆晚餐，當下就算清楚",
+      detail: "小辰先付 NT$1,280，選擇平均分攤；系統將兩人的金額與待結算餘額一起整理。",
+      tone: "bg-[#FBEFEE] text-[#B56C78]",
+      preview: <><span>週末晚餐</span><strong>NT$ 1,280</strong><div className="mt-3 flex items-center justify-between text-xs text-[#8A756D]"><span>平均分攤</span><span>各 NT$ 640</span></div></>,
+    },
+    {
+      icon: Wallet,
+      step: "每月規劃",
+      title: "先訂範圍，再一起看進度",
+      detail: "把生活、飲食與旅行預算放進同一個帳本；月底回看支出比例，也能持續累積儲蓄目標。",
+      tone: "bg-[#F8F1E7] text-[#B38657]",
+      preview: <><div className="flex items-center justify-between"><span>八月生活預算</span><strong>78%</strong></div><div className="mt-3 h-2 overflow-hidden rounded-full bg-[#F1E5D8]"><div className="h-full w-[78%] rounded-full bg-[#C7905D]" /></div><div className="mt-3 text-xs text-[#8A756D]">已使用 NT$ 23,400／30,000</div></>,
+    },
+    {
+      icon: Smartphone,
+      step: "跨裝置接續",
+      title: "手機隨手記，電腦安心對帳",
+      detail: "一人在 Android 新增收支，另一人可於 Web 或加入主畫面的 PWA 接續查看、分析與調整。",
+      tone: "bg-[#EEF5F0] text-[#668575]",
+      preview: <><div className="flex items-center gap-2 text-[#5D8968]"><span className="h-2 w-2 rounded-full bg-[#6BA477]" />同步成功</div><div className="mt-3 flex items-center justify-between text-xs text-[#8A756D]"><span>Android 新增</span><ArrowDownRight size={15} /><span>Web 已更新</span></div></>,
+    },
+  ];
+  const faqItems = [
+    {
+      question: "Android、網頁與 PWA 如何同步同一份帳本？",
+      answer: "使用同一個帳號登入並加入同一帳本後，收支、分攤、預算與儲蓄目標會共用同一份資料。連線穩定時會使用可重連 SSE 事件流加速更新；若事件流暫時不可用，系統會以輪詢作為後備。",
+    },
+    {
+      question: "網路不穩或暫時離線時，資料會怎麼辦？",
+      answer: "Web/PWA 會保留最近一次可用的本機快照，讓你能先查看既有內容；連線恢復後會重新同步。開啟中的輸入草稿也有保護機制，背景同步不應直接清除尚未送出的文字。",
+    },
+    {
+      question: "誰能看到共同帳本的收支資料？",
+      answer: "只有帳本成員能存取該帳本資料。帳本權限會在伺服器端驗證，不是只靠前端隱藏按鈕；移除成員或退出帳本後，該帳號不再保有帳本存取權。",
+    },
+    {
+      question: "「協助改善 App」會分享我的帳務內容嗎？",
+      answer: "此診斷選項預設關閉，僅在你主動開啟時才協助回傳排查問題所需的技術資訊。你可以隨時在個人設定關閉它；診斷功能不會取代帳本權限與資料保護措施。",
+    },
+  ];
   return <div className="web-public-landing min-h-screen overflow-hidden bg-background text-foreground">
     <div className="pointer-events-none absolute inset-x-0 top-0 h-[650px] bg-[radial-gradient(circle_at_14%_4%,rgba(244,204,207,0.9),transparent_28%),radial-gradient(circle_at_86%_13%,rgba(209,225,216,0.94),transparent_30%),linear-gradient(145deg,#fffaf7_0%,#f6ede8_54%,#eff0ed_100%)]" />
     <header className="relative mx-auto flex w-full max-w-7xl items-center justify-between px-5 py-5 md:px-8 lg:py-7">
@@ -323,6 +367,35 @@ function LoginLanding({ onLogin }: { onLogin: () => void }) {
       </section>
 
       <section className="grid gap-4 pb-2 sm:grid-cols-2">{resourceLinks.map(({ label, detail, href, icon: Icon, tone }) => <a key={label} href={href} target="_blank" rel="noreferrer" className="group flex items-center gap-4 rounded-3xl border border-[#EADFD9] bg-white/75 p-5 transition hover:-translate-y-0.5 hover:border-[#DDBBB6] hover:bg-white"><span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${tone}`}><Icon size={20} /></span><span className="min-w-0 flex-1"><strong className="block text-base text-[#4A3833]">{label}</strong><span className="mt-1 block text-sm text-[#8A756D]">{detail}</span></span><ArrowUpRight size={18} className="text-[#B28B83] transition group-hover:text-[#A35F6D]" /></a>)}</section>
+      <section aria-labelledby="real-usage-scenarios" className="py-12 lg:py-16">
+        <div className="max-w-2xl">
+          <p className="text-xs font-bold tracking-[0.17em] text-[#B56C78]">實際使用情境</p>
+          <h2 id="real-usage-scenarios" className="mt-3 font-serif text-3xl text-[#42322E] sm:text-4xl">不是多一個表格，而是把一起生活的每一步接起來。</h2>
+          <p className="mt-3 text-sm leading-7 text-[#846F68] sm:text-base">從當下記一筆、分攤金額，到月底一起回顧與規劃，兩人可以依自己的裝置與節奏接續使用。</p>
+        </div>
+        <div className="mt-7 grid gap-4 lg:grid-cols-3">
+          {usageScenarios.map(({ icon: Icon, step, title, detail, tone, preview }) => <article key={step} className="landing-interactive-card rounded-3xl border border-[#EADFD9] bg-white/85 p-5 shadow-[0_12px_30px_rgba(89,61,51,0.045)] transition-[transform,box-shadow,border-color] duration-200 motion-reduce:transform-none motion-reduce:transition-none">
+            <div className="flex items-start justify-between gap-4"><div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${tone}`}><Icon size={20} /></div><span className="rounded-full bg-[#F8F1ED] px-3 py-1 text-[11px] font-bold text-[#9A736A]">{step}</span></div>
+            <h3 className="mt-5 text-lg font-bold text-[#4A3833]">{title}</h3>
+            <p className="mt-2 text-sm leading-6 text-[#846F68]">{detail}</p>
+            <div className="mt-5 rounded-2xl border border-[#F0E4DE] bg-[#FCF8F5] p-3.5 text-sm font-medium text-[#5D4842]">{preview}</div>
+          </article>)}
+        </div>
+      </section>
+
+      <section aria-labelledby="homepage-faq" className="border-t border-[#EADFD9]/80 py-12 lg:py-16">
+        <div className="grid gap-7 lg:grid-cols-[0.75fr_1.25fr] lg:gap-12">
+          <div><p className="text-xs font-bold tracking-[0.17em] text-[#668575]">常見問題</p><h2 id="homepage-faq" className="mt-3 font-serif text-3xl text-[#42322E] sm:text-4xl">同步與隱私，先說清楚。</h2><p className="mt-3 max-w-md text-sm leading-7 text-[#846F68]">讓兩人都知道資料會如何更新、離線時能看見什麼，以及帳本權限如何保護共同生活的記錄。</p></div>
+          <div className="space-y-3">{faqItems.map(({ question, answer }, index) => <details key={question} className="landing-faq-item group rounded-2xl border border-[#EADFD9] bg-white/80 shadow-[0_9px_24px_rgba(89,61,51,0.035)]">
+            <summary className="landing-faq-summary flex list-none items-center gap-3 rounded-2xl px-4 py-4 text-left text-sm font-bold text-[#4A3833] outline-none transition-[background-color,color] duration-200 focus-visible:ring-2 focus-visible:ring-[#B56C78] focus-visible:ring-offset-2 motion-reduce:transition-none sm:px-5">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#F8E6E6] text-xs text-[#A35F6D]">{String(index + 1).padStart(2, "0")}</span>
+              <span className="min-w-0 flex-1">{question}</span>
+              <ChevronDown size={18} className="shrink-0 text-[#A8847C] transition-transform duration-200 group-open:rotate-180 motion-reduce:transform-none motion-reduce:transition-none" />
+            </summary>
+            <p className="px-4 pb-4 text-sm leading-7 text-[#846F68] sm:px-5 sm:pb-5">{answer}</p>
+          </details>)}</div>
+        </div>
+      </section>
     </main>
     {showAllUpdates && <div role="dialog" aria-modal="true" aria-label="完整更新歷程" className="fixed inset-0 z-50 flex items-end bg-[#3C2D2A]/35 p-0 backdrop-blur-sm sm:items-center sm:justify-center sm:p-6"><div className="flex max-h-[88vh] w-full max-w-2xl flex-col rounded-t-[30px] border border-white/80 bg-[#FFFDFC] shadow-[0_28px_80px_rgba(63,39,32,0.28)] sm:rounded-[30px]"><div className="flex items-center justify-between border-b border-[#F0E6E1] px-5 py-5 sm:px-7"><div><div className="flex items-center gap-2 text-[#A35F6D]"><History size={18} /><span className="text-sm font-bold">完整更新歷程</span></div><p className="mt-1 text-sm text-[#8A756D]">每個版本僅顯示對應的更新內容。</p></div><button type="button" aria-label="關閉完整更新歷程" onClick={() => setShowAllUpdates(false)} className="rounded-xl p-2 text-[#8A756D] transition hover:bg-[#F8F0EC] hover:text-[#5D4540]"><X size={20} /></button></div><div className="overflow-y-auto px-5 py-5 sm:px-7">{updates.map((item, index) => <div key={item.version} className="flex gap-3 border-b border-[#F0E6E1] py-4 first:pt-0 last:border-0 last:pb-0"><div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#F8E6E6] text-[#B56C78]"><Check size={15} strokeWidth={2.5} /></div><div><div className="flex flex-wrap items-center gap-2"><span className="font-bold text-[#4A3833]">v{item.version}</span><span className="text-xs text-[#A18A82]">{item.date}</span>{index === 0 && <span className="rounded-full bg-[#EAF4EC] px-2 py-0.5 text-[10px] font-bold text-[#5D8968]">最新版本</span>}</div><div className="mt-1 text-sm font-semibold text-[#6C514B]">{item.title}</div><p className="mt-1 text-sm leading-6 text-[#88736B]">{item.detail}</p></div></div>)}</div></div></div>}
     <ReleaseFooter />
