@@ -624,4 +624,4 @@
 - [x] 將分類與支付方式圖示改為初始常用圖示加上展開／搜尋完整圖示庫，避免行動裝置畫面過長
 - [x] 補齊跨端回歸測試，執行型別、Vitest、Android 核心流程及 Web／PWA production build 驗收
 - [x] 將 Android、Web／PWA、測試、README 與 Release Notes 同步升版至 v1.3.8／versionCode 31
-- [ ] 以 feature branch 與 Pull Request 發行已驗收的固定簽章修正版 APK
+- [x] 以 feature branch 與 Pull Request 發行已驗收的固定簽章修正版 APK
