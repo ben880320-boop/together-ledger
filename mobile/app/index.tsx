@@ -10,6 +10,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import QRCode from "react-native-qrcode-svg";
 import Svg, { Circle } from "react-native-svg";
 import {
+  Component,
   createContext,
   useCallback,
   useContext,
@@ -126,7 +127,7 @@ const appearanceDefaults: AppearancePreferences = {
   colorMode: "system",
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.3.8";
+const APP_VERSION = "1.3.9";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 const GITHUB_WIKI_URL = "https://github.com/ben880320-boop/together-ledger/wiki";
@@ -136,6 +137,58 @@ const OFFICIAL_APK_URL_PREFIX = "https://github.com/ben880320-boop/together-ledg
 const APK_MIME_TYPE = "application/vnd.android.package-archive";
 const updateResumeStorageKey = "together-ledger-update-resume-v1";
 const ledgerHomeSnapshotStorageKey = "together-ledger-ledger-home-snapshot-v1";
+
+type ReactNativeErrorUtils = {
+  getGlobalHandler: () => ((error: Error, isFatal?: boolean) => void) | undefined;
+  setGlobalHandler: (handler: (error: Error, isFatal?: boolean) => void) => void;
+};
+
+/**
+ * Client-side minimisation is deliberately stricter than the server safeguard:
+ * error messages are replaced by fixed technical wording, URLs and credentials
+ * are removed, and the server performs a second redaction pass before storage.
+ */
+const sanitizeDiagnosticStack = (value: unknown, maxLength = 8_000) => String(value ?? "")
+  .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted-email]")
+  .replace(/(authorization|bearer|token|password|invite(?:Code)?|ledger(?:Id)?|transaction(?:Id)?)\s*[:=]\s*[^\s,;]+/gi, "$1=[redacted]")
+  .replace(/mysql:\/\/[^\s]+/gi, "[redacted-database-url]")
+  .replace(/https?:\/\/[^\s?#]+(?:\?[^\s]*)?/gi, "[redacted-url]")
+  .slice(0, maxLength);
+
+class SettingsErrorBoundary extends Component<{
+  children: ReactNode;
+  onDiagnostic: (error: Error) => void;
+  onBack: () => void;
+}, { error: Error | null }> {
+  state = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error) {
+    this.props.onDiagnostic(error);
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <View style={styles.settingsRecoveryPanel} accessibilityLabel="帳本設定載入錯誤">
+        <MaterialCommunityIcons name="alert-circle-outline" size={28} color={colors.rose} />
+        <Text style={styles.settingsRecoveryTitle}>帳本設定暫時無法顯示</Text>
+        <Text style={styles.settingsRecoveryText}>請先返回總覽後再試。若你已在個人設定同意錯誤診斷，系統只會傳送去識別化技術資訊協助修正。</Text>
+        <View style={styles.settingsRecoveryActions}>
+          <Pressable onPress={() => this.setState({ error: null })} style={styles.secondaryButton} accessibilityLabel="重試帳本設定">
+            <Text style={styles.secondaryButtonText}>重試</Text>
+          </Pressable>
+          <Pressable onPress={this.props.onBack} style={styles.primaryButton} accessibilityLabel="返回帳本總覽">
+            <Text style={styles.primaryButtonText}>返回總覽</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+}
 
 type AppUpdateStatus = "idle" | "checking" | "downloading" | "installing";
 type AppUpdateDiagnostic = "not-checked" | "checking" | "current" | "available" | "downloading" | "awaiting-system-confirmation" | "failed";
@@ -992,6 +1045,8 @@ function AppContent() {
   const [updateDiagnostic, setUpdateDiagnostic] = useState<AppUpdateDiagnostic>("not-checked");
   const [savedUpdateResume, setSavedUpdateResume] = useState<SavedUpdateResume | null>(null);
   const [accountDeletionVisible, setAccountDeletionVisible] = useState(false);
+  const [diagnosticsEnabled, setDiagnosticsEnabled] = useState(false);
+  const [diagnosticsSaving, setDiagnosticsSaving] = useState(false);
   const ledgerRequestRef = useRef(0);
   const ledgerSelectionRef = useRef(0);
   const mutationGuardRef = useRef(new Set<string>());
@@ -1000,6 +1055,8 @@ function AppContent() {
   const savingsHistoryRequestRef = useRef(0);
   const toastSequenceRef = useRef(0);
   const realtimeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const diagnosticsEnabledRef = useRef(false);
+  const diagnosticRequestInFlightRef = useRef(false);
 
   const showToast = useCallback((message: string) => {
     setToast({ id: ++toastSequenceRef.current, message });
@@ -1007,6 +1064,84 @@ function AppContent() {
   const dismissToast = useCallback((id: number) => {
     setToast(current => current?.id === id ? null : current);
   }, []);
+
+  const reportDiagnosticSafely = useCallback((errorCode: string, error?: unknown) => {
+    if (!diagnosticsEnabledRef.current || diagnosticRequestInFlightRef.current) return;
+    diagnosticRequestInFlightRef.current = true;
+    const errorName = error instanceof Error && error.name ? error.name : "Error";
+    const stack = error instanceof Error ? sanitizeDiagnosticStack(error.stack) : "";
+    void api.profile.reportDiagnostic.mutate({
+      platform: "android",
+      appVersion: APP_VERSION,
+      errorCode: sanitizeDiagnosticStack(errorCode, 80) || "android.unknown",
+      message: `${errorName}: 非預期的 App 技術錯誤`,
+      ...(stack ? { stack } : {}),
+    }).catch(() => undefined).finally(() => {
+      diagnosticRequestInFlightRef.current = false;
+    });
+  }, []);
+
+  useEffect(() => {
+    let isCurrent = true;
+    diagnosticsEnabledRef.current = false;
+    setDiagnosticsEnabled(false);
+    if (!user) return () => { isCurrent = false; };
+    void api.profile.diagnosticsPreference.query()
+      .then(preference => {
+        if (!isCurrent) return;
+        const enabled = Boolean(preference.enabled);
+        diagnosticsEnabledRef.current = enabled;
+        setDiagnosticsEnabled(enabled);
+      })
+      .catch(() => {
+        // Consent defaults to disabled. A failed preference read must never turn it on.
+        if (isCurrent) setDiagnosticsEnabled(false);
+      });
+    return () => { isCurrent = false; };
+  }, [user?.id]);
+
+  const changeDiagnosticsPreference = useCallback((enabled: boolean) => {
+    const savePreference = async () => {
+      setDiagnosticsSaving(true);
+      try {
+        const result = await api.profile.updateDiagnosticsPreference.mutate({ enabled });
+        diagnosticsEnabledRef.current = result.enabled;
+        setDiagnosticsEnabled(result.enabled);
+        showToast(result.enabled ? "已開啟去識別化錯誤診斷，可隨時在個人設定關閉。" : "已關閉錯誤診斷；之後不會再傳送新的診斷資料。");
+      } catch {
+        showToast("無法儲存錯誤診斷設定，請確認網路後重試。 ");
+      } finally {
+        setDiagnosticsSaving(false);
+      }
+    };
+    if (!enabled) {
+      void savePreference();
+      return;
+    }
+    setConfirmRequest({
+      title: "開啟錯誤診斷？",
+      message: "開啟後，App 僅會在發生技術錯誤時傳送去識別化的 App 版本、平台、錯誤代碼與技術堆疊，協助排查問題。\n\n不會傳送帳本、收支、邀請碼、帳號、電子信箱、密碼、憑證或收據圖片；你可隨時在個人設定關閉。",
+      cancelText: "維持關閉",
+      confirmText: "同意並開啟",
+      onConfirm: savePreference,
+    });
+  }, [showToast]);
+
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    const errorUtils = (globalThis as unknown as { ErrorUtils?: ReactNativeErrorUtils }).ErrorUtils;
+    if (!errorUtils?.getGlobalHandler || !errorUtils.setGlobalHandler) return;
+    const previousHandler = errorUtils.getGlobalHandler();
+    const handler = (runtimeError: Error, isFatal?: boolean) => {
+      try {
+        previousHandler?.(runtimeError, isFatal);
+      } finally {
+        reportDiagnosticSafely(isFatal ? "android.runtime.unhandled.fatal" : "android.runtime.unhandled", runtimeError);
+      }
+    };
+    errorUtils.setGlobalHandler(handler);
+    return () => errorUtils.setGlobalHandler(previousHandler || (() => undefined));
+  }, [reportDiagnosticSafely]);
 
   const readSavedUpdateResume = useCallback(async (release: AppUpdateRelease) => {
     try {
@@ -1208,6 +1343,7 @@ function AppContent() {
           realtimeRefreshTimerRef.current = null;
           void reloadLedger(activeLedger.id).catch(syncError => {
             setError(syncError instanceof Error ? `即時同步失敗：${syncError.message}` : "即時同步失敗，可下拉重新整理後重試。");
+            reportDiagnosticSafely("android.sync.realtime-refresh", syncError);
           });
         }, 180);
       },
@@ -2043,7 +2179,7 @@ function AppContent() {
         />
         <AccountDeletionModal visible={accountDeletionVisible} busy={busy} error={error} onClose={() => setAccountDeletionVisible(false)} onSubmit={deleteAccount} />
         {homePage === "profile" ? (
-          <PersonalSettingsPage user={user} error={error} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} updateCheckError={updateCheckError} updateDiagnostic={updateDiagnostic} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
+          <PersonalSettingsPage user={user} error={error} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} updateCheckError={updateCheckError} updateDiagnostic={updateDiagnostic} diagnosticsEnabled={diagnosticsEnabled} diagnosticsSaving={diagnosticsSaving} onDiagnosticsChange={changeDiagnosticsPreference} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
         ) : (
           <EmptyLedger
             error={error}
@@ -2089,7 +2225,7 @@ function AppContent() {
         />
         <AccountDeletionModal visible={accountDeletionVisible} busy={busy} error={error} onClose={() => setAccountDeletionVisible(false)} onSubmit={deleteAccount} />
         {homePage === "profile" ? (
-          <PersonalSettingsPage user={user} error={error} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} updateCheckError={updateCheckError} updateDiagnostic={updateDiagnostic} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
+          <PersonalSettingsPage user={user} error={error} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} updateCheckError={updateCheckError} updateDiagnostic={updateDiagnostic} diagnosticsEnabled={diagnosticsEnabled} diagnosticsSaving={diagnosticsSaving} onDiagnosticsChange={changeDiagnosticsPreference} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
         ) : (
           <LedgerHome
             ledgers={ledgers}
@@ -2203,6 +2339,10 @@ function AppContent() {
         onToggleArchivedSavings={() => setShowArchivedSavings(current => !current)}
       />
     ) : (
+      <SettingsErrorBoundary
+        onDiagnostic={settingsError => reportDiagnosticSafely("android.ledger-settings.render", settingsError)}
+        onBack={() => setActiveAction("overview")}
+      >
       <SettingsSection
         ledger={activeLedger!}
         user={user}
@@ -2236,6 +2376,7 @@ function AppContent() {
           }
         }}
       />
+      </SettingsErrorBoundary>
     );
 
   return (
@@ -3867,6 +4008,9 @@ function PersonalSettingsPage({
   appUpdateProgress,
   updateCheckError,
   updateDiagnostic,
+  diagnosticsEnabled,
+  diagnosticsSaving,
+  onDiagnosticsChange,
   onLogout,
   onDeleteAccount,
   onBack,
@@ -3883,6 +4027,9 @@ function PersonalSettingsPage({
   appUpdateProgress: number;
   updateCheckError: string;
   updateDiagnostic: AppUpdateDiagnostic;
+  diagnosticsEnabled: boolean;
+  diagnosticsSaving: boolean;
+  onDiagnosticsChange: (enabled: boolean) => void;
   onLogout: () => void;
   onDeleteAccount: () => void;
   onBack: () => void;
@@ -4257,6 +4404,13 @@ style={styles.input}
         <Pressable onPress={() => void Linking.openURL(GITHUB_WIKI_URL)} style={styles.iconButton} accessibilityLabel="開啟 Together Ledger Wiki 使用說明">
           <MaterialCommunityIcons name="book-open-variant" size={20} color={palette.rose} />
         </Pressable>
+      </View>
+      <View style={styles.preferenceRow} accessibilityLabel="協助改善 App：傳送錯誤診斷">
+        <View style={styles.preferenceCopy}>
+          <Text style={styles.rowTitle}>協助改善 App：傳送錯誤診斷</Text>
+          <Text style={styles.rowSubtitle}>預設關閉。開啟後僅傳送 App 版本、平台、錯誤代碼與去識別化技術堆疊；不會傳送帳本、收支、邀請碼、帳號、電子信箱、密碼或收據圖片，可隨時關閉。</Text>
+        </View>
+        {diagnosticsSaving ? <ActivityIndicator color={palette.rose} /> : <Switch value={diagnosticsEnabled} onValueChange={onDiagnosticsChange} trackColor={{ false: palette.border, true: palette.roseSoft }} thumbColor={diagnosticsEnabled ? palette.rose : palette.muted} accessibilityLabel="開啟或關閉錯誤診斷" />}
       </View>
       <Pressable
         onPress={onLogout}
@@ -4820,7 +4974,7 @@ function SettingsSection({
             <Text style={styles.modalTitle}>編輯分類</Text>
             <Text style={styles.modalDescription}>修改名稱或圖示不會影響既有收支紀錄。</Text>
             <TextInput value={draftCategoryName} onChangeText={setDraftCategoryName} placeholder="分類名稱" placeholderTextColor={palette.muted} style={styles.input} />
-            <EmojiPicker label="選擇圖示" value={draftCategoryIcon} choices={CATEGORY_EMOJI_CHOICES} onChange={setDraftCategoryIcon} />
+            <EmojiPicker label="選擇圖示" value={draftCategoryIcon} choices={CATEGORY_EMOJI_OPTIONS} onChange={setDraftCategoryIcon} />
             <TextInput value={draftCategoryIcon} onChangeText={setDraftCategoryIcon} placeholder="也可自行輸入表情符號" placeholderTextColor={palette.muted} style={styles.input} />
             <View style={styles.segmentRow}>
               {(["expense", "income"] as const).map(item => (
@@ -4856,7 +5010,7 @@ function SettingsSection({
             <Text style={styles.modalTitle}>編輯支付方式</Text>
             <Text style={styles.modalDescription}>修改名稱或圖示不會影響既有收支紀錄。</Text>
             <TextInput value={draftPaymentName} onChangeText={setDraftPaymentName} placeholder="支付方式名稱" placeholderTextColor={palette.muted} style={styles.input} />
-            <EmojiPicker label="選擇圖示" value={draftPaymentIcon} choices={PAYMENT_EMOJI_CHOICES} onChange={setDraftPaymentIcon} />
+            <EmojiPicker label="選擇圖示" value={draftPaymentIcon} choices={PAYMENT_EMOJI_OPTIONS} onChange={setDraftPaymentIcon} />
             <TextInput value={draftPaymentIcon} onChangeText={setDraftPaymentIcon} placeholder="也可自行輸入表情符號" placeholderTextColor={palette.muted} style={styles.input} />
             <View style={styles.confirmActions}>
               <Pressable onPress={() => setEditingPayment(null)} style={[styles.confirmCancel, { borderColor: palette.border }]}>
@@ -5113,9 +5267,9 @@ function CompactLedgerIconPicker({ value, onChange }: { value: string | null; on
   const { palette } = useAppearance();
   const [expanded, setExpanded] = useState(false);
   const [query, setQuery] = useState("");
-  const emojiOptions = LEDGER_ICON_OPTIONS.filter((item): item is string => item !== null);
+  const emojiOptions = LEDGER_ICON_OPTIONS.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
   const normalizedQuery = query.trim();
-  const matchedOptions = searchLedgerIconOptions(normalizedQuery);
+  const matchedOptions = searchLedgerIconOptions(normalizedQuery).filter((item): item is string => typeof item === "string" && item.trim().length > 0);
   const options = expanded ? matchedOptions : emojiOptions.slice(0, 12);
   const selectIcon = (icon: string | null) => {
     onChange(icon);
@@ -5138,8 +5292,8 @@ function CompactLedgerIconPicker({ value, onChange }: { value: string | null; on
         <Text style={[styles.iconPickerResultText, { color: palette.muted }]}>{normalizedQuery ? `找到 ${matchedOptions.length} 個圖示` : `全部 ${emojiOptions.length} 個圖示`}</Text>
       </>}
       <View style={styles.iconPicker}>
-        {options.map(item => (
-          <Pressable key={item} onPress={() => selectIcon(item)} style={[styles.iconPickerItem, value === item && styles.iconPickerItemActive]} accessibilityRole="button" accessibilityState={{ selected: value === item }} accessibilityLabel={`使用 ${item} 作為帳本圖示`}>
+        {options.map((item, index) => (
+          <Pressable key={`${item}-${index}`} onPress={() => selectIcon(item)} style={[styles.iconPickerItem, value === item && styles.iconPickerItemActive]} accessibilityRole="button" accessibilityState={{ selected: value === item }} accessibilityLabel={`使用 ${item} 作為帳本圖示`}>
             <Text style={styles.iconPickerText}>{item}</Text>
           </Pressable>
         ))}
@@ -5989,8 +6143,13 @@ function EmojiPicker({
   const { palette } = useAppearance();
   const [expanded, setExpanded] = useState(false);
   const [query, setQuery] = useState("");
-  const matchedOptions = searchCategoryPaymentIconOptions(query, choices);
-  const options = expanded ? matchedOptions : choices.slice(0, 12);
+  // Android 原生元件不應接收 null / 非字串文字子節點；同時避免重複 key
+  // 造成設定頁圖示網格的非預期 render 行為。
+  const safeChoices = choices.filter((emoji, index, source) => (
+    typeof emoji === "string" && emoji.length > 0 && source.indexOf(emoji) === index
+  ));
+  const matchedOptions = searchCategoryPaymentIconOptions(query, safeChoices);
+  const options = expanded ? matchedOptions : safeChoices.slice(0, 12);
   const selectIcon = (emoji: string) => {
     onChange(emoji);
     setExpanded(false);
@@ -6008,7 +6167,7 @@ function EmojiPicker({
           style={({ pressed }) => [styles.iconPickerToggle, pressed && styles.pressed]}
         >
           <Text style={[styles.iconPickerToggleText, { color: palette.rose }]}>
-            {expanded ? "收合圖示" : `瀏覽全部（${choices.length}）`}
+            {expanded ? "收合圖示" : `瀏覽全部（${safeChoices.length}）`}
           </Text>
         </Pressable>
       </View>
@@ -6031,13 +6190,13 @@ function EmojiPicker({
           style={[styles.iconPickerSearch, { color: palette.text, borderColor: palette.border, backgroundColor: palette.inputBackground }]}
         />
         <Text style={[styles.iconPickerResultText, { color: palette.muted }]}>
-          {query.trim() ? `找到 ${matchedOptions.length} 個圖示` : `全部 ${choices.length} 個圖示`}
+          {query.trim() ? `找到 ${matchedOptions.length} 個圖示` : `全部 ${safeChoices.length} 個圖示`}
         </Text>
       </>}
       <View style={styles.iconPicker}>
-        {options.map(emoji => (
+        {options.map((emoji, index) => (
           <Pressable
-            key={emoji}
+            key={`${emoji}-${index}`}
             accessibilityRole="button"
             accessibilityLabel={`使用 ${emoji} 作為${label}`}
             accessibilityState={{ selected: value === emoji }}
@@ -7118,6 +7277,19 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     backgroundColor: palette.surface,
     ...(preferences.cardStyle === "soft" ? { shadowColor: palette.ink, shadowOpacity: 0.05, shadowRadius: 12, shadowOffset: { width: 0, height: 5 }, elevation: 2 } : {}),
   },
+  settingsRecoveryPanel: {
+    margin: 20,
+    padding: 22,
+    alignItems: "center",
+    gap: 12,
+    borderWidth: 1,
+    borderColor: palette.roseSoft,
+    borderRadius: cardRadius,
+    backgroundColor: palette.surface,
+  },
+  settingsRecoveryTitle: { color: palette.ink, fontSize: 18, fontWeight: "800", textAlign: "center" },
+  settingsRecoveryText: { color: palette.muted, fontSize: 13, lineHeight: 20, textAlign: "center" },
+  settingsRecoveryActions: { width: "100%", flexDirection: "row", gap: 10, marginTop: 4 },
   updateSettingsCard: {
     borderColor: palette.roseSoft,
     backgroundColor: palette.surface,

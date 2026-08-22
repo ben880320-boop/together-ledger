@@ -206,8 +206,8 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     const app = readMobile("app/index.tsx");
     expect(app).toContain("CATEGORY_EMOJI_OPTIONS");
     expect(app).toContain("PAYMENT_EMOJI_OPTIONS");
-    expect(app).toContain("searchCategoryPaymentIconOptions(query, choices)");
-    expect(app).toContain("const options = expanded ? matchedOptions : choices.slice(0, 12);");
+    expect(app).toContain("searchCategoryPaymentIconOptions(query, safeChoices)");
+    expect(app).toContain("const options = expanded ? matchedOptions : safeChoices.slice(0, 12);");
     expect(app).toContain("不使用圖示");
     expect(app).toContain('placeholder="搜尋圖示，例如：車、旅行、愛心"');
     expect(app).toContain('"◌": "🏷️"');
@@ -222,6 +222,39 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     expect(app).toContain("categoryEmoji(item)");
     expect(app).toContain("paymentEmoji(item)");
     expect(app).not.toContain('icon: draftCategoryIcon.trim() || "◌"');
+  });
+
+  it("防止帳本設定圖示 picker 的未定義常數造成 Android render 閃退", () => {
+    const app = readMobile("app/index.tsx");
+    expect(app).not.toContain("CATEGORY_EMOJI_CHOICES");
+    expect(app).not.toContain("PAYMENT_EMOJI_CHOICES");
+    expect(app).toContain("choices={CATEGORY_EMOJI_OPTIONS}");
+    expect(app).toContain("choices={PAYMENT_EMOJI_OPTIONS}");
+    expect(app).toContain("const safeChoices = choices.filter");
+    expect(app).toContain("key={`${emoji}-${index}`}");
+    expect(app).toContain("function CompactLedgerIconPicker");
+    expect(app).toContain("key={`${item}-${index}`}");
+    expect(app).toContain("SettingsErrorBoundary");
+    expect(app).toContain('"android.ledger-settings.render"');
+  });
+
+  it("讓錯誤診斷維持預設關閉、需明確同意且只傳送去識別化技術資料", () => {
+    const app = readMobile("app/index.tsx");
+    const router = readFileSync(resolve(process.cwd(), "server/routers.ts"), "utf8");
+    const db = readFileSync(resolve(process.cwd(), "server/db.ts"), "utf8");
+    expect(app).toContain("const [diagnosticsEnabled, setDiagnosticsEnabled] = useState(false)");
+    expect(app).toContain("api.profile.diagnosticsPreference.query()");
+    expect(app).toContain("api.profile.updateDiagnosticsPreference.mutate({ enabled })");
+    expect(app).toContain("api.profile.reportDiagnostic.mutate");
+    expect(app).toContain("開啟錯誤診斷？");
+    expect(app).toContain("不會傳送帳本、收支、邀請碼、帳號、電子信箱、密碼、憑證或收據圖片");
+    expect(app).toContain("sanitizeDiagnosticStack");
+    expect(app).toContain("android.runtime.unhandled");
+    expect(router).toContain("diagnosticsPreference: protectedProcedure");
+    expect(router).toContain("updateDiagnosticsPreference: protectedProcedure");
+    expect(router).toContain("reportDiagnostic: protectedProcedure");
+    expect(db).toContain("if (!preferences.diagnosticReportsEnabled) return { accepted: false as const };");
+    expect(db).toContain("await db.delete(diagnosticReports).where(eq(diagnosticReports.userId, userId));");
   });
 
   it("keeps instant transaction removal, useful activity filtering, and cached ledger refreshes", () => {
@@ -263,9 +296,9 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
       expo?: { version?: string; scheme?: string; android?: { versionCode?: number } };
     };
-    expect(appJson.expo?.version).toBe("1.3.8");
-    expect(appJson.expo?.android?.versionCode).toBe(31);
-    expect(readMobile("package.json")).toContain('"version": "1.3.8"');
+    expect(appJson.expo?.version).toBe("1.3.9");
+    expect(appJson.expo?.android?.versionCode).toBe(32);
+    expect(readMobile("package.json")).toContain('"version": "1.3.9"');
     expect(appJson.expo?.scheme).toBe("togetherledger");
     expect(readMobile("app.json")).not.toContain("expo-notifications");
     expect(readMobile("app.json")).toContain('"googleServicesFile": "./google-services.json"');
@@ -326,7 +359,7 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     expect(app).toContain("setUsingOfflineSnapshot(true)");
     expect(app).toContain("GITHUB_WIKI_URL");
     expect(app).toContain("function CompactLedgerIconPicker");
-    expect(app).toContain("const matchedOptions = searchLedgerIconOptions(normalizedQuery);");
+    expect(app).toContain("const matchedOptions = searchLedgerIconOptions(normalizedQuery).filter");
     expect(app).toContain('const options = expanded ? matchedOptions : emojiOptions.slice(0, 12);');
     expect(app).toContain('accessibilityLabel="不顯示帳本圖示"');
     expect(app).toContain("不使用圖示");

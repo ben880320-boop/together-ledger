@@ -10,6 +10,7 @@ import {
   appNotifications,
   budgets,
   categories,
+  diagnosticReports,
   ledgerMembers,
   ledgerSyncEvents,
   ledgers,
@@ -124,6 +125,47 @@ export async function getNotificationPreferencesByScheduleTaskUid(taskUid: strin
   const db = requireDb();
   const rows = await db.select().from(notificationPreferences).where(eq(notificationPreferences.scheduleCronTaskUid, taskUid)).limit(1);
   return rows[0] ?? null;
+}
+
+export async function updateDiagnosticReportingEnabled(userId: number, enabled: boolean) {
+  const db = requireDb();
+  await getNotificationPreferences(userId);
+  await db.update(notificationPreferences)
+    .set({ diagnosticReportsEnabled: enabled ? 1 : 0 })
+    .where(eq(notificationPreferences.userId, userId));
+  return getNotificationPreferences(userId);
+}
+
+export function scrubDiagnosticText(value: string, maxLength: number) {
+  return value
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[redacted-email]")
+    .replace(/(authorization|bearer|token|password|inviteCode)\s*[:=]\s*[^\s,;]+/gi, "$1=[redacted]")
+    .replace(/mysql:\/\/[^\s]+/gi, "[redacted-database-url]")
+    .slice(0, maxLength);
+}
+
+export type DiagnosticReportInput = {
+  platform: "android" | "ios" | "web";
+  appVersion: string;
+  errorCode: string;
+  message: string;
+  stack?: string;
+};
+
+/** Disabled diagnostics is a hard no-op; all accepted text is server-side redacted. */
+export async function createDiagnosticReport(userId: number, input: DiagnosticReportInput) {
+  const db = requireDb();
+  const preferences = await getNotificationPreferences(userId);
+  if (!preferences.diagnosticReportsEnabled) return { accepted: false as const };
+  await db.insert(diagnosticReports).values({
+    userId,
+    platform: input.platform,
+    appVersion: scrubDiagnosticText(input.appVersion, 32),
+    errorCode: scrubDiagnosticText(input.errorCode, 80),
+    message: scrubDiagnosticText(input.message, 512),
+    stack: input.stack ? scrubDiagnosticText(input.stack, 8_000) : null,
+  });
+  return { accepted: true as const };
 }
 
 export async function listMonthlyReminderPreferences() {
@@ -487,6 +529,7 @@ export async function deleteUserAccount(userId: number) {
 
   await db.delete(ledgerMembers).where(eq(ledgerMembers.userId, userId));
   await db.delete(pushDevices).where(eq(pushDevices.userId, userId));
+  await db.delete(diagnosticReports).where(eq(diagnosticReports.userId, userId));
   await db.delete(notificationPreferences).where(eq(notificationPreferences.userId, userId));
   await db.delete(appNotifications).where(eq(appNotifications.userId, userId));
   await db.update(users).set({

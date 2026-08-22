@@ -56,11 +56,14 @@ import {
   listSavingsBuckets,
   listSavingsAllocations,
   createSavingsBucket,
+  createDiagnosticReport,
   updateSavingsBucket,
   stopSavingsBucket,
   archiveSavingsBucket,
   restoreSavingsBucket,
   addSavingsDeposit,
+  getNotificationPreferences,
+  updateDiagnosticReportingEnabled,
 } from "./db";
 import { TRPCError } from "@trpc/server";
 import { invokeLLM } from "./_core/llm";
@@ -691,6 +694,26 @@ export const appRouter = router({
     updateName: protectedProcedure
       .input(z.object({ name: z.string().trim().min(1).max(64) }))
       .mutation(({ ctx, input }) => updateUserName(ctx.user.id, input.name)),
+    diagnosticsPreference: protectedProcedure
+      .query(async ({ ctx }) => {
+        const preferences = await getNotificationPreferences(ctx.user.id);
+        return { enabled: Boolean(preferences.diagnosticReportsEnabled) };
+      }),
+    updateDiagnosticsPreference: protectedProcedure
+      .input(z.object({ enabled: z.boolean() }))
+      .mutation(async ({ ctx, input }) => {
+        const preferences = await updateDiagnosticReportingEnabled(ctx.user.id, input.enabled);
+        return { enabled: Boolean(preferences.diagnosticReportsEnabled) };
+      }),
+    reportDiagnostic: protectedProcedure
+      .input(z.object({
+        platform: z.enum(["android", "ios", "web"]),
+        appVersion: z.string().trim().min(1).max(32),
+        errorCode: z.string().trim().min(1).max(80),
+        message: z.string().trim().min(1).max(512),
+        stack: z.string().max(8_000).optional(),
+      }))
+      .mutation(({ ctx, input }) => createDiagnosticReport(ctx.user.id, input)),
   }),
 });
 
