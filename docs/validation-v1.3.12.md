@@ -14,3 +14,13 @@
 已以桌面 `1280×720` 及行動裝置 `375×812` 檢視公開首頁。兩種尺寸均正常顯示，版面未見文字裁切或水平溢出；頁尾版本資訊已顯示 `v1.3.12`。受登入與帳本授權保護的「本月待結算」和結算歷史篩選以元件／靜態回歸測試驗證。
 
 > Android 鍵盤關閉後的實際位移只能由裝置原生輸入法觸發；本次已移除 Android 原生 `resize` 與 React Native `KeyboardAvoidingView` 的重複避讓，並由核心流程腳本保護此契約。發布後仍應以實體 Android 裝置逐一確認登入、收支、預算與帳本設定表單。
+
+## 發布紀錄
+
+| 項目 | 結果 |
+| --- | --- |
+| Pull Request | [#24](https://github.com/ben880320-boop/together-ledger/pull/24) 已合併至 `main`。 |
+| GitHub Actions | [Run 32590401637](https://github.com/ben880320-boop/together-ledger/actions/runs/32590401637) 成功完成固定簽章 APK 建置與產物驗證。 |
+| Android 版本 | `versionName=1.3.12`、`versionCode=35`。 |
+| 正式 Release | [v1.3.12](https://github.com/ben880320-boop/together-ledger/releases/tag/v1.3.12) 已公開，包含 `together-ledger.apk` 與 `together-ledger.apk.sha256`。 |
+| APK 完整性 | `SHA-256: 506f1dcba70223edc37da2e0ad7a926311953f0fde1042ea13ce597c4159b1a4`。 |
