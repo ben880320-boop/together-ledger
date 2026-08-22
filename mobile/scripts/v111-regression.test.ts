@@ -136,6 +136,14 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     expect(readMobile("app.json")).toContain("REQUEST_INSTALL_PACKAGES");
   });
 
+  it("resolves root shared modules during Android release bundling", () => {
+    const metro = readMobile("metro.config.js");
+    expect(metro).toContain('require("expo/metro-config")');
+    expect(metro).toContain("config.watchFolders = [workspaceRoot]");
+    expect(metro).toContain('"@shared": path.resolve(workspaceRoot, "shared")');
+    expect(metro).toContain("config.resolver.nodeModulesPaths");
+  });
+
   it("keeps long ledger management and viewing tasks in themed, bounded dialogs", () => {
     const app = readMobile("app/index.tsx");
     const router = readFileSync(resolve(process.cwd(), "server/routers.ts"), "utf8");

@@ -593,3 +593,4 @@
 - [x] 更新 Android 核心流程腳本的 v1.3.5／versionCode 28 發行基準，重新完成型別、測試、核心流程與 Web／PWA 生產建置
 - [x] 將 Expo 設定、Android 套件資訊、App 顯示常數與核心流程版本比對收斂為同一 v1.3.5／versionCode 28 發行來源，重跑所有品質閘門
 - [x] 同步 v1.3.5 versionCode 28 的 Android 發行說明與品質驗收證據，完成 Web／PWA 生產建置前檢核
+- [ ] 修正 Android Metro 對 @shared/ledgerIcons 的解析設定，重新完成固定簽章 APK、校驗檔與 GitHub Release 驗證
