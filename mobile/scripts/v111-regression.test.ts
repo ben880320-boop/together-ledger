@@ -257,6 +257,30 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     expect(db).toContain("await db.delete(diagnosticReports).where(eq(diagnosticReports.userId, userId));");
   });
 
+  it("讓診斷偏好在首次寫入競態或暫時失敗後可安全重試", () => {
+    const app = readMobile("app/index.tsx");
+    const db = readFileSync(resolve(process.cwd(), "server/db.ts"), "utf8");
+    expect(app).toContain("const [diagnosticsLoading, setDiagnosticsLoading] = useState(false)");
+    expect(app).toContain("const [diagnosticsError, setDiagnosticsError] = useState(\"\")");
+    expect(app).toContain("onRetryDiagnostics");
+    expect(app).toContain("diagnosticsRetryRow");
+    expect(app).toContain("重新讀取錯誤診斷設定");
+    expect(app).toContain(">重試</Text>");
+    expect(db).toContain("onDuplicateKeyUpdate");
+    expect(db).toContain("diagnosticReportsEnabled: enabled ? 1 : 0");
+  });
+
+  it("避免同一帳本同步重複請求，並讓載入骨架尊重減少動態效果", () => {
+    const app = readMobile("app/index.tsx");
+    expect(app).toContain("ledgerReloadInFlightRef");
+    expect(app).toContain("const reloadKey = `${ledgerId}:${month}`;");
+    expect(app).toContain("const inFlight = ledgerReloadInFlightRef.current.get(reloadKey);");
+    expect(app).toContain("function LoadingPulse(");
+    expect(app).toContain("if (preferences.reduceMotion)");
+    expect(app).toContain("Animated.loop(Animated.sequence");
+    expect(app).toContain("正在同步最新帳本資料…");
+  });
+
   it("keeps instant transaction removal, useful activity filtering, and cached ledger refreshes", () => {
     const app = readMobile("app/index.tsx");
     const router = readFileSync(resolve(process.cwd(), "server/routers.ts"), "utf8");
@@ -296,9 +320,9 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
       expo?: { version?: string; scheme?: string; android?: { versionCode?: number } };
     };
-    expect(appJson.expo?.version).toBe("1.3.9");
-    expect(appJson.expo?.android?.versionCode).toBe(32);
-    expect(readMobile("package.json")).toContain('"version": "1.3.9"');
+    expect(appJson.expo?.version).toBe("1.3.10");
+    expect(appJson.expo?.android?.versionCode).toBe(33);
+    expect(readMobile("package.json")).toContain('"version": "1.3.10"');
     expect(appJson.expo?.scheme).toBe("togetherledger");
     expect(readMobile("app.json")).not.toContain("expo-notifications");
     expect(readMobile("app.json")).toContain('"googleServicesFile": "./google-services.json"');
