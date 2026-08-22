@@ -120,6 +120,13 @@
       "when": 1787244077351,
       "tag": "0016_heavy_thor_girl",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "5",
+      "when": 1787340215201,
+      "tag": "0017_furry_fenris",
+      "breakpoints": true
     }
   ]
 }

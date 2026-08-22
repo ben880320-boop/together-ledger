@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { index, int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -188,6 +188,21 @@ export const activityLogs = mysqlTable("activityLogs", {
   metadata: text("metadata"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
+
+/**
+ * Durable ledger change cursors used by Web, PWA and Android SSE subscribers.
+ * Events carry no financial details; clients re-fetch authorized tRPC queries.
+ */
+export const ledgerSyncEvents = mysqlTable("ledgerSyncEvents", {
+  id: int("id").autoincrement().primaryKey(),
+  ledgerId: int("ledgerId").notNull(),
+  actorUserId: int("actorUserId").notNull(),
+  kind: varchar("kind", { length: 64 }).notNull(),
+  entityId: int("entityId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({
+  ledgerCursorIdx: index("ledgerSyncEvents_ledger_cursor_idx").on(table.ledgerId, table.id),
+}));
 
 export const settlements = mysqlTable("settlements", {
   id: int("id").autoincrement().primaryKey(),

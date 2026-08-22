@@ -7,6 +7,8 @@ const savingsBuckets = readFileSync(fileURLToPath(new URL("../components/Savings
 const auth = readFileSync(fileURLToPath(new URL("./WebAuth.tsx", import.meta.url)), "utf8");
 const footer = readFileSync(fileURLToPath(new URL("../components/ReleaseFooter.tsx", import.meta.url)), "utf8");
 const pwa = readFileSync(fileURLToPath(new URL("../components/PwaInstallPanel.tsx", import.meta.url)), "utf8");
+const realtime = readFileSync(fileURLToPath(new URL("../lib/ledgerRealtime.ts", import.meta.url)), "utf8");
+const ledgerIcons = readFileSync(fileURLToPath(new URL("../../../shared/ledgerIcons.ts", import.meta.url)), "utf8");
 
 describe("Together Ledger 真實網頁帳本入口", () => {
   it("使用既有的真實帳本 tRPC 讀寫流程，不使用靜態模擬交易資料", () => {
@@ -108,7 +110,7 @@ describe("Together Ledger 真實網頁帳本入口", () => {
   });
 
   it("提供可辨識的發布資訊與重新取得最新版本操作", () => {
-    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.4"');
+    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.5"');
     expect(footer).toContain("WEB_BUILD_TIMESTAMP");
     expect(footer).toContain("formatTaipeiTimestamp");
     expect(footer).toContain("重新載入最新版本");
@@ -124,6 +126,16 @@ describe("Together Ledger 真實網頁帳本入口", () => {
     expect(pwa).toContain("PwaDraftSafety");
     expect(pwa).toContain("hasUnsavedChanges");
     expect(pwa).toContain("避免草稿遺失");
+  });
+
+  it("以同源 SSE 接收帳本異動並以防抖快取失效更新，不重設開啟中的草稿", () => {
+    expect(workspace).toContain("subscribeLedgerChanges({");
+    expect(workspace).toContain("utils.ledger.workspace.invalidate");
+    expect(workspace).toContain("utils.ledger.list.invalidate");
+    expect(workspace).toContain("StableTransactionDialog");
+    expect(realtime).toContain("/api/ledgers/${ledgerId}/events");
+    expect(realtime).toContain('source.addEventListener("ledger-change"');
+    expect(realtime).toContain("source.close()");
   });
 
   it("以 Android App 的首頁資訊層級呈現成員支付、近期收支與結算資訊", () => {
@@ -164,6 +176,10 @@ describe("Together Ledger 真實網頁帳本入口", () => {
     expect(workspace).toContain("帳本圖示（可選）");
     expect(workspace).toContain("aria-pressed={icon === null}");
     expect(workspace).toContain("item.ledger.icon ||");
+    expect(workspace).toContain("LEDGER_EMOJI_OPTIONS");
+    expect(ledgerIcons).toContain("LEDGER_ICON_OPTIONS");
+    expect(ledgerIcons).toContain('"🏠"');
+    expect(ledgerIcons).toContain('"🌊"');
     expect(workspace).toContain("<CreateLedgerDialog");
     expect(workspace).toContain("<Profile workspace={null}");
     expect(workspace).toContain("<WebAppearancePanel /></div></div></div>");

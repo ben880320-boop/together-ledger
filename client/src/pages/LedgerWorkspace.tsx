@@ -11,6 +11,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { categoryEmoji, formatActivityTimestamp, normalizeLedgerWorkspace, paymentEmoji } from "@/lib/ledgerPresentation";
+import { subscribeLedgerChanges } from "@/lib/ledgerRealtime";
+import { LEDGER_EMOJI_OPTIONS } from "@shared/ledgerIcons";
 import { BarChart3, CalendarDays, Check, ChevronLeft, ChevronRight, Clipboard, Download, Heart, LayoutDashboard, ListChecks, LoaderCircle, LogOut, Pencil, Plus, Receipt, Search, Settings2, Sparkles, Trash2, UserRound, Users, WalletCards, WifiOff } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -18,7 +20,7 @@ import { useLocation } from "wouter";
 
 type Page = "overview" | "records" | "calendar" | "analysis" | "planning" | "settings" | "profile";
 type Sheet = "ledger" | "join" | "transaction" | "budget" | "total-budget" | "recurring" | "travel" | "category" | "payment" | "manage" | null;
-const APP_VERSION = "1.3.4";
+const APP_VERSION = "1.3.5";
 function StableTransactionDialog(props: any) {
   const workspaceSnapshot = useRef<any>(null);
   const activeDraftKey = useRef<string | null>(null);
@@ -66,7 +68,7 @@ const isSavingsTransfer = (item: any) => item?.type === "transfer" && Number(ite
 const currentMonth = () => new Date().toISOString().slice(0, 7);
 const day = (value: unknown) => { const date = new Date(value as string); return Number.isNaN(date.getTime()) ? "日期待確認" : date.toLocaleDateString("zh-TW", { month: "numeric", day: "numeric", weekday: "short" }); };
 const fail = (error: unknown) => toast.error(error instanceof Error ? error.message : "操作未完成，請稍後再試。");
-const iconOptions = ["❤", "💖", "🩷", "💘", "🌷", "🌹", "🏠", "👫", "👨‍👩‍👧", "🐾", "🚗", "📱", "💳", "💵", "🛍️", "📑", "🗓️", "📒", "📕", "📖", "📝", "✈️", "🎯", "🍽️", "☕", "🎮", "🎬", "🎵", "🎓", "💼", "🏥", "🏋️", "🎂", "🏖️", "🌙", "✨"];
+const iconOptions = LEDGER_EMOJI_OPTIONS;
 
 export default function LedgerWorkspace() {
   const [, navigate] = useLocation();
@@ -163,6 +165,21 @@ export default function LedgerWorkspace() {
     window.addEventListener("offline", markOffline);
     return () => { window.removeEventListener("online", markOnline); window.removeEventListener("offline", markOffline); };
   }, []);
+
+  useEffect(() => {
+    if (!ledgerId || ledgerHome || !user || !online || typeof EventSource === "undefined") return;
+    return subscribeLedgerChanges({
+      ledgerId,
+      // A remote event invalidates cached data only. Stable form snapshots keep
+      // the user's unsubmitted text intact until the active sheet is closed.
+      onChange: () => {
+        setSyncError("");
+        void Promise.all([utils.ledger.list.invalidate(), utils.ledger.workspace.invalidate()]);
+      },
+      // EventSource reconnects by itself; ordinary polling remains the fallback.
+      onError: () => setSyncError("即時同步暫時中斷，正在自動重新連線；資料仍會定期更新。"),
+    });
+  }, [ledgerHome, ledgerId, online, user, utils]);
 
   useEffect(() => {
     if (!ledgerId) { setCachedWorkspace(null); setLastSyncedAt(null); return; }

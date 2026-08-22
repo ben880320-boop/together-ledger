@@ -1,6 +1,6 @@
 import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { nanoid } from "nanoid";
-import { and, asc, desc, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, lt, lte, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { createPool, type Pool } from "mysql2";
 import {
@@ -11,6 +11,7 @@ import {
   budgets,
   categories,
   ledgerMembers,
+  ledgerSyncEvents,
   ledgers,
   notificationPreferences,
   paymentMethods,
@@ -385,6 +386,7 @@ export async function joinLedgerByInviteCode(inviteCode: string, userId: number)
     .limit(1);
   if (existing.length > 0) throw new Error("你已經加入這個帳本，不需要重複加入。");
   await db.insert(ledgerMembers).values({ ledgerId: ledger.id, userId, role: "member" });
+  await publishLedgerChange({ ledgerId: ledger.id, actorUserId: userId, kind: "member.join", entityId: userId });
   return ledger;
 }
 
@@ -408,6 +410,7 @@ export async function leaveLedger(input: {
   if (ledger.createdBy !== input.userId) {
     if (input.action !== "leave") throw new Error("只有帳本持有者可以轉讓或移除帳本。");
     await db.delete(ledgerMembers).where(and(eq(ledgerMembers.ledgerId, input.ledgerId), eq(ledgerMembers.userId, input.userId)));
+    await publishLedgerChange({ ledgerId: input.ledgerId, actorUserId: input.userId, kind: "member.leave", entityId: input.userId });
     return { action: "leave" as const };
   }
 
@@ -415,6 +418,7 @@ export async function leaveLedger(input: {
     if (!input.transferToUserId) throw new Error("請選擇另一位帳本成員接任持有者。");
     await transferLedgerOwnership({ ledgerId: input.ledgerId, userId: input.userId, targetUserId: input.transferToUserId });
     await db.delete(ledgerMembers).where(and(eq(ledgerMembers.ledgerId, input.ledgerId), eq(ledgerMembers.userId, input.userId)));
+    await publishLedgerChange({ ledgerId: input.ledgerId, actorUserId: input.userId, kind: "member.leave", entityId: input.userId });
     return { action: "transfer" as const, transferToUserId: input.transferToUserId };
   }
 
@@ -506,6 +510,7 @@ export async function renameLedger(input: { ledgerId: number; userId: number; na
   }
   const icon = input.icon === undefined ? undefined : input.icon?.trim().slice(0, 16) || null;
   await db.update(ledgers).set({ name, ...(icon === undefined ? {} : { icon }) }).where(eq(ledgers.id, input.ledgerId));
+  await publishLedgerChange({ ledgerId: input.ledgerId, actorUserId: input.userId, kind: "ledger.settings" });
   return (await getLedgerAccess(input.ledgerId, input.userId))?.ledger;
 }
 
@@ -521,6 +526,7 @@ export async function transferLedgerOwnership(input: { ledgerId: number; userId:
   await db.update(ledgers).set({ createdBy: input.targetUserId }).where(eq(ledgers.id, input.ledgerId));
   await db.update(ledgerMembers).set({ role: "member" }).where(and(eq(ledgerMembers.ledgerId, input.ledgerId), eq(ledgerMembers.userId, input.userId)));
   await db.update(ledgerMembers).set({ role: "admin" }).where(and(eq(ledgerMembers.ledgerId, input.ledgerId), eq(ledgerMembers.userId, input.targetUserId)));
+  await publishLedgerChange({ ledgerId: input.ledgerId, actorUserId: input.userId, kind: "ledger.transfer", entityId: input.targetUserId });
   return { ledgerId: input.ledgerId, targetUserId: input.targetUserId };
 }
 
@@ -567,6 +573,7 @@ export async function getLedgerMembers(ledgerId: number) {
 export async function updateLedgerMemberRole(input: { ledgerId: number; userId: number; role: "admin" | "member" | "viewer" }) {
   const db = requireDb();
   await db.update(ledgerMembers).set({ role: input.role }).where(and(eq(ledgerMembers.ledgerId, input.ledgerId), eq(ledgerMembers.userId, input.userId)));
+  await publishLedgerChange({ ledgerId: input.ledgerId, actorUserId: input.userId, kind: "member.role", entityId: input.userId });
 }
 
 export async function getCategories(ledgerId: number) {
@@ -799,6 +806,59 @@ export async function logActivity(input: {
     summary: input.summary.slice(0, 255),
     metadata: input.metadata ? JSON.stringify(input.metadata) : null,
   });
+  try {
+    await recordLedgerChange({
+      ledgerId: input.ledgerId,
+      actorUserId: input.userId,
+      kind: input.entityType,
+      entityId: input.entityId,
+    });
+  } catch (error) {
+    // Financial writes must remain durable even when the optional realtime hint
+    // cannot be recorded. Clients retain their normal refresh/retry fallback.
+    console.warn("[Realtime] Failed to record ledger change", error);
+  }
+}
+
+export async function recordLedgerChange(input: {
+  ledgerId: number;
+  actorUserId: number;
+  kind: string;
+  entityId?: number | null;
+}) {
+  const db = requireDb();
+  await db.insert(ledgerSyncEvents).values({
+    ledgerId: input.ledgerId,
+    actorUserId: input.actorUserId,
+    kind: input.kind.slice(0, 64),
+    entityId: input.entityId ?? null,
+  });
+}
+
+async function publishLedgerChange(input: {
+  ledgerId: number;
+  actorUserId: number;
+  kind: string;
+  entityId?: number | null;
+}) {
+  try {
+    await recordLedgerChange(input);
+  } catch (error) {
+    // Realtime is an acceleration layer. A failed hint must never roll back a
+    // completed ledger mutation; normal reload remains available to all clients.
+    console.warn("[Realtime] Failed to publish ledger change", error);
+  }
+}
+
+export async function getLedgerChangesSince(input: { ledgerId: number; cursor: number }) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select()
+    .from(ledgerSyncEvents)
+    .where(and(eq(ledgerSyncEvents.ledgerId, input.ledgerId), gt(ledgerSyncEvents.id, input.cursor)))
+    .orderBy(asc(ledgerSyncEvents.id))
+    .limit(40);
 }
 
 export type SavingsBucketWriteInput = {

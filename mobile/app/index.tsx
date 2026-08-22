@@ -48,7 +48,9 @@ import {
   clearSessionToken,
   getSessionToken,
   saveSessionToken,
+  subscribeLedgerEvents,
 } from "../lib/api";
+import { LEDGER_ICON_OPTIONS } from "@shared/ledgerIcons";
 
 const colors = {
   background: "#FBF7F3",
@@ -117,7 +119,7 @@ const appearanceDefaults: AppearancePreferences = {
   colorMode: "system",
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.3.4";
+const APP_VERSION = "1.3.5";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 const GITHUB_LATEST_RELEASE_API = "https://api.github.com/repos/ben880320-boop/together-ledger/releases/latest";
@@ -982,6 +984,7 @@ function AppContent() {
   const recurringSyncRef = useRef(new Map<number, number>());
   const savingsHistoryRequestRef = useRef(0);
   const toastSequenceRef = useRef(0);
+  const realtimeRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = useCallback((message: string) => {
     setToast({ id: ++toastSequenceRef.current, message });
@@ -1169,6 +1172,32 @@ function AppContent() {
     setActivityLogs(workspace.activityLogs as ActivityLog[]);
     return true;
   }, []);
+
+  useEffect(() => {
+    if (!user || ledgerHome || !activeLedger) return;
+    const unsubscribe = subscribeLedgerEvents(activeLedger.id, {
+      onEvent: () => {
+        if (realtimeRefreshTimerRef.current) clearTimeout(realtimeRefreshTimerRef.current);
+        // Debounce dependent events from one remote action so forms and Android
+        // navigation remain responsive while all derived totals refresh together.
+        realtimeRefreshTimerRef.current = setTimeout(() => {
+          realtimeRefreshTimerRef.current = null;
+          void reloadLedger(activeLedger.id).catch(syncError => {
+            setError(syncError instanceof Error ? `即時同步失敗：${syncError.message}` : "即時同步失敗，可下拉重新整理後重試。");
+          });
+        }, 180);
+      },
+      onError: () => {
+        // The subscriber retries in the background. Preserve the existing
+        // manual refresh route rather than showing repeated blocking alerts.
+      },
+    });
+    return () => {
+      if (realtimeRefreshTimerRef.current) clearTimeout(realtimeRefreshTimerRef.current);
+      realtimeRefreshTimerRef.current = null;
+      unsubscribe();
+    };
+  }, [activeLedger, ledgerHome, reloadLedger, user]);
 
   const loadWorkspace = useCallback(async () => {
     setBusy(true);
@@ -4977,7 +5006,7 @@ function LedgerModal({
             <>
               <Text style={styles.fieldLabel}>帳本圖示（可選）</Text>
               <View style={styles.iconPicker}>
-                {[null, "❤", "💖", "🩷", "💘", "🌷", "🌹", "🚗", "📱", "💳", "💵", "🛍️", "📑", "🗓️", "📒", "📕", "📖", "📝", "🏠", "✈️", "🎯", "🐾", "🍽️", "🎮", "🎬", "✨"].map(item => (
+                {LEDGER_ICON_OPTIONS.map(item => (
                   <Pressable key={item ?? "none"} onPress={() => setLedgerIcon(item)} style={[styles.iconPickerItem, ledgerIcon === item && styles.iconPickerItemActive]} accessibilityRole="button" accessibilityState={{ selected: ledgerIcon === item }}>
                     <Text style={styles.iconPickerText}>{item ?? "無"}</Text>
                   </Pressable>
@@ -5085,7 +5114,7 @@ function LedgerManageModal({
             <>
               <Text style={styles.fieldLabel}>帳本圖示</Text>
               <View style={styles.iconPicker}>
-                {[null, "❤", "💖", "🩷", "💘", "🌷", "🌹", "🏠", "👫", "👨‍👩‍👧", "🐾", "🚗", "📱", "💳", "💵", "🛍️", "📑", "🗓️", "📒", "📕", "📖", "📝", "✈️", "🎯", "🍽️", "☕", "🎮", "🎬", "🎵", "🎓", "💼", "🏥", "🏋️", "🎂", "🏖️", "🌙", "✨"].map(item => (
+                {LEDGER_ICON_OPTIONS.map(item => (
                   <Pressable key={item ?? "none"} onPress={() => setDraftIcon(item)} style={[styles.iconPickerItem, draftIcon === item && styles.iconPickerItemActive]} accessibilityRole="button" accessibilityState={{ selected: draftIcon === item }}>
                     <Text style={styles.iconPickerText}>{item ?? "無"}</Text>
                   </Pressable>

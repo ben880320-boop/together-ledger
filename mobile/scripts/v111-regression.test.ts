@@ -74,6 +74,7 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
 
   it("wires appearance, settings management, home search, and notification controls", () => {
     const app = readMobile("app/index.tsx");
+    const ledgerIcons = readFileSync(resolve(process.cwd(), "shared/ledgerIcons.ts"), "utf8");
     expect(app).toContain('label: "海洋"');
     expect(app).toContain('label: "星空"');
     expect(app).toContain('label: "櫻花"');
@@ -128,6 +129,9 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     expect(app).toContain("FlatList");
     expect(app).toContain("maxToRenderPerBatch={4}");
     expect(app).toContain("backgroundColor: palette.surface");
+    expect(app).toContain('import { LEDGER_ICON_OPTIONS } from "@shared/ledgerIcons"');
+    expect(ledgerIcons).toContain("LEDGER_ICON_OPTIONS");
+    expect(ledgerIcons).toContain('"🌊"');
     expect(readMobile("app.json")).toContain("softwareKeyboardLayoutMode");
     expect(readMobile("app.json")).toContain("REQUEST_INSTALL_PACKAGES");
   });
@@ -242,9 +246,9 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
       expo?: { version?: string; scheme?: string; android?: { versionCode?: number } };
     };
-    expect(appJson.expo?.version).toBe("1.3.4");
-    expect(appJson.expo?.android?.versionCode).toBe(27);
-    expect(readMobile("package.json")).toContain('"version": "1.3.4"');
+    expect(appJson.expo?.version).toBe("1.3.5");
+    expect(appJson.expo?.android?.versionCode).toBe(28);
+    expect(readMobile("package.json")).toContain('"version": "1.3.5"');
     expect(appJson.expo?.scheme).toBe("togetherledger");
     expect(readMobile("app.json")).not.toContain("expo-notifications");
     expect(readMobile("app.json")).toContain('"googleServicesFile": "./google-services.json"');
@@ -277,6 +281,22 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     expect(app).toContain('name="delete-outline"');
     expect(readMobile("lib/api.ts")).toContain("伺服器暫時回傳了非預期內容");
     expect(readMobile("package.json")).toContain('"expo-network"');
+  });
+
+  it("以可取消且可重連的 SSE 事件流同步帳本，並共用擴充圖示庫", () => {
+    const app = readMobile("app/index.tsx");
+    const apiSource = readMobile("lib/api.ts");
+    const iconSource = readFileSync(resolve(process.cwd(), "shared/ledgerIcons.ts"), "utf8");
+
+    expect(apiSource).toContain("export function subscribeLedgerEvents");
+    expect(apiSource).toContain("Last-Event-ID");
+    expect(apiSource).toContain("eventName !== \"ledger-change\"");
+    expect(apiSource).toContain("Authorization: `Bearer ${token}`");
+    expect(apiSource).toContain("controller.abort()");
+    expect(apiSource).toContain("realtimeRetryDelay");
+    expect(app).toContain("subscribeLedgerEvents");
+    expect(app).toContain('import { LEDGER_ICON_OPTIONS } from "@shared/ledgerIcons"');
+    expect(iconSource.match(/"[^"\n]+"/g)?.length ?? 0).toBeGreaterThanOrEqual(69);
   });
 
   it("keeps a quota-independent GitHub Actions Android APK workflow", () => {
