@@ -12,7 +12,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { trpc } from "@/lib/trpc";
 import { categoryEmoji, formatActivityTimestamp, normalizeLedgerWorkspace, paymentEmoji } from "@/lib/ledgerPresentation";
 import { subscribeLedgerChanges } from "@/lib/ledgerRealtime";
-import { LEDGER_EMOJI_OPTIONS, searchLedgerIconOptions } from "@shared/ledgerIcons";
+import {
+  CATEGORY_EMOJI_OPTIONS,
+  LEDGER_EMOJI_OPTIONS,
+  PAYMENT_EMOJI_OPTIONS,
+  searchCategoryPaymentIconOptions,
+  searchLedgerIconOptions,
+} from "@shared/ledgerIcons";
 import { BarChart3, CalendarDays, Check, ChevronLeft, ChevronRight, Clipboard, Download, Heart, LayoutDashboard, ListChecks, LoaderCircle, LogOut, Pencil, Plus, Receipt, Search, Settings2, Sparkles, Trash2, UserRound, Users, WalletCards, WifiOff } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -20,7 +26,7 @@ import { useLocation } from "wouter";
 
 type Page = "overview" | "records" | "calendar" | "analysis" | "planning" | "settings" | "profile";
 type Sheet = "ledger" | "join" | "transaction" | "budget" | "total-budget" | "recurring" | "travel" | "category" | "payment" | "manage" | null;
-const APP_VERSION = "1.3.7";
+const APP_VERSION = "1.3.8";
 function StableTransactionDialog(props: any) {
   const workspaceSnapshot = useRef<any>(null);
   const activeDraftKey = useRef<string | null>(null);
@@ -68,7 +74,36 @@ const isSavingsTransfer = (item: any) => item?.type === "transfer" && Number(ite
 const currentMonth = () => new Date().toISOString().slice(0, 7);
 const day = (value: unknown) => { const date = new Date(value as string); return Number.isNaN(date.getTime()) ? "日期待確認" : date.toLocaleDateString("zh-TW", { month: "numeric", day: "numeric", weekday: "short" }); };
 const fail = (error: unknown) => toast.error(error instanceof Error ? error.message : "操作未完成，請稍後再試。");
-const iconOptions = LEDGER_EMOJI_OPTIONS;
+function CategoryPaymentIconPicker({ type, icon, onChange }: { type: "category" | "payment"; icon: string; onChange: (icon: string) => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const [query, setQuery] = useState("");
+  const choices = type === "category" ? CATEGORY_EMOJI_OPTIONS : PAYMENT_EMOJI_OPTIONS;
+  const filteredOptions = searchCategoryPaymentIconOptions(query, choices);
+  const options = expanded ? filteredOptions : choices.slice(0, 12);
+  const selectIcon = (nextIcon: string) => {
+    onChange(nextIcon);
+    setExpanded(false);
+    setQuery("");
+  };
+  return <div className="space-y-3">
+    <div className="flex items-center justify-between gap-3 text-sm">
+      <span className="text-muted-foreground">目前：{icon || "無圖示"}</span>
+      <button type="button" onClick={() => { setExpanded(current => !current); setQuery(""); }} aria-expanded={expanded} className="shrink-0 font-medium text-[#B56C78] underline-offset-4 hover:underline">
+        {expanded ? "收合圖示" : `瀏覽全部（${choices.length}）`}
+      </button>
+    </div>
+    <button type="button" onClick={() => selectIcon("")} aria-pressed={icon === ""} className={`w-full rounded-xl border px-3 py-2 text-left text-sm transition-colors ${icon === "" ? "border-[#B56C78] bg-[#F7E8E8] text-[#934953]" : "border-[#E5D8D2] hover:bg-[#FCF6F3]"}`}>
+      不使用圖示
+    </button>
+    {expanded && <div className="space-y-2">
+      <Input value={query} onChange={event => setQuery(event.target.value)} placeholder="搜尋圖示，例如：車、旅行、愛心" aria-label="搜尋分類或支付方式圖示" />
+      <p className="text-xs text-muted-foreground">{query.trim() ? `找到 ${filteredOptions.length} 個圖示` : `全部 ${choices.length} 個圖示`}</p>
+    </div>}
+    <div className="grid grid-cols-6 gap-2 sm:grid-cols-8">
+      {options.map(value => <button key={value} type="button" onClick={() => selectIcon(value)} aria-label={`使用 ${value} 作為圖示`} aria-pressed={icon === value} className={`min-h-10 rounded-xl border text-lg transition-colors ${icon === value ? "border-[#B56C78] bg-[#F7E8E8]" : "border-[#E5D8D2] hover:bg-[#FCF6F3]"}`}>{value}</button>)}
+    </div>
+  </div>;
+}
 
 export default function LedgerWorkspace() {
   const [, navigate] = useLocation();
@@ -459,7 +494,32 @@ function TransactionDialog({ open, workspace, ledgerId, editing, onClose, onCrea
 function BudgetDialog({ open, totalBudget = false, workspace, ledgerId, month, onClose, onSave }: any) { const [categoryId, setCategoryId] = useState(0); const [amount, setAmount] = useState(""); useEffect(() => { if (open) { const total = workspace?.budgets?.find((item: any) => Number(item.categoryId) === 0); setCategoryId(totalBudget ? 0 : workspace?.categories?.find((item: any) => item.isActive && item.type === "expense")?.id || 0); setAmount(totalBudget && total ? String(total.amount) : ""); } }, [open, totalBudget, workspace]); return <SimpleForm open={open} title={totalBudget ? "設定月總預算" : "設定分類預算"} onClose={onClose} onSubmit={() => onSave({ ledgerId, categoryId, amount: Math.round(Number(amount)), month })}>{totalBudget ? <p className="rounded-2xl bg-[#FBF2EE] p-4 text-sm leading-6 text-[#866E65]">月總預算會顯示本月全部支出的使用進度；分類預算可另外設定。</p> : <Field label="分類"><select value={categoryId} onChange={event => setCategoryId(Number(event.target.value))} className="h-10 w-full rounded-md border border-input bg-background px-3">{workspace?.categories?.filter((item: any) => item.isActive && item.type === "expense").map((item: any) => <option key={item.id} value={item.id}>{categoryEmoji(item)} {item.name}</option>)}</select></Field>}<Field label="預算金額"><Input type="number" min="1" value={amount} onChange={event => setAmount(event.target.value)} required /></Field></SimpleForm> }
 function RecurringDialog({ open, workspace, ledgerId, editing, onClose, onSave }: any) { const [title, setTitle] = useState(""); const [amount, setAmount] = useState(""); const [categoryId, setCategoryId] = useState(0); const [paymentMethodId, setPaymentMethodId] = useState(0); const [frequency, setFrequency] = useState("monthly"); const [dayOfMonth, setDayOfMonth] = useState(1); useEffect(() => { if (open) { setTitle(editing?.title || ""); setAmount(editing?.amount ? String(editing.amount) : ""); setCategoryId(editing?.categoryId || workspace?.categories?.find((item: any) => item.isActive && item.type === "expense")?.id || 0); setPaymentMethodId(editing?.paymentMethodId || workspace?.paymentMethods?.find((item: any) => item.isActive)?.id || 0); setFrequency(editing?.frequency || "monthly"); setDayOfMonth(editing?.dayOfMonth || 1); } }, [open, editing, workspace]); return <SimpleForm open={open} title={editing ? "編輯固定收支" : "新增固定收支"} onClose={onClose} onSubmit={() => onSave({ ledgerId, ...(editing ? { recurringId: editing.id } : {}), title, amount: Math.round(Number(amount)), type: "expense", categoryId, paymentMethodId, frequency, dayOfMonth })}><Field label="名稱"><Input value={title} onChange={event => setTitle(event.target.value)} required /></Field><div className="grid grid-cols-2 gap-3"><Field label="金額"><Input type="number" min="1" value={amount} onChange={event => setAmount(event.target.value)} required /></Field><Field label="週期"><select value={frequency} onChange={event => setFrequency(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3"><option value="weekly">每週</option><option value="monthly">每月</option><option value="yearly">每年</option></select></Field></div><Field label="扣款日"><Input type="number" min="1" max="31" value={dayOfMonth} onChange={event => setDayOfMonth(Number(event.target.value))} required /></Field><Field label="分類"><select value={categoryId} onChange={event => setCategoryId(Number(event.target.value))} className="h-10 w-full rounded-md border border-input bg-background px-3">{workspace?.categories?.filter((item: any) => item.isActive && item.type === "expense").map((item: any) => <option key={item.id} value={item.id}>{item.icon} {item.name}</option>)}</select></Field><Field label="支付方式"><select value={paymentMethodId} onChange={event => setPaymentMethodId(Number(event.target.value))} className="h-10 w-full rounded-md border border-input bg-background px-3">{workspace?.paymentMethods?.filter((item: any) => item.isActive).map((item: any) => <option key={item.id} value={item.id}>{item.icon} {item.name}</option>)}</select></Field></SimpleForm> }
 function TravelDialog({ open, ledgerId, onClose, onSave }: any) { const [name, setName] = useState(""); const [budget, setBudget] = useState(""); const [startDate, setStart] = useState(new Date().toISOString().slice(0, 10)); const [endDate, setEnd] = useState(new Date().toISOString().slice(0, 10)); const [notes, setNotes] = useState(""); return <SimpleForm open={open} title="新增出遊規劃" onClose={onClose} onSubmit={() => onSave({ ledgerId, name, budget: Math.round(Number(budget)), startDate: new Date(`${startDate}T12:00:00`), endDate: new Date(`${endDate}T12:00:00`), notes: notes || undefined })}><Field label="行程名稱"><Input value={name} onChange={event => setName(event.target.value)} required /></Field><Field label="出遊預算"><Input type="number" min="1" value={budget} onChange={event => setBudget(event.target.value)} required /></Field><div className="grid grid-cols-2 gap-3"><Field label="開始日期"><Input type="date" value={startDate} onChange={event => setStart(event.target.value)} /></Field><Field label="結束日期"><Input type="date" value={endDate} onChange={event => setEnd(event.target.value)} /></Field></div><Field label="備註"><Textarea value={notes} onChange={event => setNotes(event.target.value)} /></Field></SimpleForm> }
-function EntityDialog({ open, type, ledgerId, entity, onClose, onCategory, onPayment }: any) { const [name, setName] = useState(""); const [icon, setIcon] = useState("🍜"); const [categoryType, setCategoryType] = useState("expense"); useEffect(() => { if (open) { setName(entity?.name || ""); setIcon(type === "payment" ? paymentEmoji(entity) : categoryEmoji(entity)); setCategoryType(entity?.type || "expense"); } }, [open, entity, type]); const submit = () => { if (type === "category") { const input = { ledgerId, name, icon: categoryEmoji({ name, icon }), type: categoryType, color: "#B56C78", parentCategoryId: 0 }; onCategory(entity ? { ...input, categoryId: entity.id } : input); } else { const input = { ledgerId, name, icon: paymentEmoji({ name, icon }) }; onPayment(entity ? { ...input, paymentMethodId: entity.id } : input); } }; return <SimpleForm open={open} title={`${entity ? "編輯" : "新增"}${type === "category" ? "分類" : "支付方式"}`} onClose={onClose} onSubmit={submit}><Field label="名稱"><Input value={name} onChange={event => setName(event.target.value)} required /></Field><Field label="圖示"><div className="flex flex-wrap gap-2">{iconOptions.map(value => <button key={value} type="button" onClick={() => setIcon(value)} className={`rounded-lg border px-2 py-1.5 ${icon === value ? "border-[#B56C78] bg-[#F7E8E8]" : "border-[#E5D8D2]"}`}>{value}</button>)}</div></Field>{type === "category" && <Field label="類型"><select value={categoryType} onChange={event => setCategoryType(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3"><option value="expense">支出分類</option><option value="income">收入分類</option></select></Field>}</SimpleForm> }
+function EntityDialog({ open, type, ledgerId, entity, onClose, onCategory, onPayment }: any) {
+  const [name, setName] = useState("");
+  const [icon, setIcon] = useState("");
+  const [categoryType, setCategoryType] = useState("expense");
+  useEffect(() => {
+    if (open) {
+      setName(entity?.name || "");
+      setIcon(entity?.icon === "" ? "" : type === "payment" ? paymentEmoji(entity) : categoryEmoji(entity));
+      setCategoryType(entity?.type || "expense");
+    }
+  }, [open, entity, type]);
+  const submit = () => {
+    if (type === "category") {
+      const input = { ledgerId, name, icon: icon === "" ? "" : categoryEmoji({ name, icon }), type: categoryType, color: "#B56C78", parentCategoryId: 0 };
+      onCategory(entity ? { ...input, categoryId: entity.id } : input);
+    } else {
+      const input = { ledgerId, name, icon: icon === "" ? "" : paymentEmoji({ name, icon }) };
+      onPayment(entity ? { ...input, paymentMethodId: entity.id } : input);
+    }
+  };
+  return <SimpleForm open={open} title={`${entity ? "編輯" : "新增"}${type === "category" ? "分類" : "支付方式"}`} onClose={onClose} onSubmit={submit}>
+    <Field label="名稱"><Input value={name} onChange={event => setName(event.target.value)} required /></Field>
+    <Field label="圖示"><CategoryPaymentIconPicker type={type} icon={icon} onChange={setIcon} /></Field>
+    {type === "category" && <Field label="類型"><select value={categoryType} onChange={event => setCategoryType(event.target.value)} className="h-10 w-full rounded-md border border-input bg-background px-3"><option value="expense">支出分類</option><option value="income">收入分類</option></select></Field>}
+  </SimpleForm>;
+}
 function ManageDialog({ open, ledger, workspace, userId, onClose, onRename, onTransfer }: any) { const [name, setName] = useState(""); const [icon, setIcon] = useState<string | null>(null); const [target, setTarget] = useState(0); useEffect(() => { if (open) { setName(ledger?.name || ""); setIcon(ledger?.icon || null); setTarget(workspace?.members?.find((item: any) => item.member.userId !== userId)?.member.userId || 0); } }, [open, ledger, workspace, userId]); return <Dialog open={open} onOpenChange={next => !next && onClose()}><DialogContent className="max-h-[88vh] overflow-y-auto rounded-3xl"><DialogHeader><DialogTitle>帳本管理</DialogTitle><DialogDescription>可修改帳本名稱、圖示或將持有權轉讓給其他成員。</DialogDescription></DialogHeader><div className="mt-4 space-y-5"><form className="space-y-4" onSubmit={event => { event.preventDefault(); onRename({ name: name.trim(), icon }); }}><Field label="帳本圖示"><CompactLedgerIconPicker icon={icon} onChange={setIcon} /></Field><Field label="帳本名稱"><div className="flex gap-2"><Input value={name} onChange={event => setName(event.target.value)} required /><Button type="submit" className="shrink-0 bg-[#B56C78]">儲存</Button></div></Field></form><div className="border-t pt-4"><Label>轉讓帳本持有權</Label><div className="mt-2 flex gap-2"><select value={target} onChange={event => setTarget(Number(event.target.value))} className="h-10 min-w-0 flex-1 rounded-md border border-input bg-background px-3">{workspace?.members?.filter((item: any) => item.member.userId !== userId).map((item: any) => <option key={item.member.userId} value={item.member.userId}>{item.user.name}</option>)}</select><Button type="button" variant="outline" onClick={() => target && onTransfer(target)}>轉讓</Button></div></div></div></DialogContent></Dialog> }
 function SimpleForm({ open, title, onClose, onSubmit, children }: any) { return <Dialog open={open} onOpenChange={next => !next && onClose()}><DialogContent className="max-h-[88vh] overflow-y-auto rounded-3xl sm:max-w-md"><DialogHeader><DialogTitle>{title}</DialogTitle></DialogHeader><form className="mt-3 space-y-4" onSubmit={event => { event.preventDefault(); onSubmit(); }}>{children}<Button type="submit" className="w-full bg-[#B56C78]">儲存</Button></form></DialogContent></Dialog> }
 function ConfirmDialog({ request, onClose }: any) { return <Dialog open={Boolean(request)} onOpenChange={next => !next && onClose()}><DialogContent className="rounded-3xl"><DialogHeader><DialogTitle>{request?.title}</DialogTitle><DialogDescription>{request?.text}</DialogDescription></DialogHeader><div className="mt-4 flex justify-end gap-2"><Button type="button" variant="outline" onClick={onClose}>取消</Button><Button type="button" variant="destructive" onClick={() => { request?.run(); onClose(); }}>確認</Button></div></DialogContent></Dialog> }

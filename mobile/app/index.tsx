@@ -50,7 +50,13 @@ import {
   saveSessionToken,
   subscribeLedgerEvents,
 } from "../lib/api";
-import { LEDGER_ICON_OPTIONS, searchLedgerIconOptions } from "@shared/ledgerIcons";
+import {
+  CATEGORY_EMOJI_OPTIONS,
+  LEDGER_ICON_OPTIONS,
+  PAYMENT_EMOJI_OPTIONS,
+  searchCategoryPaymentIconOptions,
+  searchLedgerIconOptions,
+} from "@shared/ledgerIcons";
 import { extractVersionNotes } from "@shared/releaseNotes";
 
 const colors = {
@@ -120,7 +126,7 @@ const appearanceDefaults: AppearancePreferences = {
   colorMode: "system",
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.3.7";
+const APP_VERSION = "1.3.8";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 const GITHUB_WIKI_URL = "https://github.com/ben880320-boop/together-ledger/wiki";
@@ -814,8 +820,6 @@ const savingsBucketErrorMessage = (error: unknown, fallback: string) => {
     : message;
 };
 
-const CATEGORY_EMOJI_CHOICES = ["🍜", "☕", "🚗", "⛽", "🏠", "🧺", "🛍️", "📱", "🎮", "💕", "✈️", "💊", "📚", "💰", "🎁", "✨", "🏷️"];
-const PAYMENT_EMOJI_CHOICES = ["💵", "💳", "📱", "🏦", "🧾", "🎁", "🔁", "💸"];
 const CATEGORY_LEGACY_EMOJI: Record<string, string> = {
   food: "🍜", car: "🚗", home: "🏠", shopping: "🛍️", heart: "💕", income: "💰",
   "⌂": "🏠", "◌": "🏷️", "♡": "💕", "↗": "💰", "＋": "💰", "◇": "🛍️", "✦": "✨",
@@ -824,6 +828,7 @@ const PAYMENT_LEGACY_EMOJI: Record<string, string> = {
   cash: "💵", card: "💳", pay: "📱", bank: "🏦", "現": "💵", "卡": "💳", "支": "📱", "銀": "🏦",
 };
 const categoryEmoji = (item?: Pick<Category, "name" | "icon">) => {
+  if (item?.icon === "") return "";
   const icon = item?.icon?.trim() || "";
   const legacy = CATEGORY_LEGACY_EMOJI[icon.toLowerCase()];
   if (legacy && icon !== "◌") return legacy;
@@ -838,6 +843,7 @@ const categoryEmoji = (item?: Pick<Category, "name" | "icon">) => {
   return legacy || icon || "🏷️";
 };
 const paymentEmoji = (item?: Pick<PaymentMethod, "name" | "icon">) => {
+  if (item?.icon === "") return "";
   const icon = item?.icon?.trim() || "";
   const legacy = PAYMENT_LEGACY_EMOJI[icon.toLowerCase()];
   if (legacy) return legacy;
@@ -4483,19 +4489,19 @@ function SettingsSection({
   const startEditCategory = (item: Category) => {
     setEditingCategory(item);
     setDraftCategoryName(item.name);
-    setDraftCategoryIcon(categoryEmoji(item));
+    setDraftCategoryIcon(item.icon === "" ? "" : categoryEmoji(item));
     setDraftCategoryType(item.type);
   };
   const startEditPayment = (item: PaymentMethod) => {
     setEditingPayment(item);
     setDraftPaymentName(item.name);
-    setDraftPaymentIcon(paymentEmoji(item));
+    setDraftPaymentIcon(item.icon === "" ? "" : paymentEmoji(item));
   };
   const saveCategory = async () => {
     if (!editingCategory || !draftCategoryName.trim()) return;
     setSettingsBusy(true);
     try {
-      await api.ledger.updateCategory.mutate({ ledgerId: ledger.id, categoryId: editingCategory.id, name: draftCategoryName.trim(), icon: categoryEmoji({ name: draftCategoryName, icon: draftCategoryIcon }), type: draftCategoryType, color: editingCategory.color });
+      await api.ledger.updateCategory.mutate({ ledgerId: ledger.id, categoryId: editingCategory.id, name: draftCategoryName.trim(), icon: draftCategoryIcon === "" ? "" : categoryEmoji({ name: draftCategoryName, icon: draftCategoryIcon }), type: draftCategoryType, color: editingCategory.color });
       setEditingCategory(null);
       onRefresh();
     } finally {
@@ -4506,7 +4512,7 @@ function SettingsSection({
     if (!editingPayment || !draftPaymentName.trim()) return;
     setSettingsBusy(true);
     try {
-      await api.ledger.updatePaymentMethod.mutate({ ledgerId: ledger.id, paymentMethodId: editingPayment.id, name: draftPaymentName.trim(), icon: paymentEmoji({ name: draftPaymentName, icon: draftPaymentIcon }) });
+      await api.ledger.updatePaymentMethod.mutate({ ledgerId: ledger.id, paymentMethodId: editingPayment.id, name: draftPaymentName.trim(), icon: draftPaymentIcon === "" ? "" : paymentEmoji({ name: draftPaymentName, icon: draftPaymentIcon }) });
       setEditingPayment(null);
       onRefresh();
     } finally {
@@ -5977,29 +5983,75 @@ function EmojiPicker({
 }: {
   label: string;
   value: string;
-  choices: string[];
+  choices: readonly string[];
   onChange: (emoji: string) => void;
 }) {
+  const { palette } = useAppearance();
+  const [expanded, setExpanded] = useState(false);
+  const [query, setQuery] = useState("");
+  const matchedOptions = searchCategoryPaymentIconOptions(query, choices);
+  const options = expanded ? matchedOptions : choices.slice(0, 12);
+  const selectIcon = (emoji: string) => {
+    onChange(emoji);
+    setExpanded(false);
+    setQuery("");
+  };
   return (
     <View style={styles.emojiPicker}>
       <Text style={styles.fieldLabel}>{label}</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.emojiPickerRow}>
-        {choices.map(emoji => (
+      <View style={styles.iconPickerSummary}>
+        <Text style={styles.iconPickerSummaryText}>目前：{value || "無圖示"}</Text>
+        <Pressable
+          onPress={() => { setExpanded(current => !current); setQuery(""); }}
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
+          style={({ pressed }) => [styles.iconPickerToggle, pressed && styles.pressed]}
+        >
+          <Text style={[styles.iconPickerToggleText, { color: palette.rose }]}>
+            {expanded ? "收合圖示" : `瀏覽全部（${choices.length}）`}
+          </Text>
+        </Pressable>
+      </View>
+      <Pressable
+        onPress={() => selectIcon("")}
+        style={[styles.iconPickerNoneButton, value === "" && styles.iconPickerItemActive]}
+        accessibilityRole="button"
+        accessibilityState={{ selected: value === "" }}
+        accessibilityLabel={`不顯示${label}`}
+      >
+        <Text style={[styles.iconPickerNoneButtonText, { color: value === "" ? palette.rose : palette.text }]}>不使用圖示</Text>
+      </Pressable>
+      {expanded && <>
+        <TextInput
+          value={query}
+          onChangeText={setQuery}
+          placeholder="搜尋圖示，例如：車、旅行、愛心"
+          placeholderTextColor={palette.muted}
+          accessibilityLabel={`搜尋${label}`}
+          style={[styles.iconPickerSearch, { color: palette.text, borderColor: palette.border, backgroundColor: palette.inputBackground }]}
+        />
+        <Text style={[styles.iconPickerResultText, { color: palette.muted }]}>
+          {query.trim() ? `找到 ${matchedOptions.length} 個圖示` : `全部 ${choices.length} 個圖示`}
+        </Text>
+      </>}
+      <View style={styles.iconPicker}>
+        {options.map(emoji => (
           <Pressable
             key={emoji}
             accessibilityRole="button"
-            accessibilityLabel={`選擇圖示 ${emoji}`}
-            onPress={() => onChange(emoji)}
+            accessibilityLabel={`使用 ${emoji} 作為${label}`}
+            accessibilityState={{ selected: value === emoji }}
+            onPress={() => selectIcon(emoji)}
             style={({ pressed }) => [
-              styles.emojiChoice,
-              value === emoji && styles.emojiChoiceActive,
+              styles.iconPickerItem,
+              value === emoji && styles.iconPickerItemActive,
               pressed && styles.pressed,
             ]}
           >
-            <Text style={styles.emojiChoiceText}>{emoji}</Text>
+            <Text style={styles.iconPickerText}>{emoji}</Text>
           </Pressable>
         ))}
-      </ScrollView>
+      </View>
     </View>
   );
 }
@@ -6654,14 +6706,14 @@ function SettingsModal({
   const [name, setName] = useState("");
   const [type, setType] = useState<"expense" | "income">("expense");
   const [parent, setParent] = useState("0");
-  const [icon, setIcon] = useState(mode === "category" ? "🏷️" : "💳");
+  const [icon, setIcon] = useState("");
   const [localError, setLocalError] = useState("");
   useEffect(() => {
     if (visible) {
       setName("");
       setType("expense");
       setParent("0");
-      setIcon(mode === "category" ? "🏷️" : "💳");
+      setIcon("");
       setLocalError("");
     }
   }, [visible, mode]);
@@ -6702,7 +6754,7 @@ function SettingsModal({
             placeholderTextColor="#B9A69E"
             style={styles.input}
           />
-          <EmojiPicker label="選擇圖示" value={icon} choices={mode === "category" ? CATEGORY_EMOJI_CHOICES : PAYMENT_EMOJI_CHOICES} onChange={setIcon} />
+          <EmojiPicker label="選擇圖示" value={icon} choices={mode === "category" ? CATEGORY_EMOJI_OPTIONS : PAYMENT_EMOJI_OPTIONS} onChange={setIcon} />
           <TextInput
             value={icon}
             onChangeText={setIcon}
@@ -6759,7 +6811,7 @@ function SettingsModal({
                 parentCategoryId: Number(parent),
                 name: name.trim(),
                 type,
-                icon: mode === "category" ? categoryEmoji({ name, icon }) : paymentEmoji({ name, icon }),
+                icon: icon === "" ? "" : mode === "category" ? categoryEmoji({ name, icon }) : paymentEmoji({ name, icon }),
               });
             }}
             style={({ pressed }) => [

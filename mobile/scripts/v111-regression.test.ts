@@ -129,7 +129,10 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     expect(app).toContain("FlatList");
     expect(app).toContain("maxToRenderPerBatch={4}");
     expect(app).toContain("backgroundColor: palette.surface");
-    expect(app).toContain('import { LEDGER_ICON_OPTIONS, searchLedgerIconOptions } from "@shared/ledgerIcons"');
+    expect(app).toContain("LEDGER_ICON_OPTIONS");
+    expect(app).toContain("CATEGORY_EMOJI_OPTIONS");
+    expect(app).toContain("PAYMENT_EMOJI_OPTIONS");
+    expect(app).toContain("searchLedgerIconOptions");
     expect(ledgerIcons).toContain("LEDGER_ICON_OPTIONS");
     expect(ledgerIcons).toContain('"🌊"');
     expect(readMobile("app.json")).toContain("softwareKeyboardLayoutMode");
@@ -199,17 +202,23 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     expect(notifications).toContain('skipped: "notifications-disabled"');
   });
 
-  it("normalizes legacy category and payment icons into selectable emojis", () => {
+  it("保留舊圖示相容性，並讓分類與支付方式可選擇無圖示及搜尋完整圖示庫", () => {
     const app = readMobile("app/index.tsx");
-    expect(app).toContain("const CATEGORY_EMOJI_CHOICES");
-    expect(app).toContain("const PAYMENT_EMOJI_CHOICES");
+    expect(app).toContain("CATEGORY_EMOJI_OPTIONS");
+    expect(app).toContain("PAYMENT_EMOJI_OPTIONS");
+    expect(app).toContain("searchCategoryPaymentIconOptions(query, choices)");
+    expect(app).toContain("const options = expanded ? matchedOptions : choices.slice(0, 12);");
+    expect(app).toContain("不使用圖示");
+    expect(app).toContain('placeholder="搜尋圖示，例如：車、旅行、愛心"');
     expect(app).toContain('"◌": "🏷️"');
     expect(app).toContain("const categoryEmoji");
     expect(app).toContain("const paymentEmoji");
     expect(app).toContain("function EmojiPicker");
-    expect(app).toContain('setIcon(mode === "category" ? "🏷️" : "💳")');
-    expect(app).toContain("icon: categoryEmoji({ name: draftCategoryName, icon: draftCategoryIcon })");
-    expect(app).toContain("icon: paymentEmoji({ name: draftPaymentName, icon: draftPaymentIcon })");
+    expect(app).toContain('if (item?.icon === "") return "";');
+    expect(app).toContain('setIcon("");');
+    expect(app).toContain('icon: icon === "" ? ""');
+    expect(app).toContain('draftCategoryIcon === "" ? "" : categoryEmoji');
+    expect(app).toContain('draftPaymentIcon === "" ? "" : paymentEmoji');
     expect(app).toContain("categoryEmoji(item)");
     expect(app).toContain("paymentEmoji(item)");
     expect(app).not.toContain('icon: draftCategoryIcon.trim() || "◌"');
@@ -254,9 +263,9 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
       expo?: { version?: string; scheme?: string; android?: { versionCode?: number } };
     };
-    expect(appJson.expo?.version).toBe("1.3.7");
-    expect(appJson.expo?.android?.versionCode).toBe(30);
-    expect(readMobile("package.json")).toContain('"version": "1.3.7"');
+    expect(appJson.expo?.version).toBe("1.3.8");
+    expect(appJson.expo?.android?.versionCode).toBe(31);
+    expect(readMobile("package.json")).toContain('"version": "1.3.8"');
     expect(appJson.expo?.scheme).toBe("togetherledger");
     expect(readMobile("app.json")).not.toContain("expo-notifications");
     expect(readMobile("app.json")).toContain('"googleServicesFile": "./google-services.json"');
@@ -303,7 +312,8 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     expect(apiSource).toContain("controller.abort()");
     expect(apiSource).toContain("realtimeRetryDelay");
     expect(app).toContain("subscribeLedgerEvents");
-    expect(app).toContain('import { LEDGER_ICON_OPTIONS, searchLedgerIconOptions } from "@shared/ledgerIcons"');
+    expect(app).toContain("LEDGER_ICON_OPTIONS");
+    expect(app).toContain("searchLedgerIconOptions");
     expect(iconSource.match(/"[^"\n]+"/g)?.length ?? 0).toBeGreaterThanOrEqual(69);
   });
 
