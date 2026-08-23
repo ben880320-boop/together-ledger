@@ -691,3 +691,11 @@
 - [x] 擴充後端驗證 Firebase ID Token、帳號連結與 session 撤銷規則，維持 tRPC 與帳本權限檢查
 - [x] 在 Web、PWA、Android 完成註冊、驗證提醒、重新寄送驗證信、忘記密碼與重設後重新登入的可存取流程
 - [x] 補齊 Firebase 驗證、帳號過渡、權限、session 與跨端核心流程測試，完成文件、feature branch、Pull Request 與發布
+
+## Firebase 認證提示與信件在地化優化
+
+- [x] 將 Web／PWA／Android 的註冊、忘記密碼與信箱綁定狀態改為一致、可見且可關閉的浮動提示視窗
+- [x] 在信箱綁定成功提示加入「請檢查收件匣與垃圾郵件匣」的清楚提醒與重寄入口
+- [x] 簡化忘記密碼操作，提供單一 Email 輸入、明確送出狀態、重寄／返回登入入口與不洩漏帳戶存在性的錯誤文案
+- [x] 盤點 Firebase Auth 寄件主旨、寄件者名稱與 Email 範本的可設定範圍，補齊繁體中文 Firebase Console 手動設定說明
+- [ ] 補齊跨平台提示與忘記密碼流程測試、更新 README／Wiki 交接文件，執行完整驗收與發布流程

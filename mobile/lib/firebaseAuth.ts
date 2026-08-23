@@ -29,7 +29,10 @@ function requireFirebaseConfig() {
 let firebaseAuth: ReturnType<typeof getAuth> | null = null;
 
 function getFirebaseAuth() {
-  if (firebaseAuth) return firebaseAuth;
+  if (firebaseAuth) {
+    firebaseAuth.languageCode = "zh-TW";
+    return firebaseAuth;
+  }
   requireFirebaseConfig();
   const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
   try {
@@ -40,6 +43,7 @@ function getFirebaseAuth() {
     // Fast refresh or another consumer may already have initialized Auth.
     firebaseAuth = getAuth(app);
   }
+  firebaseAuth.languageCode = "zh-TW";
   return firebaseAuth;
 }
 

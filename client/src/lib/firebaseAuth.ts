@@ -28,7 +28,10 @@ function assertFirebaseConfig() {
 function firebaseAuth() {
   assertFirebaseConfig();
   const app = getApps().length ? getApp() : initializeApp(config);
-  return getAuth(app);
+  const auth = getAuth(app);
+  // Firebase 會依此 BCP 47 語言標籤選擇驗證與密碼重設信的在地化範本。
+  auth.languageCode = "zh-TW";
+  return auth;
 }
 
 function actionCodeSettings() {
