@@ -3,5 +3,7 @@ overrides:
 patchedDependencies:
   "wouter@3.7.1": patches/wouter@3.7.1.patch
 allowBuilds:
+  '@firebase/util': true
   "@tailwindcss/oxide": true
   esbuild: true
+  protobufjs: true

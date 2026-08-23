@@ -4,6 +4,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { COOKIE_NAME } from "@/const";
+import {
+  messageOfFirebaseError,
+  registerFirebaseEmail,
+  requestFirebasePasswordReset,
+  resendFirebaseVerification,
+  signInFirebaseEmail,
+} from "@/lib/firebaseAuth";
 import { trpc } from "@/lib/trpc";
 import { Heart, KeyRound, LoaderCircle, Mail, UserRound } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
@@ -24,13 +31,25 @@ export default function WebAuth() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [formError, setFormError] = useState("");
+  const [formNotice, setFormNotice] = useState("");
+  const [firebaseBusy, setFirebaseBusy] = useState(false);
   const [checkingSession, setCheckingSession] = useState(false);
   const inviteCode = new URLSearchParams(window.location.search).get("invite")?.trim().toUpperCase();
+  const emailActionComplete = new URLSearchParams(window.location.search).get("emailAction") === "complete";
   const afterAuthPath = inviteCode ? `/invite?code=${encodeURIComponent(inviteCode)}` : "/app";
 
   useEffect(() => {
     if (!loading && user) setLocation(afterAuthPath);
   }, [afterAuthPath, loading, setLocation, user]);
+
+  useEffect(() => {
+    if (!emailActionComplete) return;
+    setMode("login");
+    setFormError("");
+    setFormNotice("電子郵件操作已完成。若剛重設密碼，請使用新密碼登入；若剛完成信箱驗證，現在即可安全登入。");
+    const query = inviteCode ? `?invite=${encodeURIComponent(inviteCode)}` : "";
+    window.history.replaceState(null, "", `/login${query}`);
+  }, [emailActionComplete, inviteCode]);
 
   const establishSession = async (token: string) => {
     setCheckingSession(true);
@@ -58,28 +77,82 @@ export default function WebAuth() {
     }
   };
 
-  const login = trpc.auth.login.useMutation({
+  const legacyLogin = trpc.auth.login.useMutation({
     onSuccess: result => establishSession(result.token),
     onError: error => setFormError(messageOf(error)),
   });
-  const register = trpc.auth.register.useMutation({
+  const exchangeFirebaseToken = trpc.auth.exchangeFirebaseToken.useMutation({
     onSuccess: result => establishSession(result.token),
     onError: error => setFormError(messageOf(error)),
   });
 
-  const pending = login.isPending || register.isPending;
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const pending = firebaseBusy || legacyLogin.isPending || exchangeFirebaseToken.isPending || checkingSession;
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setFormError("");
-    if (mode === "register") {
-      if (!name.trim()) {
-        setFormError("請輸入顯示暱稱。");
+    setFormNotice("");
+    setFirebaseBusy(true);
+    try {
+      if (mode === "register") {
+        if (!name.trim()) {
+          setFormError("請輸入顯示暱稱。");
+          return;
+        }
+        await registerFirebaseEmail({ name, email, password });
+        setFormNotice("驗證信已寄出。請完成信箱驗證後，再回到此頁登入。");
+        setMode("login");
+        setPassword("");
         return;
       }
-      register.mutate({ name: name.trim(), email: email.trim(), password });
+      const idToken = await signInFirebaseEmail(email, password);
+      exchangeFirebaseToken.mutate({ idToken });
+    } catch (error) {
+      setFormError(messageOfFirebaseError(error));
+    } finally {
+      setFirebaseBusy(false);
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    setFormError("");
+    setFormNotice("");
+    if (!email.trim()) {
+      setFormError("請先輸入電子信箱。為保護帳號安全，系統不會顯示帳號是否存在。");
       return;
     }
-    login.mutate({ email: email.trim(), password });
+    setFirebaseBusy(true);
+    try {
+      await requestFirebasePasswordReset(email);
+      setFormNotice("若此電子信箱已完成註冊，重設密碼信已寄出。請查看收件匣與垃圾郵件資料夾。");
+    } catch (error) {
+      setFormError(messageOfFirebaseError(error));
+    } finally {
+      setFirebaseBusy(false);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    setFormError("");
+    setFormNotice("");
+    if (!email.trim() || !password) {
+      setFormError("請先輸入電子信箱與密碼，才能重新寄送驗證信。");
+      return;
+    }
+    setFirebaseBusy(true);
+    try {
+      await resendFirebaseVerification(email, password);
+      setFormNotice("若帳號尚未驗證，驗證信已重新寄送。請完成驗證後再登入。");
+    } catch (error) {
+      setFormError(messageOfFirebaseError(error));
+    } finally {
+      setFirebaseBusy(false);
+    }
+  };
+
+  const handleLegacyLogin = () => {
+    setFormError("");
+    setFormNotice("");
+    legacyLogin.mutate({ email: email.trim(), password });
   };
 
   return (
@@ -112,15 +185,19 @@ export default function WebAuth() {
               </div>
               <div className="mt-8">
                 <h2 className="text-2xl font-bold tracking-tight">{mode === "login" ? "歡迎回來" : "建立你的帳號"}</h2>
-                <p className="mt-2 text-sm leading-6 text-muted-foreground">{mode === "login" ? "使用你在共帳 App 建立的電子信箱與密碼登入。" : "註冊後可直接建立帳本或輸入邀請碼加入對方的帳本。"}</p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">{mode === "login" ? "使用已驗證的電子信箱與密碼安全登入。" : "註冊後先驗證電子信箱，再建立帳本或輸入邀請碼加入對方的帳本。"}</p>
               </div>
               <form className="mt-7 space-y-5" onSubmit={handleSubmit}>
                 {mode === "register" && <div className="space-y-2"><Label htmlFor="web-auth-name">顯示暱稱</Label><div className="relative"><UserRound className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input id="web-auth-name" value={name} onChange={event => setName(event.target.value)} className="h-10 border-input pl-9" maxLength={64} autoComplete="name" /></div></div>}
                 <div className="space-y-2"><Label htmlFor="web-auth-email">電子信箱</Label><div className="relative"><Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input id="web-auth-email" value={email} onChange={event => setEmail(event.target.value)} className="h-10 border-input pl-9" type="email" autoComplete="email" required /></div></div>
                 <div className="space-y-2"><Label htmlFor="web-auth-password">密碼</Label><div className="relative"><KeyRound className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input id="web-auth-password" value={password} onChange={event => setPassword(event.target.value)} className="h-10 border-input pl-9" type="password" minLength={8} maxLength={128} autoComplete={mode === "login" ? "current-password" : "new-password"} required /></div><p className="text-xs text-muted-foreground">密碼長度至少 8 個字元。</p></div>
                 {formError && <p role="alert" className="rounded-xl bg-destructive/12 px-3 py-2.5 text-sm leading-6 text-destructive">{formError}</p>}
+                {formNotice && <p role="status" className="rounded-xl bg-emerald-500/10 px-3 py-2.5 text-sm leading-6 text-emerald-700 dark:text-emerald-300">{formNotice}</p>}
                 <Button type="submit" disabled={pending} aria-busy={pending} className="h-11 w-full rounded-xl bg-primary font-semibold text-primary-foreground shadow-[0_12px_24px_var(--scene-shadow)] hover:bg-primary/90">{pending && <LoaderCircle size={16} className="mr-2 animate-spin" />}{pending ? checkingSession ? "正在安全開啟帳本…" : "正在驗證帳號…" : mode === "login" ? "登入並開啟帳本" : "註冊並建立帳本"}</Button>
                 {pending && <p className="text-center text-xs text-muted-foreground" role="status">登入完成後會同步你的共同帳本，請勿關閉此頁。</p>}
+                {mode === "login" && <div className="flex flex-col gap-2 text-center text-sm sm:flex-row sm:justify-center"><button type="button" disabled={pending} onClick={handlePasswordReset} className="font-medium text-primary underline-offset-4 hover:underline">忘記密碼</button><span className="hidden text-muted-foreground sm:inline">·</span><button type="button" disabled={pending} onClick={handleResendVerification} className="font-medium text-primary underline-offset-4 hover:underline">重新寄送驗證信</button></div>}
+                {mode === "login" && <p className="text-center text-xs leading-5 text-muted-foreground">既有共帳帳號尚未綁定 Firebase？請先使用下方的舊版帳密登入，再到個人設定完成電子信箱綁定。</p>}
+                {mode === "login" && <Button type="button" variant="outline" disabled={pending} onClick={handleLegacyLogin} className="h-10 w-full rounded-xl">使用既有帳密登入</Button>}
               </form>
             </div>
           </section>

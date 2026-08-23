@@ -679,3 +679,15 @@
 - [x] 在 Web、PWA 與 Android 帳本總覽增加醒目的本月待結算摘要，清楚呈現目前差額、提出／確認／鎖定狀態與可執行操作
 - [x] 新增結算歷史月份與狀態篩選，維持帳本權限、月結算版本保護與跨端同步一致性
 - [x] 補齊鍵盤互動、待結算摘要與結算歷史篩選的型別／單元／核心流程／視覺驗收，更新文件並完成 Pull Request 與發布
+
+## 電子郵件綁定與忘記密碼
+
+- [x] 取消自建 Resend 寄信流程；使用者選擇不需自備網域的 Firebase Authentication
+
+## Firebase Authentication 電子郵件帳號安全
+
+- [x] 盤點現有本機帳密、session 與使用者資料，確認 Firebase 帳號連結不會遺失既有帳本存取權
+- [x] 設定 Firebase Authentication 的 Email／Password、Email 驗證與密碼重設寄信能力，並以環境變數安全保存設定
+- [x] 擴充後端驗證 Firebase ID Token、帳號連結與 session 撤銷規則，維持 tRPC 與帳本權限檢查
+- [x] 在 Web、PWA、Android 完成註冊、驗證提醒、重新寄送驗證信、忘記密碼與重設後重新登入的可存取流程
+- [ ] 補齊 Firebase 驗證、帳號過渡、權限、session 與跨端核心流程測試，完成文件、feature branch、Pull Request 與發布

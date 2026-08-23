@@ -52,8 +52,17 @@ import {
   subscribeLedgerEvents,
 } from "../lib/api";
 import {
+  getPersistedVerifiedFirebaseIdToken,
+  messageOfFirebaseError,
+  registerFirebaseEmailWithProfile,
+  requestFirebasePasswordReset,
+  resendFirebaseEmailVerification,
+  signOutFromFirebase,
+  signInWithFirebaseEmail,
+} from "../lib/firebaseAuth";
+import {
   CATEGORY_EMOJI_OPTIONS,
-  LEDGER_ICON_OPTIONS,
+  LEDGER_EMOJI_OPTIONS,
   PAYMENT_EMOJI_OPTIONS,
   searchCategoryPaymentIconOptions,
   searchLedgerIconOptions,
@@ -130,7 +139,7 @@ const appearanceDefaults: AppearancePreferences = {
   colorMode: "system",
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.3.12";
+const APP_VERSION = "1.3.13";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 const GITHUB_WIKI_URL = "https://github.com/ben880320-boop/together-ledger/wiki";
@@ -1064,6 +1073,8 @@ function AppContent() {
   const [updateDiagnostic, setUpdateDiagnostic] = useState<AppUpdateDiagnostic>("not-checked");
   const [savedUpdateResume, setSavedUpdateResume] = useState<SavedUpdateResume | null>(null);
   const [accountDeletionVisible, setAccountDeletionVisible] = useState(false);
+  const [firebaseLinkVisible, setFirebaseLinkVisible] = useState(false);
+  const [firebaseLinked, setFirebaseLinked] = useState<boolean | null>(null);
   const [diagnosticsEnabled, setDiagnosticsEnabled] = useState(false);
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
   const [diagnosticsSaving, setDiagnosticsSaving] = useState(false);
@@ -1420,11 +1431,15 @@ function AppContent() {
       if (!nextUser) {
         await clearSessionToken();
         setUser(null);
+        setFirebaseLinked(null);
         setLedgers([]);
         setActiveLedger(null);
         return;
       }
       setUser(nextUser as User);
+      void api.auth.firebaseStatus.query()
+        .then(status => setFirebaseLinked(status.firebaseLinked))
+        .catch(() => setFirebaseLinked(null));
       const rows = await api.ledger.list.query() as Array<{ ledger: Ledger }>;
       const nextLedgers = rows.map(row => row.ledger);
       setLedgers(nextLedgers);
@@ -1478,6 +1493,7 @@ function AppContent() {
       ) {
         await clearSessionToken();
         setUser(null);
+        setFirebaseLinked(null);
       }
     } finally {
       setBusy(false);
@@ -1485,12 +1501,39 @@ function AppContent() {
     }
   }, [reloadLedger]);
 
+  const exchangeFirebaseSession = useCallback(async (idToken: string) => {
+    const result = await api.auth.exchangeFirebaseToken.mutate({ idToken });
+    await saveSessionToken(result.token);
+  }, []);
+
   useEffect(() => {
-    getSessionToken().then(token => {
-      if (token) void loadWorkspace();
-      else setReady(true);
-    });
-  }, [loadWorkspace]);
+    let cancelled = false;
+    void (async () => {
+      const token = await getSessionToken();
+      if (token) {
+        await loadWorkspace();
+        return;
+      }
+      try {
+        const firebaseIdToken = await getPersistedVerifiedFirebaseIdToken();
+        if (!firebaseIdToken || cancelled) {
+          if (!cancelled) setReady(true);
+          return;
+        }
+        await exchangeFirebaseSession(firebaseIdToken);
+        if (!cancelled) await loadWorkspace();
+      } catch (sessionError) {
+        if (!cancelled) {
+          await clearSessionToken();
+          setError(messageOfFirebaseError(sessionError));
+          setReady(true);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [exchangeFirebaseSession, loadWorkspace]);
   useEffect(() => {
     let mounted = true;
     const receiveInvite = (url: string | null) => {
@@ -1786,20 +1829,56 @@ function AppContent() {
     setError("");
     setBusy(true);
     try {
-      const result = input.mode === "signUp"
-        ? await api.auth.register.mutate({ email: input.email, password: input.password, name: input.name || "" })
-        : await api.auth.login.mutate({ email: input.email, password: input.password });
-      await saveSessionToken(result.token);
+      if (input.mode === "signUp") {
+        await registerFirebaseEmailWithProfile({
+          email: input.email,
+          password: input.password,
+          name: input.name || "",
+        });
+        setError("驗證信已寄出。請完成電子信箱驗證後，再回到共帳登入。");
+        return;
+      }
+      const idToken = await signInWithFirebaseEmail(input.email, input.password);
+      await exchangeFirebaseSession(idToken);
       await loadWorkspace();
     } catch (loginError) {
-      setError(
-        loginError instanceof Error
-          ? loginError.message
-          : "登入失敗，請稍後再試。"
-      );
+      setError(messageOfFirebaseError(loginError));
     } finally {
       setBusy(false);
       setReady(true);
+    }
+  };
+  const linkFirebaseAccount = async (password: string) => {
+    if (!user?.email) {
+      setError("此帳號尚未有可綁定的電子信箱。請先聯絡支援人員。");
+      return;
+    }
+    setError("");
+    setBusy(true);
+    try {
+      const idToken = await signInWithFirebaseEmail(user.email, password);
+      const linked = await api.auth.linkFirebase.mutate({ idToken });
+      await saveSessionToken(linked.token);
+      setFirebaseLinked(true);
+      setFirebaseLinkVisible(false);
+      showToast("Firebase 電子信箱已綁定，原有帳本與共同資料均已保留。");
+    } catch (linkError) {
+      setError(messageOfFirebaseError(linkError));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const requestLinkedFirebasePasswordReset = async () => {
+    if (!user?.email) return;
+    setError("");
+    setBusy(true);
+    try {
+      await requestFirebasePasswordReset(user.email);
+      showToast("若此電子信箱設有 Firebase 登入，密碼重設連結已寄出。請完成重設後再回來綁定。");
+    } catch (resetError) {
+      setError(messageOfFirebaseError(resetError));
+    } finally {
+      setBusy(false);
     }
   };
   const finishLedgerAction = async () => {
@@ -1856,7 +1935,13 @@ function AppContent() {
       /* native token removal remains authoritative */
     }
     await clearSessionToken();
+    try {
+      await signOutFromFirebase();
+    } catch {
+      // 本機 app session 已清除；Firebase 登出失敗時不保留任何共帳存取權。
+    }
     setUser(null);
+    setFirebaseLinked(null);
     setLedgers([]);
     clearLedgerWorkspace();
     setLedgerHome(true);
@@ -1876,8 +1961,19 @@ function AppContent() {
     setError("");
     setBusy(true);
     try {
-      await api.auth.deleteAccount.mutate({ password });
+      if (firebaseLinked) {
+        if (!user?.email) throw new Error("目前帳戶缺少電子信箱，無法完成 Firebase 再驗證。");
+        const firebaseIdToken = await signInWithFirebaseEmail(user.email, password);
+        await api.auth.deleteAccount.mutate({ firebaseIdToken });
+      } else {
+        await api.auth.deleteAccount.mutate({ password });
+      }
       await clearSessionToken();
+      try {
+        await signOutFromFirebase();
+      } catch {
+        // Firebase identity is already deleted on the server; local session removal remains authoritative.
+      }
       setAccountDeletionVisible(false);
       setUser(null);
       setLedgers([]);
@@ -2227,14 +2323,15 @@ function AppContent() {
   if (ledgers.length === 0)
     return (
       <>
-        <AppHeader
-          title={homePage === "profile" ? "個人設定" : "共帳"}
-          caption={homePage === "profile" ? "管理你的 App 偏好" : "建立你的共同財務空間"}
-          action={homeHeaderAction}
-        />
-        <AccountDeletionModal visible={accountDeletionVisible} busy={busy} error={error} onClose={() => setAccountDeletionVisible(false)} onSubmit={deleteAccount} />
-        {homePage === "profile" ? (
-          <PersonalSettingsPage user={user} error={error} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} updateCheckError={updateCheckError} updateDiagnostic={updateDiagnostic} diagnosticsEnabled={diagnosticsEnabled} diagnosticsLoading={diagnosticsLoading} diagnosticsSaving={diagnosticsSaving} diagnosticsError={diagnosticsError} onDiagnosticsChange={changeDiagnosticsPreference} onRetryDiagnostics={() => void loadDiagnosticsPreference()} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
+	        <AppHeader
+	          title={homePage === "profile" ? "個人設定" : "共帳"}
+	          caption={homePage === "profile" ? "管理你的 App 偏好" : "建立你的共同財務空間"}
+	          action={homeHeaderAction}
+	        />
+	        <AccountDeletionModal visible={accountDeletionVisible} busy={busy} error={error} firebaseLinked={firebaseLinked === true} onClose={() => setAccountDeletionVisible(false)} onSubmit={deleteAccount} />
+	        <FirebaseAccountLinkModal visible={firebaseLinkVisible} busy={busy} error={error} email={user.email} onClose={() => setFirebaseLinkVisible(false)} onSubmit={linkFirebaseAccount} onRequestPasswordReset={requestLinkedFirebasePasswordReset} />
+	        {homePage === "profile" ? (
+	          <PersonalSettingsPage user={user} error={error} firebaseLinked={firebaseLinked} onLinkFirebase={() => { setError(""); setFirebaseLinkVisible(true); }} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} updateCheckError={updateCheckError} updateDiagnostic={updateDiagnostic} diagnosticsEnabled={diagnosticsEnabled} diagnosticsLoading={diagnosticsLoading} diagnosticsSaving={diagnosticsSaving} diagnosticsError={diagnosticsError} onDiagnosticsChange={changeDiagnosticsPreference} onRetryDiagnostics={() => void loadDiagnosticsPreference()} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
         ) : (
           <EmptyLedger
             error={error}
@@ -2269,18 +2366,19 @@ function AppContent() {
       </>
     );
 
-  if (ledgerHome)
-    return (
-      <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "bottom"]}>
+	  if (ledgerHome)
+	    return (
+	      <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "bottom"]}>
         <ThemeAtmosphere />
-        <AppHeader
-          title={homePage === "profile" ? "個人設定" : "我的帳本"}
-          caption={homePage === "profile" ? "管理你的 App 偏好" : "選擇要進入的共同空間"}
-          action={homeHeaderAction}
-        />
-        <AccountDeletionModal visible={accountDeletionVisible} busy={busy} error={error} onClose={() => setAccountDeletionVisible(false)} onSubmit={deleteAccount} />
-        {homePage === "profile" ? (
-          <PersonalSettingsPage user={user} error={error} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} updateCheckError={updateCheckError} updateDiagnostic={updateDiagnostic} diagnosticsEnabled={diagnosticsEnabled} diagnosticsLoading={diagnosticsLoading} diagnosticsSaving={diagnosticsSaving} diagnosticsError={diagnosticsError} onDiagnosticsChange={changeDiagnosticsPreference} onRetryDiagnostics={() => void loadDiagnosticsPreference()} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
+	        <AppHeader
+	          title={homePage === "profile" ? "個人設定" : "我的帳本"}
+	          caption={homePage === "profile" ? "管理你的 App 偏好" : "選擇要進入的共同空間"}
+	          action={homeHeaderAction}
+	        />
+	        <AccountDeletionModal visible={accountDeletionVisible} busy={busy} error={error} firebaseLinked={firebaseLinked === true} onClose={() => setAccountDeletionVisible(false)} onSubmit={deleteAccount} />
+	        <FirebaseAccountLinkModal visible={firebaseLinkVisible} busy={busy} error={error} email={user.email} onClose={() => setFirebaseLinkVisible(false)} onSubmit={linkFirebaseAccount} onRequestPasswordReset={requestLinkedFirebasePasswordReset} />
+	        {homePage === "profile" ? (
+	          <PersonalSettingsPage user={user} error={error} firebaseLinked={firebaseLinked} onLinkFirebase={() => { setError(""); setFirebaseLinkVisible(true); }} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} updateCheckError={updateCheckError} updateDiagnostic={updateDiagnostic} diagnosticsEnabled={diagnosticsEnabled} diagnosticsLoading={diagnosticsLoading} diagnosticsSaving={diagnosticsSaving} diagnosticsError={diagnosticsError} onDiagnosticsChange={changeDiagnosticsPreference} onRetryDiagnostics={() => void loadDiagnosticsPreference()} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
         ) : (
           <LedgerHome
             ledgers={ledgers}
@@ -2859,10 +2957,44 @@ function LoginScreen({
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [notice, setNotice] = useState("");
+  const [recoveryBusy, setRecoveryBusy] = useState(false);
   const isSignUp = mode === "signUp";
   const submit = () => {
     if (!email.trim() || !password || (isSignUp && !name.trim())) return;
+    setNotice("");
     onLogin({ mode, email: email.trim(), password, name: name.trim() || undefined });
+  };
+  const requestPasswordReset = async () => {
+    if (!email.trim()) {
+      setNotice("請先輸入電子信箱，再使用忘記密碼。");
+      return;
+    }
+    setRecoveryBusy(true);
+    try {
+      await requestFirebasePasswordReset(email);
+      setNotice("若此電子信箱已註冊，系統會寄出重設密碼說明。請同時查看垃圾郵件匣。");
+    } catch (resetError) {
+      const message = messageOfFirebaseError(resetError);
+      setNotice(message.includes("網路") || message.includes("尚未完成設定") ? message : "若此電子信箱已註冊，系統會寄出重設密碼說明。請同時查看垃圾郵件匣。");
+    } finally {
+      setRecoveryBusy(false);
+    }
+  };
+  const resendVerification = async () => {
+    if (!email.trim() || !password) {
+      setNotice("請輸入電子信箱與密碼後，再重新寄送驗證信。");
+      return;
+    }
+    setRecoveryBusy(true);
+    try {
+      await resendFirebaseEmailVerification(email, password);
+      setNotice("若帳號尚未完成驗證，驗證信已重新寄送。請同時查看垃圾郵件匣。");
+    } catch (resendError) {
+      setNotice(messageOfFirebaseError(resendError));
+    } finally {
+      setRecoveryBusy(false);
+    }
   };
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: palette.background }]} edges={["top", "bottom"]}>
@@ -2883,9 +3015,10 @@ function LoginScreen({
           <View style={styles.formCard}>
             <Text style={styles.formTitle}>登入／註冊共帳</Text>
             <Text style={styles.formBody}>
-              使用電子信箱與密碼登入；登入後可建立新帳本或透過邀請加入共同記帳空間。
+              使用已驗證的電子信箱與密碼登入；登入後可建立新帳本或透過邀請加入共同記帳空間。
             </Text>
             {!!error && <Text style={styles.errorText}>{error}</Text>}
+            {!!notice && <Text style={[styles.loginProgressText, { color: palette.muted }]} accessibilityLiveRegion="polite">{notice}</Text>}
             {isSignUp && (
               <TextInput
                 value={name}
@@ -2934,9 +3067,22 @@ function LoginScreen({
               {busy ? <ActivityIndicator color="#FFFFFF" /> : <MaterialCommunityIcons name="arrow-right" size={19} color="#FFFFFF" />}
             </Pressable>
             {busy && <Text style={[styles.loginProgressText, { color: palette.muted }]} accessibilityLiveRegion="polite">登入完成後正在同步你的共同帳本，請稍候。</Text>}
+            {!isSignUp && (
+              <View style={styles.authHelpRow}>
+                <Pressable disabled={busy || recoveryBusy} onPress={() => void requestPasswordReset()} hitSlop={8}>
+                  <Text style={[styles.authHelpLink, { color: palette.rose }]}>忘記密碼</Text>
+                </Pressable>
+                <Pressable disabled={busy || recoveryBusy} onPress={() => void resendVerification()} hitSlop={8}>
+                  <Text style={[styles.authHelpLink, { color: palette.rose }]}>重寄驗證信</Text>
+                </Pressable>
+              </View>
+            )}
             <Pressable
               disabled={busy}
-              onPress={() => setMode(current => current === "signIn" ? "signUp" : "signIn")}
+              onPress={() => {
+                setNotice("");
+                setMode(current => current === "signIn" ? "signUp" : "signIn");
+              }}
               style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed, busy && styles.disabled]}
             >
               <Text style={styles.secondaryButtonText}>{isSignUp ? "已有帳號？直接登入" : "第一次使用？建立帳號"}</Text>
@@ -4102,6 +4248,8 @@ function PlanningSection({
 function PersonalSettingsPage({
   user,
   error,
+  firebaseLinked,
+  onLinkFirebase,
   onUpdateNickname,
   onCheckForUpdate,
   latestRelease,
@@ -4124,6 +4272,8 @@ function PersonalSettingsPage({
 }: {
   user: User;
   error: string;
+  firebaseLinked: boolean | null;
+  onLinkFirebase: () => void;
   onUpdateNickname: (name: string) => void | Promise<void>;
   onCheckForUpdate: () => void;
   latestRelease: AppUpdateRelease | null;
@@ -4496,17 +4646,39 @@ style={styles.input}
 		          <Text style={styles.cardTitle}>帳號與支援</Text>
 	        </View>
 	      </View>
-      <View style={styles.preferenceRow}>
-        <View style={styles.preferenceCopy}>
-	<Text style={styles.rowTitle}>Together Ledger GitHub</Text>
+	      <View style={styles.preferenceRow}>
+	        <View style={styles.preferenceCopy}>
+		<Text style={styles.rowTitle}>Together Ledger GitHub</Text>
 	<Text style={styles.rowSubtitle}>查看專案介紹、問題回報與開發更新</Text>
           <Text style={styles.appVersionText}>目前版本 v{APP_VERSION}</Text>
 </View>
         <Pressable onPress={() => void Linking.openURL(GITHUB_REPOSITORY_URL)} style={styles.iconButton} accessibilityLabel="開啟 GitHub 專案頁">
           <MaterialCommunityIcons name="github" size={20} color={palette.rose} />
         </Pressable>
-      </View>
-      <View style={styles.preferenceRow}>
+	      </View>
+	      <View style={styles.preferenceRow} accessibilityLabel="Firebase 電子信箱帳號安全">
+	        <View style={styles.preferenceCopy}>
+	          <Text style={styles.rowTitle}>Firebase 電子信箱登入</Text>
+	          <Text style={styles.rowSubtitle}>
+	            {firebaseLinked === true
+	              ? "已綁定。可使用電子信箱驗證與忘記密碼登入，既有帳本資料不會變更。"
+	              : firebaseLinked === false
+	                ? "尚未綁定。請以相同電子信箱完成驗證後綁定，原有帳本與成員關係會保留。"
+	                : "正在確認綁定狀態；可稍後重新開啟個人設定。"}
+	          </Text>
+	        </View>
+	        {firebaseLinked === true ? (
+	          <View style={[styles.accountSecurityStatus, { backgroundColor: palette.roseSoft }]}>
+	            <MaterialCommunityIcons name="shield-check-outline" size={17} color={palette.rose} />
+	            <Text style={[styles.accountSecurityStatusText, { color: palette.rose }]}>已綁定</Text>
+	          </View>
+	        ) : (
+	          <Pressable onPress={onLinkFirebase} style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]} accessibilityLabel="綁定 Firebase 電子信箱">
+	            <MaterialCommunityIcons name="link-variant" size={20} color={palette.rose} />
+	          </Pressable>
+	        )}
+	      </View>
+	      <View style={styles.preferenceRow}>
         <View style={styles.preferenceCopy}>
           <Text style={styles.rowTitle}>使用說明 Wiki</Text>
           <Text style={styles.rowSubtitle}>查看帳本、分攤、同步與更新問題的操作說明</Text>
@@ -5406,9 +5578,9 @@ function CompactLedgerIconPicker({ value, onChange }: { value: string | null; on
   const { palette } = useAppearance();
   const [expanded, setExpanded] = useState(false);
   const [query, setQuery] = useState("");
-  const emojiOptions = LEDGER_ICON_OPTIONS.filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  const emojiOptions = LEDGER_EMOJI_OPTIONS;
   const normalizedQuery = query.trim();
-  const matchedOptions = searchLedgerIconOptions(normalizedQuery).filter((item): item is string => typeof item === "string" && item.trim().length > 0);
+  const matchedOptions = searchLedgerIconOptions(normalizedQuery);
   const options = expanded ? matchedOptions : emojiOptions.slice(0, 12);
   const selectIcon = (icon: string | null) => {
     onChange(icon);
@@ -5424,10 +5596,10 @@ function CompactLedgerIconPicker({ value, onChange }: { value: string | null; on
         </Pressable>
       </View>
       <Pressable onPress={() => selectIcon(null)} style={[styles.iconPickerNoneButton, value === null && styles.iconPickerItemActive]} accessibilityRole="button" accessibilityState={{ selected: value === null }} accessibilityLabel="不顯示帳本圖示">
-        <Text style={[styles.iconPickerNoneButtonText, { color: value === null ? palette.rose : palette.text }]}>不使用圖示</Text>
+        <Text style={[styles.iconPickerNoneButtonText, { color: value === null ? palette.rose : palette.ink }]}>不使用圖示</Text>
       </Pressable>
       {expanded && <>
-        <TextInput value={query} onChangeText={setQuery} placeholder="搜尋圖示，例如：車、旅行、愛心" placeholderTextColor={palette.muted} accessibilityLabel="搜尋帳本圖示" style={[styles.iconPickerSearch, { color: palette.text, borderColor: palette.border, backgroundColor: palette.inputBackground }]} />
+        <TextInput value={query} onChangeText={setQuery} placeholder="搜尋圖示，例如：車、旅行、愛心" placeholderTextColor={palette.muted} accessibilityLabel="搜尋帳本圖示" style={[styles.iconPickerSearch, { color: palette.ink, borderColor: palette.border, backgroundColor: palette.surface }]} />
         <Text style={[styles.iconPickerResultText, { color: palette.muted }]}>{normalizedQuery ? `找到 ${matchedOptions.length} 個圖示` : `全部 ${emojiOptions.length} 個圖示`}</Text>
       </>}
       <View style={styles.iconPicker}>
@@ -5733,12 +5905,14 @@ function AccountDeletionModal({
   visible,
   busy,
   error,
+  firebaseLinked,
   onClose,
   onSubmit,
 }: {
   visible: boolean;
   busy: boolean;
   error: string;
+  firebaseLinked: boolean;
   onClose: () => void;
   onSubmit: (password: string) => void | Promise<void>;
 }) {
@@ -5758,11 +5932,11 @@ function AccountDeletionModal({
             </View>
             <Text style={styles.confirmTitle}>永久刪除帳號</Text>
             <Text style={styles.confirmMessage}>這個動作無法復原。你會退出所有帳本；若你是有其他成員帳本的持有者，所有權會轉給最早加入的成員；若沒有其他成員，該帳本資料會一併刪除。</Text>
-            <Text style={[styles.personalizationLabel, { color: palette.rose }]}>輸入目前密碼以確認</Text>
+            <Text style={[styles.personalizationLabel, { color: palette.rose }]}>{firebaseLinked ? "重新輸入 Firebase 密碼以確認" : "輸入目前密碼以確認"}</Text>
             <TextInput
               value={password}
               onChangeText={setPassword}
-              placeholder="目前密碼"
+              placeholder={firebaseLinked ? "Firebase 密碼" : "目前密碼"}
               placeholderTextColor={palette.muted}
               style={[styles.input, { backgroundColor: palette.surface, borderColor: palette.border, color: palette.ink }]}
               secureTextEntry
@@ -5785,6 +5959,82 @@ function AccountDeletionModal({
                 style={({ pressed }) => [styles.confirmPrimary, { backgroundColor: palette.rose }, (pressed || busy || !password) && styles.pressed, (busy || !password) && styles.disabled]}
               >
                 {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.confirmPrimaryText}>永久刪除</Text>}
+              </Pressable>
+            </View>
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+function FirebaseAccountLinkModal({
+  visible,
+  busy,
+  error,
+  email,
+  onClose,
+  onSubmit,
+  onRequestPasswordReset,
+}: {
+  visible: boolean;
+  busy: boolean;
+  error: string;
+  email: string | null;
+  onClose: () => void;
+  onSubmit: (password: string) => void | Promise<void>;
+  onRequestPasswordReset: () => void | Promise<void>;
+}) {
+  const { palette } = useAppearance();
+  const [password, setPassword] = useState("");
+  useEffect(() => {
+    if (!visible) setPassword("");
+  }, [visible]);
+  const canSubmit = Boolean(email && password && !busy);
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={busy ? undefined : onClose}>
+      <KeyboardAvoidingView style={styles.confirmOverlay} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <Pressable style={styles.confirmDismiss} onPress={busy ? undefined : onClose} />
+        <View style={[styles.confirmCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+          <ScrollView contentContainerStyle={styles.confirmContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            <View style={[styles.confirmIcon, { backgroundColor: palette.roseSoft }]}>
+              <MaterialCommunityIcons name="shield-account-outline" size={24} color={palette.rose} />
+            </View>
+            <Text style={styles.confirmTitle}>綁定 Firebase 電子信箱</Text>
+            <Text style={styles.confirmMessage}>請以同一電子信箱的 Firebase 密碼驗證身分。綁定只會補強登入安全，不會建立新帳本，也不會改變原有共同帳本、收支或成員關係。</Text>
+            <Text style={[styles.personalizationLabel, { color: palette.rose }]}>要綁定的電子信箱</Text>
+            <Text style={[styles.rowSubtitle, { color: palette.ink }]}>{email || "目前帳號尚未設定電子信箱"}</Text>
+            <Text style={[styles.personalizationLabel, { color: palette.rose, marginTop: 12 }]}>Firebase 密碼</Text>
+            <TextInput
+              value={password}
+              onChangeText={setPassword}
+              placeholder="輸入 Firebase 密碼"
+              placeholderTextColor={palette.muted}
+              style={[styles.input, { backgroundColor: palette.surface, borderColor: palette.border, color: palette.ink }]}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="current-password"
+              textContentType="password"
+              editable={!busy}
+              onSubmitEditing={() => { if (canSubmit) void onSubmit(password); }}
+              returnKeyType="done"
+            />
+            <Text style={styles.rowSubtitle}>若信箱尚未驗證，系統會重寄驗證信；完成驗證後再回來綁定即可。</Text>
+            {!!error && <Text style={styles.errorText}>{error}</Text>}
+            <Pressable disabled={busy || !email} onPress={() => void onRequestPasswordReset()} style={[styles.confirmCancelLink, (busy || !email) && styles.disabled]} accessibilityLabel="忘記 Firebase 密碼">
+              <Text style={[styles.confirmCancelText, { color: palette.rose }]}>忘記 Firebase 密碼？寄送重設連結</Text>
+            </Pressable>
+            <View style={styles.confirmActions}>
+              <Pressable disabled={busy} onPress={onClose} style={[styles.confirmCancel, { borderColor: palette.border }, busy && styles.disabled]}>
+                <Text style={[styles.confirmCancelText, { color: palette.muted }]}>取消</Text>
+              </Pressable>
+              <Pressable
+                disabled={!canSubmit}
+                onPress={() => void onSubmit(password)}
+                style={({ pressed }) => [styles.confirmPrimary, { backgroundColor: palette.rose }, (pressed || busy || !canSubmit) && styles.pressed, !canSubmit && styles.disabled]}
+              >
+                {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.confirmPrimaryText}>驗證並綁定</Text>}
               </Pressable>
             </View>
           </ScrollView>
@@ -6317,7 +6567,7 @@ function EmojiPicker({
         accessibilityState={{ selected: value === "" }}
         accessibilityLabel={`不顯示${label}`}
       >
-        <Text style={[styles.iconPickerNoneButtonText, { color: value === "" ? palette.rose : palette.text }]}>不使用圖示</Text>
+        <Text style={[styles.iconPickerNoneButtonText, { color: value === "" ? palette.rose : palette.ink }]}>不使用圖示</Text>
       </Pressable>
       {expanded && <>
         <TextInput
@@ -6326,7 +6576,7 @@ function EmojiPicker({
           placeholder="搜尋圖示，例如：車、旅行、愛心"
           placeholderTextColor={palette.muted}
           accessibilityLabel={`搜尋${label}`}
-          style={[styles.iconPickerSearch, { color: palette.text, borderColor: palette.border, backgroundColor: palette.inputBackground }]}
+          style={[styles.iconPickerSearch, { color: palette.ink, borderColor: palette.border, backgroundColor: palette.surface }]}
         />
         <Text style={[styles.iconPickerResultText, { color: palette.muted }]}>
           {query.trim() ? `找到 ${matchedOptions.length} 個圖示` : `全部 ${safeChoices.length} 個圖示`}
@@ -7236,6 +7486,14 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
   },
   formTitle: { color: palette.ink, fontSize: 18, fontWeight: "700" },
   formBody: { marginTop: 8, color: palette.muted, fontSize: 13, lineHeight: 21 },
+  authHelpRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: 16,
+    marginTop: 16,
+    paddingHorizontal: 4,
+  },
+  authHelpLink: { fontSize: 13, fontWeight: "700" },
   privacyText: {
     marginTop: 22,
     color: "#AE9C94",
@@ -7983,7 +8241,7 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
   settlementActionRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 2 },
   filterLabel: { marginTop: 13, color: palette.muted, fontSize: 11, fontWeight: "800" },
   filterChipRow: { gap: 8, paddingTop: 7, paddingBottom: 1, paddingRight: 16 },
-  filterChip: { minHeight: 34, justifyContent: "center", borderRadius: 12, paddingHorizontal: 11, backgroundColor: palette.soft },
+  filterChip: { minHeight: 34, justifyContent: "center", borderRadius: 12, paddingHorizontal: 11, backgroundColor: palette.roseSoft },
   filterChipActive: { backgroundColor: palette.rose },
   filterChipText: { color: palette.muted, fontSize: 11, fontWeight: "700" },
   filterChipTextActive: { color: "#FFFFFF" },
@@ -8030,6 +8288,16 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     borderRadius: 14,
     backgroundColor: palette.surface,
   },
+  accountSecurityStatus: {
+    minHeight: 34,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+  },
+  accountSecurityStatusText: { fontSize: 12, fontWeight: "800" },
   reminderDayPicker: { gap: 8, paddingVertical: 8 },
   reminderDay: {
     width: 40,

@@ -148,6 +148,20 @@
       "when": 1787414382592,
       "tag": "0020_goofy_longshot",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "5",
+      "when": 1787489025953,
+      "tag": "0021_typical_bullseye",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "5",
+      "when": 1787492516197,
+      "tag": "0022_smooth_jigsaw",
+      "breakpoints": true
     }
   ]
 }

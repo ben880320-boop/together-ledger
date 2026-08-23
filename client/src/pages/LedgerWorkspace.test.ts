@@ -24,9 +24,28 @@ describe("Together Ledger 真實網頁帳本入口", () => {
 
   it("讓網頁版帳密登入沿用 Android App 的電子信箱帳號資料", () => {
     expect(auth).toContain("trpc.auth.login.useMutation");
-    expect(auth).toContain("trpc.auth.register.useMutation");
+    expect(auth).toContain("使用既有帳密登入");
     expect(auth).toContain("manus-cookie");
     expect(auth).toContain("登入並開啟帳本");
+  });
+
+  it("提供 Firebase 驗證信、非枚舉密碼重設與已驗證 token 交換登入", () => {
+    expect(auth).toContain("registerFirebaseEmail");
+    expect(auth).toContain("signInFirebaseEmail");
+    expect(auth).toContain("requestFirebasePasswordReset");
+    expect(auth).toContain("resendFirebaseVerification");
+    expect(auth).toContain("exchangeFirebaseToken");
+    expect(auth).toContain("驗證信已寄出。請完成信箱驗證後");
+    expect(auth).toContain("若此電子信箱已完成註冊，重設密碼信已寄出");
+  });
+
+  it("在個人設定提供同信箱 Firebase 綁定，且不改變既有帳本資料", () => {
+    expect(workspace).toContain("trpc.auth.firebaseStatus.useQuery");
+    expect(workspace).toContain("trpc.auth.linkFirebase.useMutation");
+    expect(workspace).toContain("Firebase 電子信箱安全");
+    expect(workspace).toContain("不會建立新帳本，也不會變更既有帳本資料");
+    expect(workspace).toContain("signInFirebaseEmail");
+    expect(workspace).toContain("firebaseIdToken");
   });
 
   it("在新增收支對話框開啟期間固定工作區快照，不讓背景同步清除未提交草稿", () => {
@@ -124,7 +143,7 @@ describe("Together Ledger 真實網頁帳本入口", () => {
   });
 
   it("提供可辨識的發布資訊與重新取得最新版本操作", () => {
-    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.12"');
+    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.13"');
     expect(footer).toContain("WEB_BUILD_TIMESTAMP");
     expect(footer).toContain("formatTaipeiTimestamp");
     expect(footer).toContain("重新載入最新版本");

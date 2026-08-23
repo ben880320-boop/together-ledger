@@ -7,18 +7,19 @@ const readMobile = (relativePath: string) =>
   readFileSync(resolve(mobileRoot, relativePath), "utf8");
 
 describe("Together Ledger v1.3.0 Android wiring", () => {
-  it("uses email/password authentication without a Manus OAuth redirect", () => {
+  it("uses Firebase email/password authentication without a Manus OAuth redirect", () => {
     const app = readMobile("app/index.tsx");
     const router = readFileSync(resolve(process.cwd(), "server/routers.ts"), "utf8");
     const db = readFileSync(resolve(process.cwd(), "server/db.ts"), "utf8");
     const sdk = readFileSync(resolve(process.cwd(), "server/_core/sdk.ts"), "utf8");
     expect(app).toContain("電子信箱");
-    expect(app).toContain("api.auth.login.mutate");
-    expect(app).toContain("api.auth.register.mutate");
+    expect(app).toContain("signInWithFirebaseEmail");
+    expect(app).toContain("registerFirebaseEmailWithProfile");
+    expect(app).toContain("exchangeFirebaseSession");
     expect(app).toContain("saveSessionToken(result.token)");
     expect(app).not.toContain("WebBrowser.openAuthSessionAsync");
-    expect(router).toContain("register: publicProcedure");
-    expect(router).toContain("login: publicProcedure");
+    expect(router).toContain("exchangeFirebaseToken: publicProcedure");
+    expect(router).toContain("FIREBASE_APP_SESSION_TTL_MS");
     expect(db).toContain("scrypt$");
     expect(sdk).toContain("LOCAL_OPEN_ID_PREFIX");
   });
@@ -129,7 +130,7 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     expect(app).toContain("FlatList");
     expect(app).toContain("maxToRenderPerBatch={4}");
     expect(app).toContain("backgroundColor: palette.surface");
-    expect(app).toContain("LEDGER_ICON_OPTIONS");
+    expect(app).toContain("LEDGER_EMOJI_OPTIONS");
     expect(app).toContain("CATEGORY_EMOJI_OPTIONS");
     expect(app).toContain("PAYMENT_EMOJI_OPTIONS");
     expect(app).toContain("searchLedgerIconOptions");
@@ -333,9 +334,9 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
       expo?: { version?: string; scheme?: string; android?: { versionCode?: number } };
     };
-    expect(appJson.expo?.version).toBe("1.3.12");
-    expect(appJson.expo?.android?.versionCode).toBe(35);
-    expect(readMobile("package.json")).toContain('"version": "1.3.12"');
+    expect(appJson.expo?.version).toBe("1.3.13");
+    expect(appJson.expo?.android?.versionCode).toBe(36);
+    expect(readMobile("package.json")).toContain('"version": "1.3.13"');
     expect(appJson.expo?.scheme).toBe("togetherledger");
     expect(readMobile("app.json")).not.toContain("expo-notifications");
     expect(readMobile("app.json")).toContain('"googleServicesFile": "./google-services.json"');
@@ -382,7 +383,7 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     expect(apiSource).toContain("controller.abort()");
     expect(apiSource).toContain("realtimeRetryDelay");
     expect(app).toContain("subscribeLedgerEvents");
-    expect(app).toContain("LEDGER_ICON_OPTIONS");
+    expect(app).toContain("LEDGER_EMOJI_OPTIONS");
     expect(app).toContain("searchLedgerIconOptions");
     expect(iconSource.match(/"[^"\n]+"/g)?.length ?? 0).toBeGreaterThanOrEqual(69);
   });
@@ -396,7 +397,8 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     expect(app).toContain("setUsingOfflineSnapshot(true)");
     expect(app).toContain("GITHUB_WIKI_URL");
     expect(app).toContain("function CompactLedgerIconPicker");
-    expect(app).toContain("const matchedOptions = searchLedgerIconOptions(normalizedQuery).filter");
+    expect(app).toContain("const matchedOptions = searchLedgerIconOptions(normalizedQuery);");
+    expect(readFileSync(resolve(process.cwd(), "shared/ledgerIcons.ts"), "utf8")).toContain("return LEDGER_EMOJI_OPTIONS.filter");
     expect(app).toContain('const options = expanded ? matchedOptions : emojiOptions.slice(0, 12);');
     expect(app).toContain('accessibilityLabel="不顯示帳本圖示"');
     expect(app).toContain("不使用圖示");

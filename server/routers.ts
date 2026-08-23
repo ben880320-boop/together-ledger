@@ -54,8 +54,11 @@ import {
   listTravelPlans,
   createTravelPlan,
   deleteTravelPlan,
+  createFirebaseUser,
   createLocalUser,
   deleteUserAccount,
+  getUserByEmail,
+  getUserByFirebaseUid,
   verifyLocalPassword,
   listSavingsBuckets,
   listSavingsAllocations,
@@ -70,10 +73,16 @@ import {
   updateDiagnosticReportingEnabled,
   reopenMonthlySettlementSnapshot,
   reproposeMonthlySettlementSnapshot,
+  linkUserToFirebaseUid,
 } from "./db";
 import { TRPCError } from "@trpc/server";
 import { invokeLLM } from "./_core/llm";
 import { sdk } from "./_core/sdk";
+import {
+  deleteFirebaseIdentity,
+  verifyFirebaseIdentity,
+  verifyRecentlyAuthenticatedFirebaseIdentity,
+} from "./firebaseAuth";
 
 const ledgerType = z.enum(["couple", "roommate", "family", "travel", "custom"]);
 // Transfers are created only by protected system workflows such as savings deposits.
@@ -84,6 +93,7 @@ const localAccountInput = z.object({
   email: z.string().trim().email("請輸入有效的電子信箱").max(320),
   password: z.string().min(8, "密碼至少需要 8 個字元").max(128, "密碼不可超過 128 個字元"),
 });
+const firebaseIdTokenInput = z.object({ idToken: z.string().min(100, "Firebase 登入憑證無效，請重新登入。") });
 export async function syncMonthlySettlementReminderSchedule(input: {
   userId: number;
   sessionToken: string;
@@ -133,6 +143,7 @@ async function requireLedger(ledgerId: number, userId: number) {
 
 const memberInput = z.object({ userId: z.number().int().positive(), shareAmount: z.number().int().nonnegative() });
 const generateInviteCode = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 6);
+const FIREBASE_APP_SESSION_TTL_MS = 60 * 60 * 1000;
 
 export const appRouter = router({
   system: systemRouter,
@@ -176,7 +187,7 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         try {
           const user = await createLocalUser(input);
-          const token = await sdk.createSessionToken(user.openId, { name: user.name ?? "" });
+          const token = await sdk.createSessionToken(user.openId, { name: user.name ?? "", sessionVersion: user.sessionVersion });
           persistLocalSessionCookie(ctx, token);
           return { token, user: { id: user.id, name: user.name, email: user.email, loginMethod: user.loginMethod } };
         } catch (error) {
@@ -191,15 +202,111 @@ export const appRouter = router({
       .mutation(async ({ ctx, input }) => {
         const user = await verifyLocalPassword(input.email, input.password);
         if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "電子信箱或密碼錯誤" });
-        const token = await sdk.createSessionToken(user.openId, { name: user.name ?? "" });
+        const token = await sdk.createSessionToken(user.openId, { name: user.name ?? "", sessionVersion: user.sessionVersion });
         persistLocalSessionCookie(ctx, token);
         return { token, user: { id: user.id, name: user.name, email: user.email, loginMethod: user.loginMethod } };
       }),
+    exchangeFirebaseToken: publicProcedure
+      .input(firebaseIdTokenInput)
+      .mutation(async ({ ctx, input }) => {
+        let identity;
+        try {
+          identity = await verifyFirebaseIdentity(input.idToken);
+        } catch (error) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: error instanceof Error ? error.message : "Firebase 驗證失敗，請重新登入。" });
+        }
+        let user = await getUserByFirebaseUid(identity.uid);
+        if (!user) {
+          const existingUser = await getUserByEmail(identity.email!);
+          if (existingUser) {
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: "此電子信箱已有既有共帳帳號。請先以原本密碼登入，再到個人設定完成 Firebase 電子信箱綁定。" });
+          }
+          try {
+            user = await createFirebaseUser({ firebaseUid: identity.uid, email: identity.email!, name: identity.name });
+          } catch (error) {
+            throw new TRPCError({ code: "CONFLICT", message: error instanceof Error ? error.message : "無法建立 Firebase 帳號連結。" });
+          }
+        }
+        const token = await sdk.createSessionToken(user.openId, {
+          name: user.name ?? "",
+          sessionVersion: user.sessionVersion,
+          // Firebase revokes its refresh tokens after a password reset; our
+          // independent app JWT must expire quickly and be exchanged again.
+          expiresInMs: FIREBASE_APP_SESSION_TTL_MS,
+        });
+        persistLocalSessionCookie(ctx, token);
+        return { token, user: { id: user.id, name: user.name, email: user.email, loginMethod: user.loginMethod, emailVerified: true } };
+      }),
+    linkFirebase: protectedProcedure
+      .input(firebaseIdTokenInput)
+      .mutation(async ({ ctx, input }) => {
+        let identity;
+        try {
+          identity = await verifyFirebaseIdentity(input.idToken);
+        } catch (error) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: error instanceof Error ? error.message : "Firebase 驗證失敗，請重新登入。" });
+        }
+        try {
+          const user = await linkUserToFirebaseUid({ userId: ctx.user.id, firebaseUid: identity.uid, email: identity.email! });
+          const token = await sdk.createSessionToken(user.openId, {
+            name: user.name ?? "",
+            sessionVersion: user.sessionVersion,
+            expiresInMs: FIREBASE_APP_SESSION_TTL_MS,
+          });
+          persistLocalSessionCookie(ctx, token);
+          return { token, email: user.email, firebaseLinked: true as const };
+        } catch (error) {
+          throw new TRPCError({ code: "CONFLICT", message: error instanceof Error ? error.message : "無法連結 Firebase 帳號。" });
+        }
+      }),
+    firebaseStatus: protectedProcedure.query(({ ctx }) => ({ email: ctx.user.email, firebaseLinked: Boolean(ctx.user.firebaseUid) })),
     deleteAccount: protectedProcedure
-      .input(z.object({ password: z.string().min(1, "請輸入密碼") }))
+      .input(z.object({
+        password: z.string().min(1, "請輸入密碼").optional(),
+        firebaseIdToken: z.string().min(100, "請重新登入 Firebase 後再刪除帳號。").optional(),
+      }))
       .mutation(async ({ ctx, input }) => {
         if (!ctx.user.email || ctx.user.loginMethod !== "email") {
           throw new TRPCError({ code: "BAD_REQUEST", message: "只有電子信箱帳密帳號可以在 App 內自行刪除。" });
+        }
+        if (ctx.user.firebaseUid) {
+          if (!input.firebaseIdToken) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "請重新輸入 Firebase 密碼後再刪除帳號。" });
+          }
+          let identity;
+          try {
+            identity = await verifyRecentlyAuthenticatedFirebaseIdentity(input.firebaseIdToken);
+          } catch (error) {
+            throw new TRPCError({ code: "UNAUTHORIZED", message: error instanceof Error ? error.message : "Firebase 再驗證失敗。" });
+          }
+          if (identity.uid !== ctx.user.firebaseUid || identity.email !== ctx.user.email) {
+            throw new TRPCError({ code: "FORBIDDEN", message: "Firebase 身份與目前共帳帳戶不一致，無法刪除。" });
+          }
+          try {
+            await deleteUserAccount(ctx.user.id);
+          } catch (error) {
+            throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error instanceof Error ? error.message : "刪除共帳帳戶失敗，請稍後再試。" });
+          }
+          let firebaseIdentityDeleted = true;
+          try {
+            await deleteFirebaseIdentity(identity.uid);
+          } catch (error) {
+            // The Together Ledger account has already been anonymized. Do not
+            // report a failure that would invite a user to retry an irreversible
+            // delete; retain an audit signal for an administrator to complete
+            // Firebase identity cleanup without exposing credentials to clients.
+            firebaseIdentityDeleted = false;
+            console.error("[Firebase] identity cleanup failed after account deletion", {
+              userId: ctx.user.id,
+              message: error instanceof Error ? error.message : "unknown error",
+            });
+          }
+          const cookieOptions = getSessionCookieOptions(ctx.req);
+          ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+          return { success: true as const, firebaseIdentityDeleted };
+        }
+        if (!input.password) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "請輸入目前密碼以確認刪除帳號。" });
         }
         const verifiedUser = await verifyLocalPassword(ctx.user.email, input.password);
         if (!verifiedUser || verifiedUser.id !== ctx.user.id) {

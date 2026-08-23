@@ -13,8 +13,22 @@ describe("local email/password session tokens", () => {
     expect(verified).toMatchObject({
       openId: "local_test_account",
       name: "電子信箱使用者",
+      sessionVersion: 0,
     });
     expect(verified?.appId).toBeTruthy();
+  });
+
+  it("preserves an explicit session version for server-side revocation checks", async () => {
+    const token = await sdk.createSessionToken("local_test_account", {
+      name: "Firebase 已綁定使用者",
+      sessionVersion: 3,
+      expiresInMs: 60_000,
+    });
+
+    await expect(sdk.verifySession(token)).resolves.toMatchObject({
+      openId: "local_test_account",
+      sessionVersion: 3,
+    });
   });
 
   it("rejects a modified local session token", async () => {
