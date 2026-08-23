@@ -690,4 +690,4 @@
 - [x] 設定 Firebase Authentication 的 Email／Password、Email 驗證與密碼重設寄信能力，並以環境變數安全保存設定
 - [x] 擴充後端驗證 Firebase ID Token、帳號連結與 session 撤銷規則，維持 tRPC 與帳本權限檢查
 - [x] 在 Web、PWA、Android 完成註冊、驗證提醒、重新寄送驗證信、忘記密碼與重設後重新登入的可存取流程
-- [ ] 補齊 Firebase 驗證、帳號過渡、權限、session 與跨端核心流程測試，完成文件、feature branch、Pull Request 與發布
+- [x] 補齊 Firebase 驗證、帳號過渡、權限、session 與跨端核心流程測試，完成文件、feature branch、Pull Request 與發布
