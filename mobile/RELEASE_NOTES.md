@@ -1,5 +1,17 @@
 ## Together Ledger v1.3.8
 
+## Together Ledger v1.3.14
+
+### Firebase 認證提示與繁體中文郵件
+
+- Android App、Web 與 PWA 的註冊、重寄驗證信、忘記密碼與同信箱綁定改用一致、可關閉的浮動提示，成功與失敗狀態不再容易被表單內容淹沒。
+- 忘記密碼只需先輸入電子信箱；送出後以不揭露帳戶是否存在的通用訊息引導使用者查看收件匣與垃圾郵件匣，並保留重新寄送與返回登入入口。
+- Firebase 驗證信與重設信在用戶端指定繁體中文語系 `zh-TW`。Firebase Console 可固定採用「共帳 Together Ledger」寄件者名稱與簡短主旨，詳細手動設定見 `docs/firebase-email-template-localization.md`。
+
+### 發布與安全性
+
+- Android 版升級為 `versionName=1.3.14`、`versionCode=37`，維持固定受保護簽章、Firebase client 公開設定注入及 SHA-256 校驗檔。
+
 ## Together Ledger v1.3.13
 
 ### Firebase 電子郵件帳號安全

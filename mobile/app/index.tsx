@@ -139,7 +139,7 @@ const appearanceDefaults: AppearancePreferences = {
   colorMode: "system",
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.3.13";
+const APP_VERSION = "1.3.14";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 const GITHUB_WIKI_URL = "https://github.com/ben880320-boop/together-ledger/wiki";
@@ -1064,7 +1064,7 @@ function AppContent() {
   const [error, setError] = useState("");
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [usingOfflineSnapshot, setUsingOfflineSnapshot] = useState(false);
-  const [toast, setToast] = useState<{ id: number; message: string } | null>(null);
+  const [toast, setToast] = useState<{ id: number; message: string; tone?: "success" | "error" } | null>(null);
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [appUpdateStatus, setAppUpdateStatus] = useState<AppUpdateStatus>("idle");
   const [appUpdateProgress, setAppUpdateProgress] = useState(0);
@@ -1091,8 +1091,8 @@ function AppContent() {
   const diagnosticsEnabledRef = useRef(false);
   const diagnosticRequestInFlightRef = useRef(false);
 
-  const showToast = useCallback((message: string) => {
-    setToast({ id: ++toastSequenceRef.current, message });
+  const showToast = useCallback((message: string, tone: "success" | "error" = "success") => {
+    setToast({ id: ++toastSequenceRef.current, message, tone });
   }, []);
   const dismissToast = useCallback((id: number) => {
     setToast(current => current?.id === id ? null : current);
@@ -1835,14 +1835,14 @@ function AppContent() {
           password: input.password,
           name: input.name || "",
         });
-        setError("驗證信已寄出。請完成電子信箱驗證後，再回到共帳登入。");
+        showToast("共帳驗證信已寄出。請先查看收件匣；若數分鐘內未收到，也請檢查垃圾郵件匣。完成驗證後再回來登入。", "success");
         return;
       }
       const idToken = await signInWithFirebaseEmail(input.email, input.password);
       await exchangeFirebaseSession(idToken);
       await loadWorkspace();
     } catch (loginError) {
-      setError(messageOfFirebaseError(loginError));
+      showToast(messageOfFirebaseError(loginError), "error");
     } finally {
       setBusy(false);
       setReady(true);
@@ -1850,7 +1850,7 @@ function AppContent() {
   };
   const linkFirebaseAccount = async (password: string) => {
     if (!user?.email) {
-      setError("此帳號尚未有可綁定的電子信箱。請先聯絡支援人員。");
+      showToast("此帳號尚未有可綁定的電子信箱。請先聯絡支援人員。", "error");
       return;
     }
     setError("");
@@ -1861,9 +1861,10 @@ function AppContent() {
       await saveSessionToken(linked.token);
       setFirebaseLinked(true);
       setFirebaseLinkVisible(false);
-      showToast("Firebase 電子信箱已綁定，原有帳本與共同資料均已保留。");
+      showToast("Firebase 電子信箱已綁定，原有帳本與共同資料均已保留。", "success");
     } catch (linkError) {
-      setError(messageOfFirebaseError(linkError));
+      const message = messageOfFirebaseError(linkError);
+      showToast(message.includes("驗證信已重新寄送") ? `${message} 請同時查看垃圾郵件匣。` : message, "error");
     } finally {
       setBusy(false);
     }
@@ -1874,9 +1875,10 @@ function AppContent() {
     setBusy(true);
     try {
       await requestFirebasePasswordReset(user.email);
-      showToast("若此電子信箱設有 Firebase 登入，密碼重設連結已寄出。請完成重設後再回來綁定。");
+      showToast("若此電子信箱已啟用共帳登入，密碼重設連結已寄出。請查看收件匣與垃圾郵件匣；完成重設後再回來綁定。", "success");
     } catch (resetError) {
-      setError(messageOfFirebaseError(resetError));
+      const message = messageOfFirebaseError(resetError);
+      showToast(message.includes("網路") || message.includes("尚未完成設定") ? message : "若此電子信箱已啟用共帳登入，密碼重設連結已寄出。請查看收件匣與垃圾郵件匣；完成重設後再回來綁定。", message.includes("網路") || message.includes("尚未完成設定") ? "error" : "success");
     } finally {
       setBusy(false);
     }
@@ -2306,7 +2308,7 @@ function AppContent() {
 
   if (!ready) return <AppBootstrapSkeleton />;
   if (!user)
-    return <LoginScreen error={error} busy={busy} onLogin={handleLogin} />;
+    return <View style={styles.flex}><LoginScreen busy={busy} onLogin={handleLogin} onNotice={showToast} /><SuccessToast toast={toast} onDismiss={dismissToast} /></View>;
     const homeHeaderAction = (
     <View style={styles.headerActions}>
       <Pressable
@@ -2832,7 +2834,7 @@ function SuccessToast({
   toast,
   onDismiss,
 }: {
-  toast: { id: number; message: string } | null;
+  toast: { id: number; message: string; tone?: "success" | "error" } | null;
   onDismiss: (id: number) => void;
 }) {
   const { palette, preferences } = useAppearance();
@@ -2859,11 +2861,16 @@ function SuccessToast({
   }, [onDismiss, opacity, preferences.reduceMotion, toast, translateY]);
 
   if (!toast) return null;
+  const isError = toast.tone === "error";
+  const accent = isError ? palette.rose : palette.sage;
   return (
-    <View pointerEvents="none" style={styles.globalToastLayer}>
-      <Animated.View style={[styles.globalToast, { borderColor: palette.sage, backgroundColor: palette.surface, opacity, transform: [{ translateY }] }]}>
-        <MaterialCommunityIcons name="check-circle-outline" size={18} color={palette.sage} />
+    <View pointerEvents="box-none" style={styles.globalToastLayer}>
+      <Animated.View style={[styles.globalToast, { borderColor: accent, backgroundColor: palette.surface, opacity, transform: [{ translateY }] }]}>
+        <MaterialCommunityIcons name={isError ? "alert-circle-outline" : "check-circle-outline"} size={18} color={accent} />
         <Text style={[styles.globalToastText, { color: palette.ink }]}>{toast.message}</Text>
+        <Pressable onPress={() => onDismiss(toast.id)} hitSlop={10} accessibilityLabel="關閉提示" accessibilityRole="button">
+          <MaterialCommunityIcons name="close" size={18} color={palette.muted} />
+        </Pressable>
       </Animated.View>
     </View>
   );
@@ -2944,54 +2951,55 @@ function LedgerContentSkeleton() {
 }
 
 function LoginScreen({
-  error,
   busy,
   onLogin,
+  onNotice,
 }: {
-  error: string;
   busy: boolean;
   onLogin: (input: { mode: "signIn" | "signUp"; email: string; password: string; name?: string }) => void;
+  onNotice: (message: string, tone?: "success" | "error") => void;
 }) {
   const { palette } = useAppearance();
   const [mode, setMode] = useState<"signIn" | "signUp">("signIn");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
-  const [notice, setNotice] = useState("");
   const [recoveryBusy, setRecoveryBusy] = useState(false);
   const isSignUp = mode === "signUp";
   const submit = () => {
-    if (!email.trim() || !password || (isSignUp && !name.trim())) return;
-    setNotice("");
+    if (!email.trim() || !password || (isSignUp && !name.trim())) {
+      onNotice(isSignUp ? "請完成暱稱、電子信箱與密碼後再建立帳號。" : "請輸入電子信箱與密碼後再登入。", "error");
+      return;
+    }
     onLogin({ mode, email: email.trim(), password, name: name.trim() || undefined });
   };
   const requestPasswordReset = async () => {
     if (!email.trim()) {
-      setNotice("請先輸入電子信箱，再使用忘記密碼。");
+      onNotice("請先輸入電子信箱，再按一次「忘記密碼」。為保護帳號安全，系統不會顯示帳號是否存在。", "error");
       return;
     }
     setRecoveryBusy(true);
     try {
       await requestFirebasePasswordReset(email);
-      setNotice("若此電子信箱已註冊，系統會寄出重設密碼說明。請同時查看垃圾郵件匣。");
+      onNotice("若此電子信箱已啟用共帳登入，重設密碼信已寄出。請查看收件匣與垃圾郵件匣。", "success");
     } catch (resetError) {
       const message = messageOfFirebaseError(resetError);
-      setNotice(message.includes("網路") || message.includes("尚未完成設定") ? message : "若此電子信箱已註冊，系統會寄出重設密碼說明。請同時查看垃圾郵件匣。");
+      onNotice(message.includes("網路") || message.includes("尚未完成設定") ? message : "若此電子信箱已啟用共帳登入，重設密碼信已寄出。請查看收件匣與垃圾郵件匣。", message.includes("網路") || message.includes("尚未完成設定") ? "error" : "success");
     } finally {
       setRecoveryBusy(false);
     }
   };
   const resendVerification = async () => {
     if (!email.trim() || !password) {
-      setNotice("請輸入電子信箱與密碼後，再重新寄送驗證信。");
+      onNotice("請輸入電子信箱與密碼，再按「重寄驗證信」。", "error");
       return;
     }
     setRecoveryBusy(true);
     try {
       await resendFirebaseEmailVerification(email, password);
-      setNotice("若帳號尚未完成驗證，驗證信已重新寄送。請同時查看垃圾郵件匣。");
+      onNotice("若帳號尚未驗證，共帳驗證信已重新寄送。請查看收件匣與垃圾郵件匣，完成驗證後再登入。", "success");
     } catch (resendError) {
-      setNotice(messageOfFirebaseError(resendError));
+      onNotice(messageOfFirebaseError(resendError), "error");
     } finally {
       setRecoveryBusy(false);
     }
@@ -3017,8 +3025,6 @@ function LoginScreen({
             <Text style={styles.formBody}>
               使用已驗證的電子信箱與密碼登入；登入後可建立新帳本或透過邀請加入共同記帳空間。
             </Text>
-            {!!error && <Text style={styles.errorText}>{error}</Text>}
-            {!!notice && <Text style={[styles.loginProgressText, { color: palette.muted }]} accessibilityLiveRegion="polite">{notice}</Text>}
             {isSignUp && (
               <TextInput
                 value={name}
@@ -3077,10 +3083,10 @@ function LoginScreen({
                 </Pressable>
               </View>
             )}
+            {!isSignUp && <Text style={[styles.loginProgressText, { color: palette.muted }]} accessibilityLiveRegion="polite">忘記密碼只需先填入電子信箱；寄信後請查看收件匣與垃圾郵件匣。</Text>}
             <Pressable
               disabled={busy}
               onPress={() => {
-                setNotice("");
                 setMode(current => current === "signIn" ? "signUp" : "signIn");
               }}
               style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed, busy && styles.disabled]}
@@ -6020,7 +6026,7 @@ function FirebaseAccountLinkModal({
               onSubmitEditing={() => { if (canSubmit) void onSubmit(password); }}
               returnKeyType="done"
             />
-            <Text style={styles.rowSubtitle}>若信箱尚未驗證，系統會重寄驗證信；完成驗證後再回來綁定即可。</Text>
+            <Text style={styles.rowSubtitle}>若信箱尚未驗證，系統會重寄「共帳」驗證信；請查看收件匣與垃圾郵件匣，完成驗證後再回來綁定即可。</Text>
             {!!error && <Text style={styles.errorText}>{error}</Text>}
             <Pressable disabled={busy || !email} onPress={() => void onRequestPasswordReset()} style={[styles.confirmCancelLink, (busy || !email) && styles.disabled]} accessibilityLabel="忘記 Firebase 密碼">
               <Text style={[styles.confirmCancelText, { color: palette.rose }]}>忘記 Firebase 密碼？寄送重設連結</Text>

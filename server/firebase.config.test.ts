@@ -1,4 +1,6 @@
 import { createSign } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const requiredConfig = [
@@ -92,6 +94,27 @@ describeWithExpoFirebaseConfig("Expo Firebase Authentication 設定", () => {
     expect([200, 400]).toContain(response.status);
     expect(result.error?.message ?? "").not.toMatch(/API_KEY_INVALID|PROJECT_NOT_FOUND|OPERATION_NOT_ALLOWED/i);
   }, 15_000);
+});
+
+describe("Firebase 跨平台郵件與認證提示回歸", () => {
+  const projectRoot = process.cwd();
+  const webFirebaseHelper = readFileSync(resolve(projectRoot, "client/src/lib/firebaseAuth.ts"), "utf8");
+  const mobileFirebaseHelper = readFileSync(resolve(projectRoot, "mobile/lib/firebaseAuth.ts"), "utf8");
+  const webAuthPage = readFileSync(resolve(projectRoot, "client/src/pages/WebAuth.tsx"), "utf8");
+  const mobileAuthPage = readFileSync(resolve(projectRoot, "mobile/app/index.tsx"), "utf8");
+
+  it("Web、PWA 與 Android 寄出的 Firebase 驗證／重設信均指定繁體中文語系", () => {
+    expect(webFirebaseHelper).toMatch(/languageCode\s*=\s*["']zh-TW["']/);
+    expect(mobileFirebaseHelper).toMatch(/languageCode\s*=\s*["']zh-TW["']/);
+  });
+
+  it("各平台的註冊、重設與綁定流程均保留垃圾郵件提醒與浮動提示入口", () => {
+    expect(webAuthPage).toContain("垃圾郵件匣");
+    expect(webAuthPage).toContain("toast.success");
+    expect(mobileAuthPage).toContain("垃圾郵件匣");
+    expect(mobileAuthPage).toContain("onNotice");
+    expect(mobileAuthPage).toContain("accessibilityLabel=\"關閉提示\"");
+  });
 });
 
 describeWithServiceAccount("Firebase Admin 服務帳號設定", () => {

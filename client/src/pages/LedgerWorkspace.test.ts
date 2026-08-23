@@ -36,7 +36,9 @@ describe("Together Ledger 真實網頁帳本入口", () => {
     expect(auth).toContain("resendFirebaseVerification");
     expect(auth).toContain("exchangeFirebaseToken");
     expect(auth).toContain("驗證信已寄出。請完成信箱驗證後");
-    expect(auth).toContain("若此電子信箱已完成註冊，重設密碼信已寄出");
+    expect(auth).toContain("若此電子信箱已啟用共帳登入，重設密碼信已寄出");
+    expect(auth).toContain("垃圾郵件匣");
+    expect(auth).toContain("toast.success");
   });
 
   it("在個人設定提供同信箱 Firebase 綁定，且不改變既有帳本資料", () => {
@@ -143,7 +145,7 @@ describe("Together Ledger 真實網頁帳本入口", () => {
   });
 
   it("提供可辨識的發布資訊與重新取得最新版本操作", () => {
-    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.13"');
+    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.14"');
     expect(footer).toContain("WEB_BUILD_TIMESTAMP");
     expect(footer).toContain("formatTaipeiTimestamp");
     expect(footer).toContain("重新載入最新版本");

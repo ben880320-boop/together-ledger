@@ -6,7 +6,7 @@
 
 ## 下載最新版本
 
-請從 [GitHub Releases](https://github.com/ben880320-boop/together-ledger/releases) 下載最新的 `together-ledger.apk`。目前正式版本為 **v1.3.10**（versionCode 33）。Android 可能會在首次安裝非商店來源的 APK 時要求允許此來源安裝應用程式；請只安裝本專案 Release 頁面所提供的檔案，並可比對同頁的 SHA-256 檢查碼。
+請從 [GitHub Releases](https://github.com/ben880320-boop/together-ledger/releases) 下載最新的 `together-ledger.apk`。目前正式版本為 **v1.3.14**（versionCode 37）。Android 可能會在首次安裝非商店來源的 APK 時要求允許此來源安裝應用程式；請只安裝本專案 Release 頁面所提供的檔案，並可比對同頁的 SHA-256 檢查碼。
 
 | 安裝步驟 | 說明 |
 | --- | --- |
@@ -15,7 +15,7 @@
 | 3 | 若系統詢問，僅對使用的瀏覽器或檔案管理器允許安裝未知來源 App。 |
 | 4 | 完成安裝後開啟 App，使用登入頁建立或登入帳戶。 |
 
-App 會在登入後檢查 GitHub 最新正式 Release；若偵測到較高版本，會顯示更新內容與安全性摘要、官方來源、下載進度、SHA-256 校驗提示及安裝診斷。個人設定頁也提供 GitHub 專案頁、版本下載與 Wiki 入口。
+App 會在登入後檢查 GitHub 最新正式 Release；若偵測到較高版本，會顯示更新內容與安全性摘要、官方來源、下載進度、SHA-256 校驗提示及安裝診斷。個人設定頁也提供 GitHub 專案頁、版本下載與 Wiki 入口。v1.3.14 起，註冊、重寄驗證信、忘記密碼與同信箱綁定使用清楚、可關閉的浮動提示；驗證或重設信寄出後，請一併檢查收件匣與垃圾郵件匣。
 
 ## 核心功能
 
