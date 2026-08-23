@@ -1,5 +1,18 @@
 ## Together Ledger v1.3.8
 
+## Together Ledger v1.3.13
+
+### Firebase 電子郵件帳號安全
+
+- Android App、Web 與 PWA 統一採用 Firebase Authentication Email／Password：新帳號註冊後必須先完成 Email 驗證，登入頁提供重寄驗證信與不揭露帳號存在與否的忘記／重設密碼入口。
+- 既有本機帳密使用者可從個人設定以相同、已驗證的電子信箱綁定 Firebase；此過程不變更既有使用者 ID、帳本成員資格、交易或設定。
+- Firebase 登入使用一小時短效 app session，JWT 以 session version 集中驗證；綁定時會撤銷舊 session，Android 可在 Firebase 已驗證身份有效時安全自動換發。
+- Firebase 已綁定帳戶的刪除流程要求重新輸入 Firebase 密碼，伺服器再驗證五分鐘內的 ID Token、UID 與相同電子信箱後移除 app 與 Firebase identity。
+
+### 發布與安全性
+
+- Android 版升級為 `versionName=1.3.13`、`versionCode=36`。APK 建置僅注入 Firebase client 公開設定；服務帳號憑證保持在伺服器端，不會寫入 APK。
+
 ## Together Ledger v1.3.12
 
 ### 鍵盤穩定性與月結算可見性

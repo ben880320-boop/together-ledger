@@ -309,6 +309,56 @@ export async function getUserByEmail(email: string) {
   return result[0];
 }
 
+export async function getUserByFirebaseUid(firebaseUid: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(users).where(eq(users.firebaseUid, firebaseUid)).limit(1);
+  return result[0];
+}
+
+/**
+ * Creates an app-local user only after Firebase has verified email ownership.
+ * The local openId keeps existing session and ledger-authorisation code intact.
+ */
+export async function createFirebaseUser(input: { firebaseUid: string; email: string; name?: string | null }) {
+  const db = requireDb();
+  const email = normalizeEmail(input.email);
+  const [existingByEmail, existingByFirebaseUid] = await Promise.all([
+    getUserByEmail(email),
+    getUserByFirebaseUid(input.firebaseUid),
+  ]);
+  if (existingByFirebaseUid) return existingByFirebaseUid;
+  if (existingByEmail) throw new Error("此電子信箱已存在既有帳號，請先使用原本密碼登入後再綁定 Firebase。 ");
+
+  const result = await db.insert(users).values({
+    openId: `local_${nanoid(21)}`,
+    email,
+    firebaseUid: input.firebaseUid,
+    name: input.name?.trim().slice(0, 64) || email.split("@")[0],
+    loginMethod: "firebase-email",
+    lastSignedIn: new Date(),
+  });
+  const userId = Number(result[0].insertId);
+  const user = (await db.select().from(users).where(eq(users.id, userId)).limit(1))[0];
+  if (!user) throw new Error("帳號建立後無法讀取，請稍後再試。 ");
+  return user;
+}
+
+/** Links a verified Firebase identity only when its email matches the signed-in app user. */
+export async function linkUserToFirebaseUid(input: { userId: number; firebaseUid: string; email: string }) {
+  const db = requireDb();
+  const email = normalizeEmail(input.email);
+  const user = (await db.select().from(users).where(eq(users.id, input.userId)).limit(1))[0];
+  if (!user) throw new Error("找不到帳號。 ");
+  if (!user.email || normalizeEmail(user.email) !== email) throw new Error("Firebase 電子信箱必須與目前帳號相同。 ");
+  const linkedUser = await getUserByFirebaseUid(input.firebaseUid);
+  if (linkedUser && linkedUser.id !== user.id) throw new Error("此 Firebase 帳號已連結至其他使用者。 ");
+  const nextSessionVersion = user.sessionVersion + 1;
+  await db.update(users).set({ firebaseUid: input.firebaseUid, loginMethod: "firebase-email", sessionVersion: nextSessionVersion, lastSignedIn: new Date() })
+    .where(eq(users.id, user.id));
+  return { ...user, firebaseUid: input.firebaseUid, loginMethod: "firebase-email", sessionVersion: nextSessionVersion, lastSignedIn: new Date() };
+}
+
 export async function createLocalUser(input: { email: string; password: string; name: string }) {
   const db = requireDb();
   const email = normalizeEmail(input.email);
@@ -334,7 +384,10 @@ export async function createLocalUser(input: { email: string; password: string; 
 export async function verifyLocalPassword(email: string, password: string) {
   const db = requireDb();
   const user = await getUserByEmail(email);
-  if (!user?.passwordHash || user.loginMethod !== "email") return undefined;
+  // Once a legacy local account is linked to Firebase, Firebase becomes the
+  // password authority. Continuing to accept the historic local hash would
+  // let an old password bypass Firebase's reset/revocation protections.
+  if (!user?.passwordHash || user.loginMethod !== "email" || user.firebaseUid) return undefined;
   const [algorithm, salt, expectedHash] = user.passwordHash.split("$");
   if (algorithm !== "scrypt" || !salt || !expectedHash) return undefined;
   const actual = await derivePasswordKey(password, salt);
@@ -545,6 +598,8 @@ export async function deleteUserAccount(userId: number) {
     openId: `deleted_${nanoid(21)}`,
     email: null,
     passwordHash: null,
+    firebaseUid: null,
+    sessionVersion: user.sessionVersion + 1,
     name: "已刪除帳號",
     loginMethod: "deleted",
   }).where(eq(users.id, userId));

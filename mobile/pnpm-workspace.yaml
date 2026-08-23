@@ -1,2 +1,4 @@
 allowBuilds:
+  '@firebase/util': true
   dtrace-provider: true
+  protobufjs: true

@@ -17,6 +17,10 @@ export const users = mysqlTable("users", {
   email: varchar("email", { length: 320 }).unique(),
   /** scrypt hash for local email/password authentication; never returned to mobile clients. */
   passwordHash: varchar("passwordHash", { length: 255 }),
+  /** Firebase Authentication UID linked after verified email ownership is confirmed. */
+  firebaseUid: varchar("firebaseUid", { length: 128 }).unique(),
+  /** Increments when an identity-security event must invalidate existing app sessions. */
+  sessionVersion: int("sessionVersion").default(0).notNull(),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),

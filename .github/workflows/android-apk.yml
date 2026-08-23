@@ -20,6 +20,10 @@ env:
   EXPO_PUBLIC_APP_ID: "HDBmsjkFmtXoV2nyYfgboo"
   EXPO_PUBLIC_OAUTH_PORTAL_URL: "https://manus.im"
   EXPO_PUBLIC_API_BASE_URL: "https://togetherapp-hdbmsjkf.manus.space"
+  EXPO_PUBLIC_FIREBASE_API_KEY: ${{ secrets.EXPO_PUBLIC_FIREBASE_API_KEY }}
+  EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN }}
+  EXPO_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.EXPO_PUBLIC_FIREBASE_PROJECT_ID }}
+  EXPO_PUBLIC_FIREBASE_APP_ID: ${{ secrets.EXPO_PUBLIC_FIREBASE_APP_ID }}
 
 jobs:
   build-android-apk:
@@ -57,6 +61,15 @@ jobs:
       - name: Install JavaScript dependencies
         working-directory: mobile
         run: pnpm install --frozen-lockfile
+
+      - name: Verify Firebase client configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$EXPO_PUBLIC_FIREBASE_API_KEY"
+          test -n "$EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN"
+          test -n "$EXPO_PUBLIC_FIREBASE_PROJECT_ID"
+          test -n "$EXPO_PUBLIC_FIREBASE_APP_ID"
 
       - name: Read app version
         id: app-version
