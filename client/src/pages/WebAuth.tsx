@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { COOKIE_NAME } from "@/const";
 import {
+  getPersistedVerifiedFirebaseIdToken,
   messageOfFirebaseError,
   registerFirebaseEmail,
   requestFirebasePasswordReset,
@@ -13,7 +14,7 @@ import {
 } from "@/lib/firebaseAuth";
 import { trpc } from "@/lib/trpc";
 import { Heart, KeyRound, LoaderCircle, Mail, UserRound } from "lucide-react";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
 
@@ -31,8 +32,10 @@ export default function WebAuth() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberDevice, setRememberDevice] = useState(false);
   const [firebaseBusy, setFirebaseBusy] = useState(false);
   const [checkingSession, setCheckingSession] = useState(false);
+  const firebaseRestoreAttempted = useRef(false);
   const inviteCode = new URLSearchParams(window.location.search).get("invite")?.trim().toUpperCase();
   const emailActionComplete = new URLSearchParams(window.location.search).get("emailAction") === "complete";
   const afterAuthPath = inviteCode ? `/invite?code=${encodeURIComponent(inviteCode)}` : "/app";
@@ -80,9 +83,30 @@ export default function WebAuth() {
     onError: error => toast.error(messageOf(error), { duration: 7_000 }),
   });
   const exchangeFirebaseToken = trpc.auth.exchangeFirebaseToken.useMutation({
-    onSuccess: result => establishSession(result.token),
     onError: error => toast.error(messageOf(error), { duration: 7_000 }),
   });
+
+  const completeFirebaseSignIn = async (idToken: string) => {
+    const result = await exchangeFirebaseToken.mutateAsync({ idToken });
+    await establishSession(result.token);
+  };
+
+  useEffect(() => {
+    if (loading || user || mode !== "login" || firebaseRestoreAttempted.current) return;
+    firebaseRestoreAttempted.current = true;
+    void (async () => {
+      setCheckingSession(true);
+      try {
+        const idToken = await getPersistedVerifiedFirebaseIdToken();
+        if (idToken) await completeFirebaseSignIn(idToken);
+      } catch {
+        // No visible error is needed when a remembered device has expired;
+        // the normal login form remains the safe retry route.
+      } finally {
+        setCheckingSession(false);
+      }
+    })();
+  }, [loading, mode, user]);
 
   const pending = firebaseBusy || legacyLogin.isPending || exchangeFirebaseToken.isPending || checkingSession;
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -100,8 +124,8 @@ export default function WebAuth() {
         setPassword("");
         return;
       }
-      const idToken = await signInFirebaseEmail(email, password);
-      exchangeFirebaseToken.mutate({ idToken });
+      const idToken = await signInFirebaseEmail(email, password, rememberDevice);
+      await completeFirebaseSignIn(idToken);
     } catch (error) {
       toast.error(messageOfFirebaseError(error), { duration: 7_000 });
     } finally {
@@ -186,6 +210,7 @@ export default function WebAuth() {
                 {mode === "register" && <div className="space-y-2"><Label htmlFor="web-auth-name">顯示暱稱</Label><div className="relative"><UserRound className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input id="web-auth-name" value={name} onChange={event => setName(event.target.value)} className="h-10 border-input pl-9" maxLength={64} autoComplete="name" /></div></div>}
                 <div className="space-y-2"><Label htmlFor="web-auth-email">電子信箱</Label><div className="relative"><Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input id="web-auth-email" value={email} onChange={event => setEmail(event.target.value)} className="h-10 border-input pl-9" type="email" autoComplete="email" required /></div></div>
                 <div className="space-y-2"><Label htmlFor="web-auth-password">密碼</Label><div className="relative"><KeyRound className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input id="web-auth-password" value={password} onChange={event => setPassword(event.target.value)} className="h-10 border-input pl-9" type="password" minLength={8} maxLength={128} autoComplete={mode === "login" ? "current-password" : "new-password"} required /></div><p className="text-xs text-muted-foreground">密碼長度至少 8 個字元。</p></div>
+                {mode === "login" && <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border/80 bg-muted/35 px-3 py-3 text-left"><input type="checkbox" checked={rememberDevice} onChange={event => setRememberDevice(event.target.checked)} className="mt-0.5 h-4 w-4 accent-primary" /><span><span className="block text-sm font-semibold text-foreground">記住此裝置</span><span className="mt-0.5 block text-xs leading-5 text-muted-foreground">僅限你自己的裝置。共帳不會保存密碼；未勾選時，關閉瀏覽器後需重新登入。</span></span></label>}
                 <Button type="submit" disabled={pending} aria-busy={pending} className="h-11 w-full rounded-xl bg-primary font-semibold text-primary-foreground shadow-[0_12px_24px_var(--scene-shadow)] hover:bg-primary/90">{pending && <LoaderCircle size={16} className="mr-2 animate-spin" />}{pending ? checkingSession ? "正在安全開啟帳本…" : "正在驗證帳號…" : mode === "login" ? "登入並開啟帳本" : "註冊並建立帳本"}</Button>
                 {pending && <p className="text-center text-xs text-muted-foreground" role="status">登入完成後會同步你的共同帳本，請勿關閉此頁。</p>}
                 {mode === "login" && <div className="flex flex-col gap-2 text-center text-sm sm:flex-row sm:justify-center"><button type="button" disabled={pending} onClick={handlePasswordReset} className="font-medium text-primary underline-offset-4 hover:underline">忘記密碼</button><span className="hidden text-muted-foreground sm:inline">·</span><button type="button" disabled={pending} onClick={handleResendVerification} className="font-medium text-primary underline-offset-4 hover:underline">重新寄送驗證信</button></div>}
