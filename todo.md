@@ -705,4 +705,4 @@
 - [x] 盤點 Firebase Web／PWA／Android 現有 session、Firebase persistence 與本機儲存行為，確認不會保存明碼密碼
 - [x] 新增 Web／PWA／Android 一致的「記住此裝置」登入選項與清楚的私人裝置安全說明
 - [x] 讓未勾選時採短期工作階段，並在登出、帳戶刪除或 sessionVersion 失效時清除本機認證狀態
-- [ ] 補齊記住裝置、略過記住、冷啟動恢復及安全登出回歸測試，更新 README／Wiki 手動交接文件並完成版本發布
+- [x] 補齊記住裝置、略過記住、冷啟動恢復及安全登出回歸測試，更新 README／Wiki 手動交接文件並完成版本發布
