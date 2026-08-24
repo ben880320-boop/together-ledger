@@ -4,6 +4,7 @@ import * as SecureStore from "expo-secure-store";
 import type { AppRouter } from "../../server/routers";
 
 export const SESSION_KEY = "together-ledger-session-token";
+export const REMEMBER_DEVICE_KEY = "together-ledger-remember-device";
 export const API_BASE_URL = (
   process.env.EXPO_PUBLIC_API_BASE_URL ||
   "https://togetherapp-hdbmsjkf.manus.space"
@@ -45,6 +46,21 @@ export async function saveSessionToken(token: string) {
 
 export async function clearSessionToken() {
   await SecureStore.deleteItemAsync(SESSION_KEY);
+}
+
+/** Stores only an opt-in flag. Passwords are never persisted by the app. */
+export async function setRememberDevicePreference(rememberDevice: boolean) {
+  if (rememberDevice) {
+    await SecureStore.setItemAsync(REMEMBER_DEVICE_KEY, "true", {
+      keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
+    });
+    return;
+  }
+  await SecureStore.deleteItemAsync(REMEMBER_DEVICE_KEY);
+}
+
+export async function getRememberDevicePreference() {
+  return (await SecureStore.getItemAsync(REMEMBER_DEVICE_KEY)) === "true";
 }
 
 export type LedgerRealtimeEvent = {

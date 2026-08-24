@@ -1,5 +1,17 @@
 ## Together Ledger v1.3.8
 
+## Together Ledger v1.3.15
+
+### 安全記住此裝置
+
+- Android App、Web 與 PWA 的 Firebase 登入頁新增「記住此裝置」選項。勾選後只會保存受保護的工作階段憑證，以便下次開啟時安全恢復登入；**絕不保存或自動填入明碼密碼**。
+- 未勾選時，Web／PWA 只保留目前瀏覽器工作階段；Android 於下次冷啟動前會撤銷可恢復狀態，需重新輸入電子信箱與密碼。
+- 主動登出、帳戶刪除或伺服器的 session version 失效時，會一併清除記住此裝置偏好與本機工作階段，避免舊帳戶被靜默恢復。
+
+### 發布與安全性
+
+- Android 版升級為 `versionName=1.3.15`、`versionCode=38`，維持固定受保護簽章與 SHA-256 校驗檔。
+
 ## Together Ledger v1.3.14
 
 ### Firebase 認證提示與繁體中文郵件

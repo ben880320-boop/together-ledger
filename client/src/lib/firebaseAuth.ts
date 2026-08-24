@@ -1,6 +1,7 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
 import {
   browserLocalPersistence,
+  browserSessionPersistence,
   createUserWithEmailAndPassword,
   getAuth,
   sendEmailVerification,
@@ -42,6 +43,13 @@ function actionCodeSettings() {
   };
 }
 
+async function configureFirebasePersistence(rememberDevice: boolean) {
+  const auth = firebaseAuth();
+  // Firebase 只會保存可撤銷的 refresh token；共帳不會保存或回填明碼密碼。
+  await setPersistence(auth, rememberDevice ? browserLocalPersistence : browserSessionPersistence);
+  return auth;
+}
+
 export function messageOfFirebaseError(error: unknown) {
   const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
   if (code === "auth/invalid-credential" || code === "auth/wrong-password" || code === "auth/user-not-found") return "電子信箱或密碼錯誤。";
@@ -53,17 +61,16 @@ export function messageOfFirebaseError(error: unknown) {
 }
 
 export async function registerFirebaseEmail(input: { email: string; password: string; name: string }) {
-  const auth = firebaseAuth();
-  await setPersistence(auth, browserLocalPersistence);
+  // 註冊後會立即登出，避免尚未驗證的帳戶殘留在裝置上。
+  const auth = await configureFirebasePersistence(false);
   const credential = await createUserWithEmailAndPassword(auth, input.email.trim(), input.password);
   await updateProfile(credential.user, { displayName: input.name.trim() });
   await sendEmailVerification(credential.user, actionCodeSettings());
   await signOut(auth);
 }
 
-export async function signInFirebaseEmail(email: string, password: string) {
-  const auth = firebaseAuth();
-  await setPersistence(auth, browserLocalPersistence);
+export async function signInFirebaseEmail(email: string, password: string, rememberDevice: boolean) {
+  const auth = await configureFirebasePersistence(rememberDevice);
   const credential = await signInWithEmailAndPassword(auth, email.trim(), password);
   if (!credential.user.emailVerified) {
     await sendEmailVerification(credential.user, actionCodeSettings());
@@ -74,7 +81,7 @@ export async function signInFirebaseEmail(email: string, password: string) {
 }
 
 export async function resendFirebaseVerification(email: string, password: string) {
-  const auth = firebaseAuth();
+  const auth = await configureFirebasePersistence(false);
   const credential = await signInWithEmailAndPassword(auth, email.trim(), password);
   if (!credential.user.emailVerified) await sendEmailVerification(credential.user, actionCodeSettings());
   await signOut(auth);
@@ -85,6 +92,29 @@ export async function requestFirebasePasswordReset(email: string) {
   // Firebase intentionally returns a generic success path in the UI below so
   // this action does not reveal whether an email address owns an account.
   await sendPasswordResetEmail(auth, email.trim(), actionCodeSettings());
+}
+
+/**
+ * Restores only an explicitly remembered Firebase session. The caller still
+ * exchanges this short-lived ID token with the server, so sessionVersion
+ * revocation and verified-email checks remain enforced server-side.
+ */
+export async function getPersistedVerifiedFirebaseIdToken() {
+  const auth = firebaseAuth();
+  await auth.authStateReady();
+  const user = auth.currentUser;
+  if (!user) return null;
+  try {
+    await user.reload();
+    if (!auth.currentUser?.emailVerified) {
+      await signOut(auth);
+      return null;
+    }
+    return auth.currentUser.getIdToken(true);
+  } catch {
+    await signOut(auth);
+    return null;
+  }
 }
 
 export async function firebaseSignOut() {

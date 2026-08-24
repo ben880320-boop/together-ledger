@@ -27,7 +27,7 @@ import { useLocation } from "wouter";
 
 type Page = "overview" | "records" | "calendar" | "analysis" | "planning" | "settings" | "profile";
 type Sheet = "ledger" | "join" | "transaction" | "budget" | "total-budget" | "recurring" | "travel" | "category" | "payment" | "manage" | null;
-const APP_VERSION = "1.3.10";
+const APP_VERSION = "1.3.15";
 function StableTransactionDialog(props: any) {
   const workspaceSnapshot = useRef<any>(null);
   const activeDraftKey = useRef<string | null>(null);
@@ -540,7 +540,7 @@ function Profile({ workspace, onRefresh }: any) {
         toast.error("目前帳戶缺少電子信箱，無法完成 Firebase 再驗證。");
         return;
       }
-      void signInFirebaseEmail(user.email, currentPassword)
+      void signInFirebaseEmail(user.email, currentPassword, false)
         .then(firebaseIdToken => deleteAccountMutation.mutate({ firebaseIdToken }))
         .catch(fail);
     },
@@ -554,12 +554,16 @@ function Profile({ workspace, onRefresh }: any) {
     },
     onError: fail,
   });
-  const leave = async () => { if (!window.confirm("確定要登出此裝置嗎？")) return; await logout(); navigate("/"); };
+  const leave = async () => {
+    if (!window.confirm("確定要登出此裝置嗎？")) return;
+    await Promise.allSettled([firebaseSignOut(), logout()]);
+    navigate("/");
+  };
   const linkFirebaseAccount = async (event: FormEvent) => {
     event.preventDefault();
     if (!user?.email) return toast.error("此帳戶沒有可綁定的電子信箱。");
     try {
-      const idToken = await signInFirebaseEmail(user.email, firebasePassword);
+      const idToken = await signInFirebaseEmail(user.email, firebasePassword, false);
       await linkFirebase.mutateAsync({ idToken });
     } catch (error) {
       fail(error);

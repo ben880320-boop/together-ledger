@@ -102,6 +102,7 @@ describe("Firebase 跨平台郵件與認證提示回歸", () => {
   const mobileFirebaseHelper = readFileSync(resolve(projectRoot, "mobile/lib/firebaseAuth.ts"), "utf8");
   const webAuthPage = readFileSync(resolve(projectRoot, "client/src/pages/WebAuth.tsx"), "utf8");
   const mobileAuthPage = readFileSync(resolve(projectRoot, "mobile/app/index.tsx"), "utf8");
+  const mobileApi = readFileSync(resolve(projectRoot, "mobile/lib/api.ts"), "utf8");
 
   it("Web、PWA 與 Android 寄出的 Firebase 驗證／重設信均指定繁體中文語系", () => {
     expect(webFirebaseHelper).toMatch(/languageCode\s*=\s*["']zh-TW["']/);
@@ -114,6 +115,16 @@ describe("Firebase 跨平台郵件與認證提示回歸", () => {
     expect(mobileAuthPage).toContain("垃圾郵件匣");
     expect(mobileAuthPage).toContain("onNotice");
     expect(mobileAuthPage).toContain("accessibilityLabel=\"關閉提示\"");
+  });
+
+  it("記住此裝置只保存可撤銷的 session 與明確偏好，不保存明碼密碼", () => {
+    expect(webFirebaseHelper).toContain("browserSessionPersistence");
+    expect(webFirebaseHelper).toContain("browserLocalPersistence");
+    expect(webAuthPage).toContain("記住此裝置");
+    expect(webAuthPage).toContain("不會保存密碼");
+    expect(mobileAuthPage).toContain("記住此裝置");
+    expect(mobileApi).toContain("REMEMBER_DEVICE_KEY");
+    expect(mobileApi).toContain("Passwords are never persisted");
   });
 });
 

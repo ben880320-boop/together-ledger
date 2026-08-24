@@ -47,8 +47,10 @@ import {
   api,
   API_BASE_URL,
   clearSessionToken,
+  getRememberDevicePreference,
   getSessionToken,
   saveSessionToken,
+  setRememberDevicePreference,
   subscribeLedgerEvents,
 } from "../lib/api";
 import {
@@ -139,7 +141,7 @@ const appearanceDefaults: AppearancePreferences = {
   colorMode: "system",
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.3.14";
+const APP_VERSION = "1.3.15";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 const GITHUB_WIKI_URL = "https://github.com/ben880320-boop/together-ledger/wiki";
@@ -1509,6 +1511,19 @@ function AppContent() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
+      const rememberDevice = await getRememberDevicePreference();
+      if (!rememberDevice) {
+        // A temporary session may use SecureStore while the app is open, but
+        // must never be restored after a cold start when the user opted out.
+        await clearSessionToken();
+        try {
+          await signOutFromFirebase();
+        } catch {
+          // The app session has already been cleared; no account data is shown.
+        }
+        if (!cancelled) setReady(true);
+        return;
+      }
       const token = await getSessionToken();
       if (token) {
         await loadWorkspace();
@@ -1825,10 +1840,11 @@ function AppContent() {
       }
     }
   };
-  const handleLogin = async (input: { mode: "signIn" | "signUp"; email: string; password: string; name?: string }) => {
+  const handleLogin = async (input: { mode: "signIn" | "signUp"; email: string; password: string; name?: string; rememberDevice: boolean }) => {
     setError("");
     setBusy(true);
     try {
+      await setRememberDevicePreference(input.rememberDevice);
       if (input.mode === "signUp") {
         await registerFirebaseEmailWithProfile({
           email: input.email,
@@ -1937,6 +1953,7 @@ function AppContent() {
       /* native token removal remains authoritative */
     }
     await clearSessionToken();
+    await setRememberDevicePreference(false);
     try {
       await signOutFromFirebase();
     } catch {
@@ -1971,6 +1988,7 @@ function AppContent() {
         await api.auth.deleteAccount.mutate({ password });
       }
       await clearSessionToken();
+      await setRememberDevicePreference(false);
       try {
         await signOutFromFirebase();
       } catch {
@@ -2956,13 +2974,14 @@ function LoginScreen({
   onNotice,
 }: {
   busy: boolean;
-  onLogin: (input: { mode: "signIn" | "signUp"; email: string; password: string; name?: string }) => void;
+  onLogin: (input: { mode: "signIn" | "signUp"; email: string; password: string; name?: string; rememberDevice: boolean }) => void;
   onNotice: (message: string, tone?: "success" | "error") => void;
 }) {
   const { palette } = useAppearance();
   const [mode, setMode] = useState<"signIn" | "signUp">("signIn");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberDevice, setRememberDevice] = useState(false);
   const [name, setName] = useState("");
   const [recoveryBusy, setRecoveryBusy] = useState(false);
   const isSignUp = mode === "signUp";
@@ -2971,7 +2990,7 @@ function LoginScreen({
       onNotice(isSignUp ? "請完成暱稱、電子信箱與密碼後再建立帳號。" : "請輸入電子信箱與密碼後再登入。", "error");
       return;
     }
-    onLogin({ mode, email: email.trim(), password, name: name.trim() || undefined });
+    onLogin({ mode, email: email.trim(), password, name: name.trim() || undefined, rememberDevice });
   };
   const requestPasswordReset = async () => {
     if (!email.trim()) {
@@ -3064,6 +3083,13 @@ function LoginScreen({
               onSubmitEditing={submit}
               returnKeyType="done"
             />
+            {!isSignUp && <Pressable accessibilityRole="switch" accessibilityState={{ checked: rememberDevice }} accessibilityLabel="記住此裝置" disabled={busy} onPress={() => setRememberDevice(current => !current)} style={styles.rememberDeviceRow}>
+              <View style={styles.rememberDeviceCopy}>
+                <Text style={[styles.rememberDeviceTitle, { color: palette.ink }]}>記住此裝置</Text>
+                <Text style={[styles.rememberDeviceDescription, { color: palette.muted }]}>僅限私人手機。共帳不會保存密碼；未開啟時，下次開啟 App 需要重新登入。</Text>
+              </View>
+              <Switch value={rememberDevice} onValueChange={setRememberDevice} disabled={busy} trackColor={{ false: palette.border, true: palette.rose }} thumbColor={rememberDevice ? "#FFFFFF" : palette.surface} />
+            </Pressable>}
             <Pressable
               disabled={busy}
               onPress={submit}
@@ -7500,6 +7526,10 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     paddingHorizontal: 4,
   },
   authHelpLink: { fontSize: 13, fontWeight: "700" },
+  rememberDeviceRow: { flexDirection: "row", alignItems: "center", gap: 12, marginTop: 1, marginBottom: 8, paddingVertical: 8 },
+  rememberDeviceCopy: { flex: 1 },
+  rememberDeviceTitle: { fontSize: 14, fontWeight: "700" },
+  rememberDeviceDescription: { marginTop: 3, fontSize: 11, lineHeight: 17 },
   privacyText: {
     marginTop: 22,
     color: "#AE9C94",
