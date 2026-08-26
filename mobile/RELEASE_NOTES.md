@@ -1,5 +1,17 @@
 ## Together Ledger v1.3.8
 
+## Together Ledger v1.3.17
+
+### 帳戶刪除修復
+
+- 修正 Web 與 Android 的 Firebase Email／Password 帳戶即使輸入正確密碼、完成近期驗證後，仍被伺服器誤判為不支援密碼自刪的問題。
+- Firebase Email／Password 帳戶現在會正確進入近期驗證與帳戶資料清理流程；Google 等非密碼登入帳戶仍會被拒絕以密碼刪除，維持原有帳戶保護界線。
+- 新增 server 契約與 Android 核心流程回歸測試，覆蓋 Firebase Email／Password 自刪資格、非密碼帳戶拒絕及既有工作階段撤銷條件。
+
+### 發布
+
+- Android 版升級為 `versionName=1.3.17`、`versionCode=40`，維持固定受保護簽章與 SHA-256 校驗檔。
+
 ## Together Ledger v1.3.16
 
 ### 帳戶生命週期與跨平台安全

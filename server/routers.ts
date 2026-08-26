@@ -329,7 +329,12 @@ export const appRouter = router({
         firebaseIdToken: z.string().min(100, "請重新登入 Firebase 後再刪除帳號。").optional(),
       }))
       .mutation(async ({ ctx, input }) => {
-        if (!ctx.user.email || ctx.user.loginMethod !== "email") {
+        const accountEmail = ctx.user.email;
+        const canDeleteWithPassword =
+          Boolean(accountEmail) &&
+          (ctx.user.loginMethod === "email" ||
+            (ctx.user.loginMethod === "firebase-email" && Boolean(ctx.user.firebaseUid)));
+        if (!canDeleteWithPassword || !accountEmail) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "只有電子信箱帳密帳號可以在 App 內自行刪除。" });
         }
         if (ctx.user.firebaseUid) {
@@ -371,7 +376,7 @@ export const appRouter = router({
         if (!input.password) {
           throw new TRPCError({ code: "BAD_REQUEST", message: "請輸入目前密碼以確認刪除帳號。" });
         }
-        const verifiedUser = await verifyLocalPassword(ctx.user.email, input.password);
+        const verifiedUser = await verifyLocalPassword(accountEmail, input.password);
         if (!verifiedUser || verifiedUser.id !== ctx.user.id) {
           throw new TRPCError({ code: "UNAUTHORIZED", message: "密碼不正確，無法刪除帳號。" });
         }

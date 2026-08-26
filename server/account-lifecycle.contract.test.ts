@@ -37,6 +37,12 @@ describe("帳戶生命週期安全契約", () => {
     expect(mobileApp).toContain("FirebaseEmailChangeModal");
   });
 
+  it("已綁定 Firebase 的電子信箱帳密帳戶可在近期驗證後自行刪除，非密碼帳戶仍會被拒絕", () => {
+    expect(routers).toContain('ctx.user.loginMethod === "firebase-email" && Boolean(ctx.user.firebaseUid)');
+    expect(routers).toContain("verifyRecentlyAuthenticatedFirebaseIdentity(input.firebaseIdToken)");
+    expect(routers).toContain('message: "只有電子信箱帳密帳號可以在 App 內自行刪除。"');
+  });
+
   it("管理員端點在後端強制授權，且拒絕自刪與刪除其他管理員", () => {
     expect(routers).toContain("admin: router(");
     expect(routers).toContain("deleteUser: adminProcedure");
