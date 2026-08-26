@@ -722,3 +722,10 @@
 - [x] 追查並修復 Web／Android 在已輸入 Firebase 密碼後仍無法刪除帳戶的近期驗證、tRPC 與資料清理流程
 - [x] 補齊帳戶刪除成功、近期驗證失敗與 Firebase-only／舊帳戶相容性測試，完成跨平台驗收
 - [x] 以 feature branch＋PR 發布 v1.3.17／versionCode 40 帳戶刪除修復，並驗證官方 Android APK 與 SHA-256
+
+## v1.3.18 產品盤點與帳戶刪除互動
+
+- [x] 完整盤點 Android、Web／PWA、GitHub repository／Actions／Release 現況，提出至少五項具優先序的問題與更新建議
+- [x] 設計 Web／PWA／Android 一致的帳戶刪除倒數最終確認流程，防止誤觸並維持近期 Firebase 驗證機制
+- [x] 在跨平台帳戶刪除成功後顯示友善告別訊息與安全的登入頁返回流程，不保留已刪帳戶的本機敏感狀態
+- [ ] 補齊倒數確認、取消、刪除成功與失敗重試的型別、單元與 Android 核心流程驗收，更新文件並依 feature branch＋PR 發布

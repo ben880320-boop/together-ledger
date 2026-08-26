@@ -53,6 +53,10 @@ v1.3.16 將忘記密碼與重寄驗證改為先輸入電子信箱的對話框；
 
 v1.3.17 修正 Firebase Email／Password 帳戶在個人設定輸入正確密碼、完成近期驗證後，仍被伺服器誤拒絕自刪的問題。刪除帳戶仍必須先完成 Firebase 近期驗證；Google 等非密碼登入帳戶維持不能以密碼刪除的保護。成功刪除後會撤銷工作階段，並依帳本成員與擁有權規則處理相關資料。
 
+v1.3.18 讓 Web、PWA 與 Android 的帳戶刪除流程採用一致的雙階段防誤觸互動：輸入密碼後會先顯示五秒倒數的最終確認；倒數只解除按鈕鎖定，**不會自動刪除帳戶**。成功後，系統會撤銷本機與 Firebase 工作階段、返回公開登入入口，並顯示一次性、可關閉的告別訊息；不會保留已刪帳戶的本機敏感登入狀態。
+
+v1.3.18 讓 Web、PWA 與 Android 的帳戶刪除流程採用一致的雙階段防誤觸互動：使用者輸入密碼後會先看到五秒倒數的最終確認，倒數只解除按鈕鎖定，**不會自動刪除帳戶**。成功後，系統會撤銷本機與 Firebase 工作階段、返回公開登入入口，並顯示一次性、可關閉的告別訊息；不會保留已刪帳戶的本機敏感登入狀態。
+
 既有的本機帳密使用者不會因升級失去帳本、成員資格、交易或設定。請先以既有帳密登入，再從「個人設定 → 帳戶安全」用**完全相同且已驗證的電子信箱**完成 Firebase 綁定。綁定完成時，伺服器保留原有使用者 ID 和所有帳本關聯，並撤銷舊 app session；新登入使用一小時短效 app session，Android 在 Firebase 已驗證身份仍有效時會自動換發。Firebase 已綁定帳戶的刪除操作必須以 Firebase 密碼重新驗證，且伺服器會驗證近期 ID Token、UID 與電子信箱一致後再移除身份資料。
 
 > **管理員部署檢查：** Firebase Console 的 Authentication → Settings → Authorized domains 必須加入正式網站 `togetherapp-hdbmsjkf.manus.space`，才可讓驗證／重設信的 Firebase Hosted action page 完成後安全返回網站登入頁。另請在 **Authentication → Templates** 將驗證與重設範本設為繁體中文，固定寄件者名稱為「共帳 Together Ledger」並設定簡短主旨；詳見 [`docs/firebase-email-template-localization.md`](docs/firebase-email-template-localization.md)。GitHub Actions 另需設定僅供 Android client 使用的 `EXPO_PUBLIC_FIREBASE_API_KEY`、`EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN`、`EXPO_PUBLIC_FIREBASE_PROJECT_ID` 與 `EXPO_PUBLIC_FIREBASE_APP_ID` secrets；服務帳號 JSON 絕不可放進 APK 或 GitHub Actions client 環境。
@@ -87,7 +91,7 @@ Together Ledger 網頁版可安裝為 PWA，安裝後會以獨立視窗開啟，
 
 ## 下載、安裝與更新 Android App
 
-目前 Android App 版本為 **1.3.17**（versionCode 40）。此版本修正 Web 與 Android 的 Firebase Email／Password 帳戶在完成近期驗證後仍無法刪除帳戶的問題，並保留非密碼登入帳戶不得以密碼刪除的安全限制。請僅從本專案的 [GitHub Releases](https://github.com/ben880320-boop/together-ledger/releases) 下載官方 APK，並以 Release 頁面附列的 SHA-256 檢查碼確認檔案來源。
+目前 Android App 版本為 **1.3.18**（versionCode 41）。此版本在既有 Firebase 近期驗證與自刪資格保護之上，加入密碼後五秒倒數的最終確認與安全告別訊息；倒數不會自動刪除帳戶。請僅從本專案的 [GitHub Releases](https://github.com/ben880320-boop/together-ledger/releases) 下載官方 APK，並以 Release 頁面附列的 SHA-256 檢查碼確認檔案來源。
 
 | 步驟 | 操作 |
 | --- | --- |
@@ -98,7 +102,7 @@ Together Ledger 網頁版可安裝為 PWA，安裝後會以獨立視窗開啟，
 
 > 安裝 APK 的系統權限只用於完成你主動發起的更新安裝。請勿從非官方網站、聊天訊息或未知來源下載同名 APK。
 
-> **固定簽章更新：** v1.3.3 起，官方 APK 均使用同一組受保護簽章，可由已安裝的官方版本直接覆蓋更新；若裝置仍保有更早期、不同簽章的歷史安裝且顯示「無法更新」或「套件衝突」，請先移除舊版，再安裝 v1.3.17 官方 APK 一次。移除 App 不會刪除伺服器上的帳本資料。
+> **固定簽章更新：** v1.3.3 起，官方 APK 均使用同一組受保護簽章，可由已安裝的官方版本直接覆蓋更新；若裝置仍保有更早期、不同簽章的歷史安裝且顯示「無法更新」或「套件衝突」，請先移除舊版，再安裝 v1.3.18 官方 APK 一次。移除 App 不會刪除伺服器上的帳本資料。
 
 ## 隱私與資料安全
 

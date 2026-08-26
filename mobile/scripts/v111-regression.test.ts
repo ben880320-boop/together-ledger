@@ -24,13 +24,17 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     expect(sdk).toContain("LOCAL_OPEN_ID_PREFIX");
   });
 
-  it("requires a password before a local account can be deleted", () => {
+  it("requires a password, five-second final confirmation, and safe farewell before a local account can be deleted", () => {
     const app = readMobile("app/index.tsx");
     const router = readFileSync(resolve(process.cwd(), "server/routers.ts"), "utf8");
     expect(app).toContain("function AccountDeletionModal(");
     expect(app).toContain("永久刪除帳號");
     expect(app).toContain("輸入目前密碼以確認");
     expect(app).toContain("api.auth.deleteAccount.mutate");
+    expect(app).toContain('const [step, setStep] = useState<"password" | "countdown">("password")');
+    expect(app).toContain("setCountdown(5)");
+    expect(app).toContain("倒數不會自動刪除帳號");
+    expect(app).toContain("帳號已安全刪除。謝謝你曾使用共帳");
     expect(router).toContain("deleteAccount: protectedProcedure");
     expect(router).toContain("密碼不正確，無法刪除帳號");
   });
@@ -334,9 +338,9 @@ describe("Together Ledger v1.3.0 Android wiring", () => {
     const appJson = JSON.parse(readMobile("app.json")) as {
       expo?: { version?: string; scheme?: string; android?: { versionCode?: number } };
     };
-    expect(appJson.expo?.version).toBe("1.3.17");
-    expect(appJson.expo?.android?.versionCode).toBe(40);
-    expect(readMobile("package.json")).toContain('"version": "1.3.17"');
+    expect(appJson.expo?.version).toBe("1.3.18");
+    expect(appJson.expo?.android?.versionCode).toBe(41);
+    expect(readMobile("package.json")).toContain('"version": "1.3.18"');
     expect(appJson.expo?.scheme).toBe("togetherledger");
     expect(readMobile("app.json")).not.toContain("expo-notifications");
     expect(readMobile("app.json")).toContain('"googleServicesFile": "./google-services.json"');

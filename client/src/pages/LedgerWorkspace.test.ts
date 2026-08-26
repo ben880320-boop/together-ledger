@@ -51,6 +51,15 @@ describe("Together Ledger 真實網頁帳本入口", () => {
     expect(workspace).toContain("firebaseIdToken");
   });
 
+  it("以密碼後五秒倒數的最終確認防止誤觸刪帳，並在成功後回到公開告別入口", () => {
+    expect(workspace).toContain("setAccountDeletionConfirmationOpen(true)");
+    expect(workspace).toContain("setAccountDeletionCountdown(5)");
+    expect(workspace).toContain("倒數不會自動刪除帳號");
+    expect(workspace).toContain("取消並保留帳號");
+    expect(workspace).toContain('navigate("/?account-deleted=1")');
+    expect(workspace).not.toContain('window.confirm("確定要永久刪除帳號嗎？此動作不可復原。")');
+  });
+
   it("在新增收支對話框開啟期間固定工作區快照，不讓背景同步清除未提交草稿", () => {
     expect(workspace).toContain("function StableTransactionDialog");
     expect(workspace).toContain("workspaceSnapshot.current = props.workspace");
@@ -146,7 +155,7 @@ describe("Together Ledger 真實網頁帳本入口", () => {
   });
 
   it("提供可辨識的發布資訊與重新取得最新版本操作", () => {
-    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.17"');
+    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.18"');
     expect(footer).toContain("WEB_BUILD_TIMESTAMP");
     expect(footer).toContain("formatTaipeiTimestamp");
     expect(footer).toContain("重新載入最新版本");
