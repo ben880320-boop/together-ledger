@@ -728,4 +728,4 @@
 - [x] 完整盤點 Android、Web／PWA、GitHub repository／Actions／Release 現況，提出至少五項具優先序的問題與更新建議
 - [x] 設計 Web／PWA／Android 一致的帳戶刪除倒數最終確認流程，防止誤觸並維持近期 Firebase 驗證機制
 - [x] 在跨平台帳戶刪除成功後顯示友善告別訊息與安全的登入頁返回流程，不保留已刪帳戶的本機敏感狀態
-- [ ] 補齊倒數確認、取消、刪除成功與失敗重試的型別、單元與 Android 核心流程驗收，更新文件並依 feature branch＋PR 發布
+- [x] 補齊倒數確認、取消、刪除成功與失敗重試的型別、單元與 Android 核心流程驗收，更新文件並依 feature branch＋PR 發布
