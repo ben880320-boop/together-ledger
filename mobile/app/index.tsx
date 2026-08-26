@@ -49,6 +49,7 @@ import {
   clearSessionToken,
   getRememberDevicePreference,
   getSessionToken,
+  isUnauthorized,
   saveSessionToken,
   setRememberDevicePreference,
   subscribeLedgerEvents,
@@ -143,7 +144,7 @@ const appearanceDefaults: AppearancePreferences = {
   colorMode: "system",
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.3.18";
+const APP_VERSION = "1.3.19";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 const GITHUB_WIKI_URL = "https://github.com/ben880320-boop/together-ledger/wiki";
@@ -1095,6 +1096,7 @@ function AppContent() {
   const ledgerReloadInFlightRef = useRef(new Map<string, Promise<boolean>>());
   const diagnosticsEnabledRef = useRef(false);
   const diagnosticRequestInFlightRef = useRef(false);
+  const rememberedSessionRecoveryPendingRef = useRef(false);
 
   const showToast = useCallback((message: string, tone: "success" | "error" = "success") => {
     setToast({ id: ++toastSequenceRef.current, message, tone });
@@ -1434,6 +1436,13 @@ function AppContent() {
       const authState = await api.auth.me.query();
       const nextUser = authState?.user ?? null;
       if (!nextUser) {
+        // Some expired App JWT responses resolve to { user: null } instead of
+        // throwing a tRPC UNAUTHORIZED error. Treat both shapes identically so
+        // a user who explicitly remembered this device gets one Firebase-based
+        // refresh attempt rather than being silently returned to the login form.
+        if (await getRememberDevicePreference()) {
+          rememberedSessionRecoveryPendingRef.current = true;
+        }
         await clearSessionToken();
         setUser(null);
         setFirebaseLinked(null);
@@ -1492,10 +1501,12 @@ function AppContent() {
       } catch {
         // 快照不可用時維持原本錯誤畫面，避免覆蓋真實載入錯誤。
       }
-      if (
-        String(message).includes("UNAUTHORIZED") ||
-        String(message).includes("Unauthorized")
-      ) {
+      if (isUnauthorized(loadError)) {
+        // Let cold-start restoration exchange the persisted Firebase session
+        // once before presenting the login form. The old short-lived App JWT
+        // is removed, but the opt-in Firebase identity remains protected in
+        // its native persistence store until Firebase confirms revocation.
+        rememberedSessionRecoveryPendingRef.current = true;
         await clearSessionToken();
         setUser(null);
         setFirebaseLinked(null);
@@ -1528,12 +1539,7 @@ function AppContent() {
         if (!cancelled) setReady(true);
         return;
       }
-      const token = await getSessionToken();
-      if (token) {
-        await loadWorkspace();
-        return;
-      }
-      try {
+      const restoreRememberedFirebaseSession = async () => {
         const firebaseIdToken = await getPersistedVerifiedFirebaseIdToken();
         if (!firebaseIdToken || cancelled) {
           if (!cancelled) setReady(true);
@@ -1541,10 +1547,23 @@ function AppContent() {
         }
         await exchangeFirebaseSession(firebaseIdToken);
         if (!cancelled) await loadWorkspace();
+      };
+      const token = await getSessionToken();
+      if (token) {
+        await loadWorkspace();
+        if (rememberedSessionRecoveryPendingRef.current && !cancelled) {
+          rememberedSessionRecoveryPendingRef.current = false;
+          await restoreRememberedFirebaseSession();
+        }
+        return;
+      }
+      try {
+        await restoreRememberedFirebaseSession();
       } catch (sessionError) {
         if (!cancelled) {
-          await clearSessionToken();
-          setError(messageOfFirebaseError(sessionError));
+          // Network failures must not erase the Firebase refresh token or the
+          // explicit remember-device choice. A later launch can retry safely.
+          setError(`無法恢復已記住裝置的登入：${messageOfFirebaseError(sessionError)}。請恢復網路後重新開啟 App 或手動登入。`);
           setReady(true);
         }
       }

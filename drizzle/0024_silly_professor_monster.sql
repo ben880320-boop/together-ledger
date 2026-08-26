@@ -1,0 +1,1 @@
+ALTER TABLE `adminAccountAuditLogs` MODIFY COLUMN `action` enum('promote','delete','emailChange','cleanup','sessionRevoke') NOT NULL;

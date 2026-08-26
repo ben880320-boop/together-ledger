@@ -5,10 +5,10 @@ import { httpBatchLink, TRPCClientError } from "@trpc/client";
 import { createRoot } from "react-dom/client";
 import superjson from "superjson";
 import App from "./App";
-import { startLogin } from "./const";
 import "./index.css";
 
 const queryClient = new QueryClient();
+let isRoutingToFirebaseRecovery = false;
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;
@@ -16,9 +16,13 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
 
   const isUnauthorized = error.message === UNAUTHED_ERR_MSG;
 
-  if (!isUnauthorized) return;
+  if (!isUnauthorized || window.location.pathname === "/login" || isRoutingToFirebaseRecovery) return;
 
-  startLogin();
+  // A remembered Firebase Email/Password identity can safely exchange a fresh
+  // app session on /login. Going directly to the external OAuth entry skipped
+  // that recovery path and made an expired app JWT look like a forced logout.
+  isRoutingToFirebaseRecovery = true;
+  window.location.assign("/login");
 };
 
 queryClient.getQueryCache().subscribe(event => {

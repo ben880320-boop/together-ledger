@@ -18,6 +18,7 @@ import {
   ledgers,
   monthlySettlementSnapshots,
   notificationPreferences,
+  operationalSecurityEvents,
   paymentMethods,
   pushDevices,
   recurringTransactions,
@@ -1439,11 +1440,20 @@ export async function getAdminAccountSummary() {
   };
 }
 
+/** Advances sessionVersion so every issued application JWT for this user is rejected. */
+export async function revokeUserApplicationSessions(userId: number) {
+  const db = requireDb();
+  const result = await db.update(users)
+    .set({ sessionVersion: sql`${users.sessionVersion} + 1` })
+    .where(and(eq(users.id, userId), ne(users.loginMethod, "deleted")));
+  return Number(result[0].affectedRows ?? 0) > 0;
+}
+
 /** Writes only operational metadata: never record passwords, tokens, or Firebase UIDs. */
 export async function writeAdminAccountAudit(input: {
   adminUserId: number;
   targetUserId?: number | null;
-  action: "promote" | "delete" | "emailChange" | "cleanup";
+  action: "promote" | "delete" | "emailChange" | "cleanup" | "sessionRevoke";
   summary: string;
   metadata?: Record<string, number | string | boolean | null>;
 }) {
@@ -1457,6 +1467,69 @@ export async function writeAdminAccountAudit(input: {
     metadata,
   });
   return Number(result[0].insertId);
+}
+
+/**
+ * Records only aggregated operational state. This must never carry identity,
+ * token, ledger, transaction, amount, email, or Firebase UID values.
+ * Telemetry availability must not change the auth or synchronization outcome.
+ */
+export async function recordOperationalSecurityEvent(input: {
+  event: "rememberRestore" | "sessionRevoke" | "syncConflict";
+  source: "web" | "pwa" | "android" | "server";
+  outcome: "success" | "failure";
+  code?: string;
+}) {
+  try {
+    const db = await getDb();
+    if (!db) return false;
+    await db.insert(operationalSecurityEvents).values({
+      event: input.event,
+      source: input.source,
+      outcome: input.outcome,
+      code: input.code?.slice(0, 64) ?? null,
+    });
+    return true;
+  } catch (error) {
+    console.warn("[OperationalSecurityEvent] write failed", {
+      event: input.event,
+      source: input.source,
+      outcome: input.outcome,
+      code: input.code ?? null,
+    });
+    return false;
+  }
+}
+
+/**
+ * Returns only deidentified operational aggregates for the Web-only admin
+ * console. The query intentionally has no account, ledger, transaction, or
+ * financial fields, so it cannot be used to reconstruct a user's activity.
+ */
+export async function getOperationalSecurityEventSummary(days = 7) {
+  const db = requireDb();
+  const safeDays = Math.max(1, Math.min(Math.trunc(days), 30));
+  const since = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1_000);
+  const rows = await db.select({
+    event: operationalSecurityEvents.event,
+    source: operationalSecurityEvents.source,
+    outcome: operationalSecurityEvents.outcome,
+    code: operationalSecurityEvents.code,
+    count: sql<number>`count(*)`,
+  }).from(operationalSecurityEvents)
+    .where(gte(operationalSecurityEvents.createdAt, since))
+    .groupBy(
+      operationalSecurityEvents.event,
+      operationalSecurityEvents.source,
+      operationalSecurityEvents.outcome,
+      operationalSecurityEvents.code,
+    )
+    .orderBy(desc(sql`count(*)`))
+    .limit(100);
+  return {
+    periodDays: safeDays,
+    events: rows.map(row => ({ ...row, count: Number(row.count) })),
+  };
 }
 
 export async function listAdminAccountAudits(limit = 60) {

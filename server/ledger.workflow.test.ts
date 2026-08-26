@@ -58,6 +58,7 @@ const mocks = vi.hoisted(() => ({
   archiveSavingsBucket: vi.fn(),
   restoreSavingsBucket: vi.fn(),
   addSavingsDeposit: vi.fn(),
+  recordOperationalSecurityEvent: vi.fn(),
 }));
 
 vi.mock("./db", () => mocks);
@@ -130,6 +131,7 @@ describe("typed ledger workflow contract", () => {
     mocks.updateSavingsBucket.mockResolvedValue({ id: 31, version: 2 });
     mocks.stopSavingsBucket.mockResolvedValue(31);
     mocks.addSavingsDeposit.mockResolvedValue({ bucket: { id: 31, version: 3 }, allocation: { id: 41, source: "manual" } });
+    mocks.recordOperationalSecurityEvent.mockResolvedValue(undefined);
   });
 
   it("executes create and join ledger mutations through the typed router", async () => {

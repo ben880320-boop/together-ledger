@@ -1,0 +1,60 @@
+name: Quality Gate
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-gate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-gate:
+    name: Quality Gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.x"
+          cache: pnpm
+
+      - name: Install Web and server dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Android dependencies
+        working-directory: mobile
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify TypeScript contracts
+        run: pnpm exec tsc --noEmit
+
+      - name: Run unit and contract tests
+        run: pnpm test
+        env:
+          JWT_SECRET: quality-gate-test-only-secret
+          OAUTH_SERVER_URL: https://oauth.invalid
+          VITE_APP_ID: quality-gate-test-app
+
+      - name: Build Web and PWA production bundle
+        run: pnpm build
+
+      - name: Verify Android type contracts
+        working-directory: mobile
+        run: pnpm typecheck
+
+      - name: Verify Android core flows
+        run: pnpm exec tsx mobile/scripts/verify-core-flows.mjs

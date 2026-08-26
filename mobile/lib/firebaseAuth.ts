@@ -66,6 +66,17 @@ async function verifiedIdToken(user: User) {
   return currentUser.getIdToken(true);
 }
 
+function shouldClearPersistedFirebaseIdentity(error: unknown) {
+  const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
+  return [
+    "auth/user-disabled",
+    "auth/user-not-found",
+    "auth/user-token-expired",
+    "auth/user-token-revoked",
+    "auth/invalid-user-token",
+  ].includes(code);
+}
+
 export async function signInWithFirebaseEmail(email: string, password: string) {
   const auth = getFirebaseAuth();
   const credential = await signInWithEmailAndPassword(auth, email.trim(), password);
@@ -140,9 +151,14 @@ export async function getPersistedVerifiedFirebaseIdToken() {
   if (!user) return null;
   try {
     return await verifiedIdToken(user);
-  } catch {
-    await signOut(auth);
-    return null;
+  } catch (error) {
+    // Preserve the remembered Firebase session during temporary offline or
+    // network failures. Explicit revocation still clears it immediately.
+    if (shouldClearPersistedFirebaseIdentity(error)) {
+      await signOut(auth);
+      return null;
+    }
+    throw error;
   }
 }
 
