@@ -7,10 +7,11 @@ const globalStyles = readFileSync(fileURLToPath(new URL("../index.css", import.m
 
 describe("Together Ledger 網頁產品入口", () => {
   it("同步顯示 Android App 版本、更新歷程與跨裝置使用引導", () => {
-    expect(homePage).toContain("1.3.17");
-    expect(homePage).toContain("Android 與 Web 同步更新 · v1.3.17");
-    expect(homePage).toContain('{ version: "1.3.10", date: "最新版本"');
-    expect(homePage).toContain("診斷偏好修復與讀取體驗優化");
+    expect(homePage).toContain("1.3.18");
+    expect(homePage).toContain("Android 與 Web 同步更新 · v1.3.18");
+    expect(homePage).toContain('{ version: "1.3.18", date: "最新版本"');
+    expect(homePage).toContain("刪帳最終確認與安全告別");
+    expect(homePage).toContain("倒數不會自動刪帳");
     expect(homePage).toContain("SSE 即時同步與擴充帳本圖示");
     expect(homePage).toContain("可重連 SSE 事件流");
     expect(homePage).toContain("更新歷程");
@@ -61,6 +62,13 @@ describe("Together Ledger 網頁產品入口", () => {
     expect(homePage).toContain("正式網域一律使用新版產品入口");
     expect(homePage).toContain("import.meta.env.DEV");
     expect(homePage).toContain("legacyWorkspacePreview");
-    expect(homePage).toContain("return <LoginLanding onLogin={() => setLocation(\"/login\")} />;");
+    expect(homePage).toContain('return <LoginLanding onLogin={() => setLocation("/login")} accountDeleted={accountDeleted}');
+  });
+
+  it("在清除登入 session 後仍提供一次性、可關閉的帳戶刪除告別訊息", () => {
+    expect(homePage).toContain('get("account-deleted") === "1"');
+    expect(homePage).toContain("帳號已安全刪除");
+    expect(homePage).toContain("謝謝你曾使用共帳");
+    expect(homePage).toContain('nextUrl.searchParams.delete("account-deleted")');
   });
 });

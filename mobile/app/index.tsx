@@ -143,7 +143,7 @@ const appearanceDefaults: AppearancePreferences = {
   colorMode: "system",
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.3.17";
+const APP_VERSION = "1.3.18";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 const GITHUB_WIKI_URL = "https://github.com/ben880320-boop/together-ledger/wiki";
@@ -2036,7 +2036,7 @@ function AppContent() {
       clearLedgerWorkspace();
       setLedgerHome(true);
       setHomePage("ledgers");
-      showToast("帳號已刪除，已安全登出。你可以隨時使用新電子信箱重新註冊。");
+      showToast("帳號已安全刪除。謝謝你曾使用共帳；此裝置已登出且不會保留已刪帳戶的登入狀態。未來想重新開始時，隨時可以註冊新帳號。");
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "刪除帳號失敗，請稍後再試。");
     } finally {
@@ -6080,11 +6080,27 @@ function AccountDeletionModal({
 }) {
   const { palette } = useAppearance();
   const [password, setPassword] = useState("");
+  const [step, setStep] = useState<"password" | "countdown">("password");
+  const [countdown, setCountdown] = useState(5);
   useEffect(() => {
-    if (!visible) setPassword("");
+    if (!visible) {
+      setPassword("");
+      setStep("password");
+      setCountdown(5);
+    }
   }, [visible]);
+  useEffect(() => {
+    if (!visible || step !== "countdown" || busy || countdown <= 0) return;
+    const timer = setTimeout(() => setCountdown(current => Math.max(0, current - 1)), 1_000);
+    return () => clearTimeout(timer);
+  }, [busy, countdown, step, visible]);
+  const beginFinalConfirmation = () => {
+    if (!password.trim()) return;
+    setCountdown(5);
+    setStep("countdown");
+  };
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={busy ? undefined : onClose}>
       <KeyboardAvoidingView style={styles.confirmOverlay} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <Pressable style={styles.confirmDismiss} onPress={busy ? undefined : onClose} />
         <View style={[styles.confirmCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
@@ -6094,8 +6110,7 @@ function AccountDeletionModal({
             </View>
             <Text style={styles.confirmTitle}>永久刪除帳號</Text>
             <Text style={styles.confirmMessage}>這個動作無法復原。你會退出所有帳本；若你是有其他成員帳本的持有者，所有權會轉給最早加入的成員；若沒有其他成員，該帳本資料會一併刪除。</Text>
-            <Text style={[styles.personalizationLabel, { color: palette.rose }]}>{firebaseLinked ? "重新輸入 Firebase 密碼以確認" : "輸入目前密碼以確認"}</Text>
-            <TextInput
+            {step === "password" ? <><Text style={[styles.personalizationLabel, { color: palette.rose }]}>{firebaseLinked ? "重新輸入 Firebase 密碼以確認" : "輸入目前密碼以確認"}</Text><TextInput
               value={password}
               onChangeText={setPassword}
               placeholder={firebaseLinked ? "Firebase 密碼" : "目前密碼"}
@@ -6107,20 +6122,20 @@ function AccountDeletionModal({
               autoComplete="current-password"
               textContentType="password"
               editable={!busy}
-              onSubmitEditing={() => void onSubmit(password)}
+              onSubmitEditing={beginFinalConfirmation}
               returnKeyType="done"
-            />
+            /></> : <View style={[styles.accountDeletionCountdown, { backgroundColor: palette.roseSoft }]} accessibilityLiveRegion="polite"><Text style={[styles.accountDeletionCountdownTitle, { color: palette.ink }]}>{countdown > 0 ? `請再確認 ${countdown} 秒` : "已解除最後確認鎖定"}</Text><Text style={[styles.accountDeletionCountdownText, { color: palette.muted }]}>{countdown > 0 ? "倒數不會自動刪除帳號；你仍可取消並保留帳號。" : "若確定繼續，請主動按下永久刪除帳號。"}</Text></View>}
             {!!error && <Text style={styles.errorText}>{error}</Text>}
             <View style={styles.confirmActions}>
               <Pressable disabled={busy} onPress={onClose} style={[styles.confirmCancel, { borderColor: palette.border }, busy && styles.disabled]}>
                 <Text style={[styles.confirmCancelText, { color: palette.muted }]}>取消</Text>
               </Pressable>
               <Pressable
-                disabled={busy || !password}
-                onPress={() => void onSubmit(password)}
-                style={({ pressed }) => [styles.confirmPrimary, { backgroundColor: palette.rose }, (pressed || busy || !password) && styles.pressed, (busy || !password) && styles.disabled]}
+                disabled={busy || !password || (step === "countdown" && countdown > 0)}
+                onPress={() => step === "password" ? beginFinalConfirmation() : void onSubmit(password)}
+                style={({ pressed }) => [styles.confirmPrimary, { backgroundColor: palette.rose }, (pressed || busy || !password || (step === "countdown" && countdown > 0)) && styles.pressed, (busy || !password || (step === "countdown" && countdown > 0)) && styles.disabled]}
               >
-                {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.confirmPrimaryText}>永久刪除</Text>}
+                {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.confirmPrimaryText}>{step === "password" ? "繼續前往最後確認" : countdown > 0 ? `永久刪除（${countdown}）` : "永久刪除帳號"}</Text>}
               </Pressable>
             </View>
           </ScrollView>
@@ -8818,6 +8833,9 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
   confirmIcon: { width: 48, height: 48, alignItems: "center", justifyContent: "center", borderRadius: 16, marginBottom: 15 },
   confirmTitle: { color: palette.ink, fontSize: 18, fontWeight: "800" },
   confirmMessage: { marginTop: 8, color: palette.muted, fontSize: 13, lineHeight: 20 },
+  accountDeletionCountdown: { marginTop: 16, borderRadius: 16, padding: 14 },
+  accountDeletionCountdownTitle: { fontSize: 14, fontWeight: "800", textAlign: "center" },
+  accountDeletionCountdownText: { marginTop: 5, fontSize: 12, lineHeight: 18, textAlign: "center" },
   confirmActions: { flexDirection: "row", gap: 10, marginTop: 22 },
   confirmCancel: { flex: 1, minHeight: 46, alignItems: "center", justifyContent: "center", borderWidth: 1, borderRadius: 14 },
   confirmCancelLink: { alignItems: "center", justifyContent: "center", minHeight: 42, marginTop: 6 },
