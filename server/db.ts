@@ -1,12 +1,14 @@
 import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { nanoid } from "nanoid";
-import { and, asc, desc, eq, gt, gte, inArray, lt, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNull, like, lt, lte, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { createPool, type Pool } from "mysql2";
 import {
   InsertUser,
   User,
   activityLogs,
+  adminAccountAuditLogs,
+  authAutomationSettings,
   appNotifications,
   budgets,
   categories,
@@ -316,6 +318,13 @@ export async function getUserByFirebaseUid(firebaseUid: string) {
   return result[0];
 }
 
+export async function getUserById(userId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+  return result[0];
+}
+
 /**
  * Creates an app-local user only after Firebase has verified email ownership.
  * The local openId keeps existing session and ledger-authorisation code intact.
@@ -359,6 +368,38 @@ export async function linkUserToFirebaseUid(input: { userId: number; firebaseUid
   return { ...user, firebaseUid: input.firebaseUid, loginMethod: "firebase-email", sessionVersion: nextSessionVersion, lastSignedIn: new Date() };
 }
 
+/**
+ * Existing local accounts receive a single, explicit 30-day migration window.
+ * The update is idempotent and never moves a previously recorded deadline.
+ */
+export async function seedLegacyPasswordLoginDeadlines(now = new Date(), graceDays = 30) {
+  const db = requireDb();
+  const deadline = new Date(now.getTime() + graceDays * 24 * 60 * 60 * 1000);
+  const result = await db.update(users).set({ legacyPasswordLoginDeadline: deadline }).where(and(
+    eq(users.loginMethod, "email"),
+    isNull(users.firebaseUid),
+    isNull(users.legacyPasswordLoginDeadline),
+  ));
+  return { seeded: Number(result[0]?.affectedRows ?? 0), deadline };
+}
+
+/** Sync a verified Firebase email only for the already-linked identity. */
+export async function syncFirebaseEmailForUser(input: { userId: number; firebaseUid: string; email: string }) {
+  const db = requireDb();
+  const email = normalizeEmail(input.email);
+  const user = (await db.select().from(users).where(eq(users.id, input.userId)).limit(1))[0];
+  if (!user || user.firebaseUid !== input.firebaseUid) throw new Error("Firebase 身分與目前共帳帳戶不一致。");
+  if (user.email && normalizeEmail(user.email) === email) return user;
+
+  const existing = await getUserByEmail(email);
+  if (existing && existing.id !== user.id) throw new Error("新電子信箱已被另一個共帳帳戶使用。");
+
+  const sessionVersion = user.sessionVersion + 1;
+  const lastSignedIn = new Date();
+  await db.update(users).set({ email, loginMethod: "firebase-email", sessionVersion, lastSignedIn }).where(eq(users.id, user.id));
+  return { ...user, email, loginMethod: "firebase-email", sessionVersion, lastSignedIn };
+}
+
 export async function createLocalUser(input: { email: string; password: string; name: string }) {
   const db = requireDb();
   const email = normalizeEmail(input.email);
@@ -388,6 +429,9 @@ export async function verifyLocalPassword(email: string, password: string) {
   // password authority. Continuing to accept the historic local hash would
   // let an old password bypass Firebase's reset/revocation protections.
   if (!user?.passwordHash || user.loginMethod !== "email" || user.firebaseUid) return undefined;
+  if (user.legacyPasswordLoginDeadline && user.legacyPasswordLoginDeadline.getTime() <= Date.now()) {
+    throw new Error("LEGACY_PASSWORD_MIGRATION_EXPIRED");
+  }
   const [algorithm, salt, expectedHash] = user.passwordHash.split("$");
   if (algorithm !== "scrypt" || !salt || !expectedHash) return undefined;
   const actual = await derivePasswordKey(password, salt);
@@ -600,6 +644,7 @@ export async function deleteUserAccount(userId: number) {
     passwordHash: null,
     firebaseUid: null,
     sessionVersion: user.sessionVersion + 1,
+    legacyPasswordLoginDeadline: null,
     name: "已刪除帳號",
     loginMethod: "deleted",
   }).where(eq(users.id, userId));
@@ -1357,6 +1402,114 @@ export async function recordSavingsAutomationRun(input: {
     lastRunStatus: input.status,
     lastRunError: input.error ? input.error.slice(0, 255) : null,
   }).where(eq(savingsAutomationSettings.id, existing[0].id));
+  return existing[0].id;
+}
+
+export async function listAdminAccounts(query = "", limit = 100) {
+  const db = requireDb();
+  const term = query.trim().slice(0, 120).toLowerCase();
+  const activeAccount = ne(users.loginMethod, "deleted");
+  const filter = term
+    ? and(activeAccount, or(like(users.email, `%${term}%`), like(users.name, `%${term}%`)))
+    : activeAccount;
+  const rows = await db.select({
+    id: users.id,
+    name: users.name,
+    email: users.email,
+    role: users.role,
+    loginMethod: users.loginMethod,
+    firebaseUid: users.firebaseUid,
+    createdAt: users.createdAt,
+    lastSignedIn: users.lastSignedIn,
+  }).from(users).where(filter).orderBy(desc(users.lastSignedIn)).limit(Math.max(1, Math.min(limit, 100)));
+  return rows.map(({ firebaseUid, ...user }) => ({ ...user, firebaseLinked: Boolean(firebaseUid) }));
+}
+
+export async function getAdminAccountSummary() {
+  const db = requireDb();
+  const [row] = await db.select({
+    activeUsers: sql<number>`sum(case when ${users.loginMethod} <> 'deleted' then 1 else 0 end)`,
+    adminUsers: sql<number>`sum(case when ${users.role} = 'admin' and ${users.loginMethod} <> 'deleted' then 1 else 0 end)`,
+    firebaseLinkedUsers: sql<number>`sum(case when ${users.firebaseUid} is not null and ${users.loginMethod} <> 'deleted' then 1 else 0 end)`,
+  }).from(users);
+  return {
+    activeUsers: Number(row?.activeUsers ?? 0),
+    adminUsers: Number(row?.adminUsers ?? 0),
+    firebaseLinkedUsers: Number(row?.firebaseLinkedUsers ?? 0),
+  };
+}
+
+/** Writes only operational metadata: never record passwords, tokens, or Firebase UIDs. */
+export async function writeAdminAccountAudit(input: {
+  adminUserId: number;
+  targetUserId?: number | null;
+  action: "promote" | "delete" | "emailChange" | "cleanup";
+  summary: string;
+  metadata?: Record<string, number | string | boolean | null>;
+}) {
+  const db = requireDb();
+  const metadata = input.metadata ? JSON.stringify(input.metadata).slice(0, 2_000) : null;
+  const result = await db.insert(adminAccountAuditLogs).values({
+    adminUserId: input.adminUserId,
+    targetUserId: input.targetUserId ?? null,
+    action: input.action,
+    summary: input.summary.slice(0, 255),
+    metadata,
+  });
+  return Number(result[0].insertId);
+}
+
+export async function listAdminAccountAudits(limit = 60) {
+  const db = requireDb();
+  return db.select({
+    id: adminAccountAuditLogs.id,
+    action: adminAccountAuditLogs.action,
+    summary: adminAccountAuditLogs.summary,
+    createdAt: adminAccountAuditLogs.createdAt,
+    adminUserId: adminAccountAuditLogs.adminUserId,
+    targetUserId: adminAccountAuditLogs.targetUserId,
+  }).from(adminAccountAuditLogs).orderBy(desc(adminAccountAuditLogs.createdAt)).limit(Math.max(1, Math.min(limit, 100)));
+}
+
+export async function getAuthAutomationStatus() {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(authAutomationSettings).orderBy(desc(authAutomationSettings.updatedAt)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function getAuthAutomationStatusByTaskUid(taskUid: string) {
+  const db = await getDb();
+  if (!db) return null;
+  const rows = await db.select().from(authAutomationSettings)
+    .where(eq(authAutomationSettings.scheduleCronTaskUid, taskUid)).limit(1);
+  return rows[0] ?? null;
+}
+
+/** Stores the single daily Firebase verification cleanup task for this project. */
+export async function saveAuthAutomationTaskUid(taskUid: string) {
+  const db = requireDb();
+  await db.insert(authAutomationSettings).values({ id: 1, scheduleCronTaskUid: taskUid }).onDuplicateKeyUpdate({
+    set: { scheduleCronTaskUid: taskUid, updatedAt: new Date() },
+  });
+  return getAuthAutomationStatus();
+}
+
+export async function recordAuthAutomationRun(input: {
+  taskUid: string;
+  status: "success" | "failed";
+  error?: string | null;
+  ranAt?: Date;
+}) {
+  const db = requireDb();
+  const existing = await db.select({ id: authAutomationSettings.id }).from(authAutomationSettings)
+    .where(eq(authAutomationSettings.scheduleCronTaskUid, input.taskUid)).limit(1);
+  if (!existing[0]) return null;
+  await db.update(authAutomationSettings).set({
+    lastRunAt: input.ranAt ?? new Date(),
+    lastRunStatus: input.status,
+    lastRunError: input.error ? input.error.slice(0, 255) : null,
+  }).where(eq(authAutomationSettings.id, existing[0].id));
   return existing[0].id;
 }
 

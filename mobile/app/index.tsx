@@ -56,7 +56,9 @@ import {
 import {
   getPersistedVerifiedFirebaseIdToken,
   messageOfFirebaseError,
+  reauthenticateFirebaseEmail,
   registerFirebaseEmailWithProfile,
+  requestFirebaseEmailChangeVerification,
   requestFirebasePasswordReset,
   resendFirebaseEmailVerification,
   signOutFromFirebase,
@@ -141,7 +143,7 @@ const appearanceDefaults: AppearancePreferences = {
   colorMode: "system",
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.3.15";
+const APP_VERSION = "1.3.16";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 const GITHUB_WIKI_URL = "https://github.com/ben880320-boop/together-ledger/wiki";
@@ -1076,6 +1078,7 @@ function AppContent() {
   const [savedUpdateResume, setSavedUpdateResume] = useState<SavedUpdateResume | null>(null);
   const [accountDeletionVisible, setAccountDeletionVisible] = useState(false);
   const [firebaseLinkVisible, setFirebaseLinkVisible] = useState(false);
+  const [firebaseEmailChangeVisible, setFirebaseEmailChangeVisible] = useState(false);
   const [firebaseLinked, setFirebaseLinked] = useState<boolean | null>(null);
   const [diagnosticsEnabled, setDiagnosticsEnabled] = useState(false);
   const [diagnosticsLoading, setDiagnosticsLoading] = useState(false);
@@ -1504,7 +1507,8 @@ function AppContent() {
   }, [reloadLedger]);
 
   const exchangeFirebaseSession = useCallback(async (idToken: string) => {
-    const result = await api.auth.exchangeFirebaseToken.mutate({ idToken });
+    const rememberDevice = await getRememberDevicePreference();
+    const result = await api.auth.exchangeFirebaseToken.mutate({ idToken, rememberDevice });
     await saveSessionToken(result.token);
   }, []);
 
@@ -1895,6 +1899,38 @@ function AppContent() {
     } catch (resetError) {
       const message = messageOfFirebaseError(resetError);
       showToast(message.includes("網路") || message.includes("尚未完成設定") ? message : "若此電子信箱已啟用共帳登入，密碼重設連結已寄出。請查看收件匣與垃圾郵件匣；完成重設後再回來綁定。", message.includes("網路") || message.includes("尚未完成設定") ? "error" : "success");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const reauthenticateForFirebaseEmailChange = async (password: string) => {
+    if (!user?.email) throw new Error("目前帳戶缺少電子信箱，無法完成 Firebase 再驗證。");
+    setError("");
+    setBusy(true);
+    try {
+      await reauthenticateFirebaseEmail(user.email, password);
+    } catch (changeError) {
+      const message = messageOfFirebaseError(changeError);
+      setError(message);
+      showToast(message, "error");
+      throw changeError;
+    } finally {
+      setBusy(false);
+    }
+  };
+  const requestFirebaseEmailChange = async (newEmail: string) => {
+    if (!user?.email) throw new Error("目前帳戶缺少電子信箱，無法變更。");
+    setError("");
+    setBusy(true);
+    try {
+      await requestFirebaseEmailChangeVerification(user.email, newEmail);
+      setFirebaseEmailChangeVisible(false);
+      showToast("新信箱驗證連結已寄出。請查看收件匣與垃圾郵件匣；完成驗證後登出，再用新信箱登入以安全同步帳戶。", "success");
+    } catch (changeError) {
+      const message = messageOfFirebaseError(changeError);
+      setError(message);
+      showToast(message, "error");
+      throw changeError;
     } finally {
       setBusy(false);
     }
@@ -2350,8 +2386,9 @@ function AppContent() {
 	        />
 	        <AccountDeletionModal visible={accountDeletionVisible} busy={busy} error={error} firebaseLinked={firebaseLinked === true} onClose={() => setAccountDeletionVisible(false)} onSubmit={deleteAccount} />
 	        <FirebaseAccountLinkModal visible={firebaseLinkVisible} busy={busy} error={error} email={user.email} onClose={() => setFirebaseLinkVisible(false)} onSubmit={linkFirebaseAccount} onRequestPasswordReset={requestLinkedFirebasePasswordReset} />
+	        <FirebaseEmailChangeModal visible={firebaseEmailChangeVisible} busy={busy} error={error} email={user.email} onClose={() => setFirebaseEmailChangeVisible(false)} onReauthenticate={reauthenticateForFirebaseEmailChange} onSendVerification={requestFirebaseEmailChange} />
 	        {homePage === "profile" ? (
-	          <PersonalSettingsPage user={user} error={error} firebaseLinked={firebaseLinked} onLinkFirebase={() => { setError(""); setFirebaseLinkVisible(true); }} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} updateCheckError={updateCheckError} updateDiagnostic={updateDiagnostic} diagnosticsEnabled={diagnosticsEnabled} diagnosticsLoading={diagnosticsLoading} diagnosticsSaving={diagnosticsSaving} diagnosticsError={diagnosticsError} onDiagnosticsChange={changeDiagnosticsPreference} onRetryDiagnostics={() => void loadDiagnosticsPreference()} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
+	          <PersonalSettingsPage user={user} error={error} firebaseLinked={firebaseLinked} onLinkFirebase={() => { setError(""); setFirebaseLinkVisible(true); }} onChangeFirebaseEmail={() => { setError(""); setFirebaseEmailChangeVisible(true); }} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} updateCheckError={updateCheckError} updateDiagnostic={updateDiagnostic} diagnosticsEnabled={diagnosticsEnabled} diagnosticsLoading={diagnosticsLoading} diagnosticsSaving={diagnosticsSaving} diagnosticsError={diagnosticsError} onDiagnosticsChange={changeDiagnosticsPreference} onRetryDiagnostics={() => void loadDiagnosticsPreference()} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
         ) : (
           <EmptyLedger
             error={error}
@@ -2397,8 +2434,9 @@ function AppContent() {
 	        />
 	        <AccountDeletionModal visible={accountDeletionVisible} busy={busy} error={error} firebaseLinked={firebaseLinked === true} onClose={() => setAccountDeletionVisible(false)} onSubmit={deleteAccount} />
 	        <FirebaseAccountLinkModal visible={firebaseLinkVisible} busy={busy} error={error} email={user.email} onClose={() => setFirebaseLinkVisible(false)} onSubmit={linkFirebaseAccount} onRequestPasswordReset={requestLinkedFirebasePasswordReset} />
+	        <FirebaseEmailChangeModal visible={firebaseEmailChangeVisible} busy={busy} error={error} email={user.email} onClose={() => setFirebaseEmailChangeVisible(false)} onReauthenticate={reauthenticateForFirebaseEmailChange} onSendVerification={requestFirebaseEmailChange} />
 	        {homePage === "profile" ? (
-	          <PersonalSettingsPage user={user} error={error} firebaseLinked={firebaseLinked} onLinkFirebase={() => { setError(""); setFirebaseLinkVisible(true); }} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} updateCheckError={updateCheckError} updateDiagnostic={updateDiagnostic} diagnosticsEnabled={diagnosticsEnabled} diagnosticsLoading={diagnosticsLoading} diagnosticsSaving={diagnosticsSaving} diagnosticsError={diagnosticsError} onDiagnosticsChange={changeDiagnosticsPreference} onRetryDiagnostics={() => void loadDiagnosticsPreference()} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
+	          <PersonalSettingsPage user={user} error={error} firebaseLinked={firebaseLinked} onLinkFirebase={() => { setError(""); setFirebaseLinkVisible(true); }} onChangeFirebaseEmail={() => { setError(""); setFirebaseEmailChangeVisible(true); }} onUpdateNickname={updateNickname} onCheckForUpdate={() => void checkForAppUpdate(true)} latestRelease={latestRelease} savedUpdateResume={savedUpdateResume} onResumeUpdate={() => { if (savedUpdateResume) void resumeAndroidUpdate(savedUpdateResume); }} onRestartUpdate={() => { if (latestRelease) void restartAndroidUpdate(latestRelease); }} appUpdateStatus={appUpdateStatus} appUpdateProgress={appUpdateProgress} updateCheckError={updateCheckError} updateDiagnostic={updateDiagnostic} diagnosticsEnabled={diagnosticsEnabled} diagnosticsLoading={diagnosticsLoading} diagnosticsSaving={diagnosticsSaving} diagnosticsError={diagnosticsError} onDiagnosticsChange={changeDiagnosticsPreference} onRetryDiagnostics={() => void loadDiagnosticsPreference()} onLogout={logout} onDeleteAccount={() => setAccountDeletionVisible(true)} onBack={() => setHomePage("ledgers")} />
         ) : (
           <LedgerHome
             ledgers={ledgers}
@@ -2984,23 +3022,43 @@ function LoginScreen({
   const [rememberDevice, setRememberDevice] = useState(false);
   const [name, setName] = useState("");
   const [recoveryBusy, setRecoveryBusy] = useState(false);
+  const [emailAction, setEmailAction] = useState<"reset" | "resend" | null>(null);
+  const [actionEmail, setActionEmail] = useState("");
+  const [resendPassword, setResendPassword] = useState("");
+  const [showVerificationDeadline, setShowVerificationDeadline] = useState(false);
+  const [verificationDeadlineRead, setVerificationDeadlineRead] = useState(false);
   const isSignUp = mode === "signUp";
   const submit = () => {
     if (!email.trim() || !password || (isSignUp && !name.trim())) {
       onNotice(isSignUp ? "請完成暱稱、電子信箱與密碼後再建立帳號。" : "請輸入電子信箱與密碼後再登入。", "error");
       return;
     }
+    if (isSignUp && !verificationDeadlineRead) {
+      setShowVerificationDeadline(true);
+      return;
+    }
     onLogin({ mode, email: email.trim(), password, name: name.trim() || undefined, rememberDevice });
   };
+  const openEmailAction = (action: "reset" | "resend") => {
+    setActionEmail(email.trim());
+    setResendPassword("");
+    setEmailAction(action);
+  };
+  const closeEmailAction = () => {
+    if (recoveryBusy) return;
+    setEmailAction(null);
+    setResendPassword("");
+  };
   const requestPasswordReset = async () => {
-    if (!email.trim()) {
-      onNotice("請先輸入電子信箱，再按一次「忘記密碼」。為保護帳號安全，系統不會顯示帳號是否存在。", "error");
+    if (!actionEmail.trim()) {
+      onNotice("請輸入註冊時使用的電子信箱。為保護帳號安全，系統不會顯示帳號是否存在。", "error");
       return;
     }
     setRecoveryBusy(true);
     try {
-      await requestFirebasePasswordReset(email);
+      await requestFirebasePasswordReset(actionEmail.trim());
       onNotice("若此電子信箱已啟用共帳登入，重設密碼信已寄出。請查看收件匣與垃圾郵件匣。", "success");
+      closeEmailAction();
     } catch (resetError) {
       const message = messageOfFirebaseError(resetError);
       onNotice(message.includes("網路") || message.includes("尚未完成設定") ? message : "若此電子信箱已啟用共帳登入，重設密碼信已寄出。請查看收件匣與垃圾郵件匣。", message.includes("網路") || message.includes("尚未完成設定") ? "error" : "success");
@@ -3009,14 +3067,15 @@ function LoginScreen({
     }
   };
   const resendVerification = async () => {
-    if (!email.trim() || !password) {
-      onNotice("請輸入電子信箱與密碼，再按「重寄驗證信」。", "error");
+    if (!actionEmail.trim() || !resendPassword) {
+      onNotice("請輸入註冊電子信箱與密碼，再重新寄送驗證信。", "error");
       return;
     }
     setRecoveryBusy(true);
     try {
-      await resendFirebaseEmailVerification(email, password);
+      await resendFirebaseEmailVerification(actionEmail.trim(), resendPassword);
       onNotice("若帳號尚未驗證，共帳驗證信已重新寄送。請查看收件匣與垃圾郵件匣，完成驗證後再登入。", "success");
+      closeEmailAction();
     } catch (resendError) {
       onNotice(messageOfFirebaseError(resendError), "error");
     } finally {
@@ -3101,15 +3160,15 @@ function LoginScreen({
             {busy && <Text style={[styles.loginProgressText, { color: palette.muted }]} accessibilityLiveRegion="polite">登入完成後正在同步你的共同帳本，請稍候。</Text>}
             {!isSignUp && (
               <View style={styles.authHelpRow}>
-                <Pressable disabled={busy || recoveryBusy} onPress={() => void requestPasswordReset()} hitSlop={8}>
+                <Pressable disabled={busy || recoveryBusy} onPress={() => openEmailAction("reset")} hitSlop={8}>
                   <Text style={[styles.authHelpLink, { color: palette.rose }]}>忘記密碼</Text>
                 </Pressable>
-                <Pressable disabled={busy || recoveryBusy} onPress={() => void resendVerification()} hitSlop={8}>
+                <Pressable disabled={busy || recoveryBusy} onPress={() => openEmailAction("resend")} hitSlop={8}>
                   <Text style={[styles.authHelpLink, { color: palette.rose }]}>重寄驗證信</Text>
                 </Pressable>
               </View>
             )}
-            {!isSignUp && <Text style={[styles.loginProgressText, { color: palette.muted }]} accessibilityLiveRegion="polite">忘記密碼只需先填入電子信箱；寄信後請查看收件匣與垃圾郵件匣。</Text>}
+            {!isSignUp && <Text style={[styles.loginProgressText, { color: palette.muted }]} accessibilityLiveRegion="polite">忘記密碼或重寄驗證信時，請在下一步輸入註冊電子信箱；寄信後請查看收件匣與垃圾郵件匣。</Text>}
             <Pressable
               disabled={busy}
               onPress={() => {
@@ -3125,6 +3184,64 @@ function LoginScreen({
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>
+      <Modal visible={emailAction !== null} transparent animationType="fade" onRequestClose={closeEmailAction}>
+        <View style={[styles.modalBackdrop, { justifyContent: "center" }]}>
+          <Pressable style={styles.modalDismiss} onPress={closeEmailAction} disabled={recoveryBusy} />
+          <View style={[styles.modalCard, { backgroundColor: palette.surface, borderColor: palette.border, borderWidth: 1 }]}>
+            <View style={styles.modalHandle} />
+            <View style={styles.authDialogHeader}>
+              <Text style={[styles.modalTitle, { color: palette.ink }]}>{emailAction === "reset" ? "重設密碼" : "重寄驗證信"}</Text>
+              <Pressable onPress={closeEmailAction} disabled={recoveryBusy} hitSlop={10} accessibilityLabel="關閉">
+                <MaterialCommunityIcons name="close" size={22} color={palette.muted} />
+              </Pressable>
+            </View>
+            <Text style={[styles.modalDescription, { color: palette.muted }]}>
+              {emailAction === "reset" ? "輸入註冊電子信箱後，我們會寄送重設連結。為保護帳號安全，不會顯示此信箱是否已註冊。" : "輸入註冊電子信箱與密碼後，系統會重新寄送共帳驗證信。請同時檢查垃圾郵件匣。"}
+            </Text>
+            <TextInput
+              value={actionEmail}
+              onChangeText={setActionEmail}
+              placeholder="註冊電子信箱"
+              placeholderTextColor={palette.muted}
+              style={[styles.input, { backgroundColor: palette.surface, borderColor: palette.border, color: palette.ink }]}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="email"
+              textContentType="emailAddress"
+            />
+            {emailAction === "resend" && <TextInput
+              value={resendPassword}
+              onChangeText={setResendPassword}
+              placeholder="目前密碼"
+              placeholderTextColor={palette.muted}
+              style={[styles.input, { backgroundColor: palette.surface, borderColor: palette.border, color: palette.ink }]}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+              autoComplete="current-password"
+              textContentType="password"
+            />}
+            <Pressable disabled={recoveryBusy} onPress={() => void (emailAction === "reset" ? requestPasswordReset() : resendVerification())} style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed, recoveryBusy && styles.disabled]}>
+              <Text style={styles.primaryButtonText}>{recoveryBusy ? "正在寄送…" : emailAction === "reset" ? "寄送重設連結" : "重新寄送驗證信"}</Text>
+              {recoveryBusy ? <ActivityIndicator color="#FFFFFF" /> : <MaterialCommunityIcons name="email-fast-outline" size={19} color="#FFFFFF" />}
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+      <Modal visible={showVerificationDeadline} transparent animationType="fade" onRequestClose={() => undefined}>
+        <View style={[styles.modalBackdrop, { justifyContent: "center" }]}>
+          <View style={[styles.modalCard, { backgroundColor: palette.surface, borderColor: palette.border, borderWidth: 1 }]}>
+            <View style={styles.authDialogHeader}>
+              <Text style={[styles.modalTitle, { color: palette.ink }]}>請先完成信箱驗證</Text>
+              <Pressable onPress={() => { setVerificationDeadlineRead(true); setShowVerificationDeadline(false); }} hitSlop={10} accessibilityLabel="我已閱讀並關閉提醒">
+                <MaterialCommunityIcons name="close" size={22} color={palette.muted} />
+              </Pressable>
+            </View>
+            <Text style={[styles.modalDescription, { color: palette.muted }]}>建立帳號後，請在 24 小時內前往註冊電子信箱完成驗證；逾期仍未驗證的 Firebase 身分會於每日清理作業中移除。未驗證身分尚未建立帳本、交易或成員資料。請查看收件匣及垃圾郵件匣。</Text>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -4282,6 +4399,7 @@ function PersonalSettingsPage({
   error,
   firebaseLinked,
   onLinkFirebase,
+  onChangeFirebaseEmail,
   onUpdateNickname,
   onCheckForUpdate,
   latestRelease,
@@ -4306,6 +4424,7 @@ function PersonalSettingsPage({
   error: string;
   firebaseLinked: boolean | null;
   onLinkFirebase: () => void;
+  onChangeFirebaseEmail: () => void;
   onUpdateNickname: (name: string) => void | Promise<void>;
   onCheckForUpdate: () => void;
   latestRelease: AppUpdateRelease | null;
@@ -4710,6 +4829,17 @@ style={styles.input}
 	          </Pressable>
 	        )}
 	      </View>
+	      {firebaseLinked === true && (
+	        <View style={styles.preferenceRow} accessibilityLabel="修改 Firebase 電子信箱">
+	          <View style={styles.preferenceCopy}>
+	            <Text style={styles.rowTitle}>修改電子信箱</Text>
+	            <Text style={styles.rowSubtitle}>先驗證目前 Firebase 密碼，再寄送新信箱驗證連結；驗證完成後以新信箱重新登入即可同步。</Text>
+	          </View>
+	          <Pressable onPress={onChangeFirebaseEmail} style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]} accessibilityLabel="修改 Firebase 電子信箱">
+	            <MaterialCommunityIcons name="email-edit-outline" size={20} color={palette.rose} />
+	          </Pressable>
+	        </View>
+	      )}
 	      <View style={styles.preferenceRow}>
         <View style={styles.preferenceCopy}>
           <Text style={styles.rowTitle}>使用說明 Wiki</Text>
@@ -6068,6 +6198,73 @@ function FirebaseAccountLinkModal({
               >
                 {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.confirmPrimaryText}>驗證並綁定</Text>}
               </Pressable>
+            </View>
+          </ScrollView>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+function FirebaseEmailChangeModal({
+  visible,
+  busy,
+  error,
+  email,
+  onClose,
+  onReauthenticate,
+  onSendVerification,
+}: {
+  visible: boolean;
+  busy: boolean;
+  error: string;
+  email: string | null;
+  onClose: () => void;
+  onReauthenticate: (password: string) => Promise<void>;
+  onSendVerification: (newEmail: string) => Promise<void>;
+}) {
+  const { palette } = useAppearance();
+  const [step, setStep] = useState<"password" | "email">("password");
+  const [password, setPassword] = useState("");
+  const [newEmail, setNewEmail] = useState("");
+  useEffect(() => {
+    if (!visible) {
+      setStep("password");
+      setPassword("");
+      setNewEmail("");
+    }
+  }, [visible]);
+  const verifyCurrentPassword = async () => {
+    if (!password || busy) return;
+    try {
+      await onReauthenticate(password);
+      setPassword("");
+      setStep("email");
+    } catch {
+      // Parent preserves a localized error message and retry path.
+    }
+  };
+  const sendNewEmailVerification = async () => {
+    if (!newEmail || busy) return;
+    try {
+      await onSendVerification(newEmail);
+    } catch {
+      // Parent preserves a localized error message and retry path.
+    }
+  };
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={busy ? undefined : onClose}>
+      <KeyboardAvoidingView style={styles.confirmOverlay} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <Pressable style={styles.confirmDismiss} onPress={busy ? undefined : onClose} />
+        <View style={[styles.confirmCard, { backgroundColor: palette.surface, borderColor: palette.border }]}>
+          <ScrollView contentContainerStyle={styles.confirmContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+            <View style={[styles.confirmIcon, { backgroundColor: palette.roseSoft }]}><MaterialCommunityIcons name="email-edit-outline" size={24} color={palette.rose} /></View>
+            <Text style={styles.confirmTitle}>修改 Firebase 電子信箱</Text>
+            {step === "password" ? <><Text style={styles.confirmMessage}>為保護帳戶安全，請先輸入目前 Firebase 密碼完成近期驗證。共帳帳本與收支資料不會因此變更。</Text><Text style={[styles.personalizationLabel, { color: palette.rose }]}>目前電子信箱</Text><Text style={[styles.rowSubtitle, { color: palette.ink }]}>{email || "目前帳號尚未設定電子信箱"}</Text><Text style={[styles.personalizationLabel, { color: palette.rose, marginTop: 12 }]}>目前 Firebase 密碼</Text><TextInput value={password} onChangeText={setPassword} placeholder="輸入目前 Firebase 密碼" placeholderTextColor={palette.muted} style={[styles.input, { backgroundColor: palette.surface, borderColor: palette.border, color: palette.ink }]} secureTextEntry autoCapitalize="none" autoCorrect={false} autoComplete="current-password" textContentType="password" editable={!busy} onSubmitEditing={() => void verifyCurrentPassword()} returnKeyType="next" /></> : <><Text style={styles.confirmMessage}>近期驗證完成。請輸入新電子信箱，我們會寄送驗證連結；完成驗證前，共帳帳戶不會變更。</Text><Text style={[styles.personalizationLabel, { color: palette.rose }]}>新的電子信箱</Text><TextInput value={newEmail} onChangeText={setNewEmail} placeholder="name@example.com" placeholderTextColor={palette.muted} style={[styles.input, { backgroundColor: palette.surface, borderColor: palette.border, color: palette.ink }]} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} autoComplete="email" textContentType="emailAddress" editable={!busy} onSubmitEditing={() => void sendNewEmailVerification()} returnKeyType="send" /><Text style={styles.rowSubtitle}>驗證連結會寄往新信箱。請查看收件匣與垃圾郵件匣，完成驗證後登出，再用新信箱登入共帳。</Text></>}
+            {!!error && <Text style={styles.errorText}>{error}</Text>}
+            <View style={styles.confirmActions}>
+              {step === "email" ? <Pressable disabled={busy} onPress={() => setStep("password")} style={[styles.confirmCancel, { borderColor: palette.border }, busy && styles.disabled]}><Text style={[styles.confirmCancelText, { color: palette.muted }]}>上一步</Text></Pressable> : <Pressable disabled={busy} onPress={onClose} style={[styles.confirmCancel, { borderColor: palette.border }, busy && styles.disabled]}><Text style={[styles.confirmCancelText, { color: palette.muted }]}>取消</Text></Pressable>}
+              <Pressable disabled={busy || (step === "password" ? !password : !newEmail)} onPress={() => void (step === "password" ? verifyCurrentPassword() : sendNewEmailVerification())} style={({ pressed }) => [styles.confirmPrimary, { backgroundColor: palette.rose }, (pressed || busy) && styles.pressed, (busy || (step === "password" ? !password : !newEmail)) && styles.disabled]}>{busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.confirmPrimaryText}>{step === "password" ? "驗證目前密碼" : "寄送驗證連結"}</Text>}</Pressable>
             </View>
           </ScrollView>
         </View>
@@ -8674,6 +8871,12 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     height: 5,
     borderRadius: 3,
     backgroundColor: palette.border,
+  },
+  authDialogHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
   },
   modalTitle: {
     marginTop: 22,

@@ -1,15 +1,18 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getApp, getApps, initializeApp } from "firebase/app";
 import {
+  EmailAuthProvider,
   createUserWithEmailAndPassword,
   getAuth,
   getReactNativePersistence,
   initializeAuth,
+  reauthenticateWithCredential,
   sendEmailVerification,
   sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signOut,
   updateProfile,
+  verifyBeforeUpdateEmail,
   type User,
 } from "@firebase/auth";
 
@@ -18,6 +21,13 @@ const firebaseConfig = {
   authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
   projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
   appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
+};
+
+const firebaseEmailActionSettings = {
+  // Firebase hosted action pages complete in the browser and return to the
+  // existing Web login page; Android then signs in normally with the new email.
+  url: "https://togetherapp-hdbmsjkf.manus.space/login?emailAction=complete",
+  handleCodeInApp: false,
 };
 
 function requireFirebaseConfig() {
@@ -91,6 +101,31 @@ export async function resendFirebaseEmailVerification(email: string, password: s
 
 export async function requestFirebasePasswordReset(email: string) {
   await sendPasswordResetEmail(getFirebaseAuth(), email);
+}
+
+function currentFirebaseUserForEmail(currentEmail: string) {
+  const user = getFirebaseAuth().currentUser;
+  if (!user?.email) throw new Error("登入狀態已過期，請重新登入後再修改電子信箱。");
+  if (user.email.trim().toLowerCase() !== currentEmail.trim().toLowerCase()) {
+    throw new Error("目前 Firebase 身分與共帳帳戶不一致，請重新登入後再試。");
+  }
+  return user;
+}
+
+/** Re-authenticates a Firebase-linked account before an email change. */
+export async function reauthenticateFirebaseEmail(currentEmail: string, currentPassword: string) {
+  const user = currentFirebaseUserForEmail(currentEmail);
+  await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email!, currentPassword));
+}
+
+/** Sends Firebase's hosted verification action to a new address without changing app data yet. */
+export async function requestFirebaseEmailChangeVerification(currentEmail: string, newEmail: string) {
+  const user = currentFirebaseUserForEmail(currentEmail);
+  const nextEmail = newEmail.trim().toLowerCase();
+  if (!nextEmail || nextEmail === user.email!.trim().toLowerCase()) {
+    throw new Error("請輸入與目前電子信箱不同的新電子信箱。");
+  }
+  await verifyBeforeUpdateEmail(user, nextEmail, firebaseEmailActionSettings);
 }
 
 /**

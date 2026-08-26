@@ -4,7 +4,7 @@ import { COOKIE_NAME } from "@shared/const";
 import { getSessionCookieOptions } from "./_core/cookies";
 import type { TrpcContext } from "./_core/context";
 import { systemRouter } from "./_core/systemRouter";
-import { protectedProcedure, publicProcedure, router } from "./_core/trpc";
+import { adminProcedure, protectedProcedure, publicProcedure, router } from "./_core/trpc";
 import {
   archiveCategory,
   archivePaymentMethod,
@@ -57,9 +57,16 @@ import {
   createFirebaseUser,
   createLocalUser,
   deleteUserAccount,
+  getAdminAccountSummary,
+  getAuthAutomationStatus,
   getUserByEmail,
   getUserByFirebaseUid,
+  getUserById,
+  listAdminAccountAudits,
+  listAdminAccounts,
   verifyLocalPassword,
+  syncFirebaseEmailForUser,
+  writeAdminAccountAudit,
   listSavingsBuckets,
   listSavingsAllocations,
   createSavingsBucket,
@@ -93,7 +100,10 @@ const localAccountInput = z.object({
   email: z.string().trim().email("請輸入有效的電子信箱").max(320),
   password: z.string().min(8, "密碼至少需要 8 個字元").max(128, "密碼不可超過 128 個字元"),
 });
-const firebaseIdTokenInput = z.object({ idToken: z.string().min(100, "Firebase 登入憑證無效，請重新登入。") });
+const firebaseIdTokenInput = z.object({
+  idToken: z.string().min(100, "Firebase 登入憑證無效，請重新登入。"),
+  rememberDevice: z.boolean().default(false),
+});
 export async function syncMonthlySettlementReminderSchedule(input: {
   userId: number;
   sessionToken: string;
@@ -130,9 +140,10 @@ async function assertMonthOpenForTransactions(ledgerId: number, month: string) {
 
 export function persistLocalSessionCookie(
   ctx: Pick<TrpcContext, "req" | "res">,
-  token: string
+  token: string,
+  rememberDevice = false,
 ) {
-  ctx.res.cookie(COOKIE_NAME, token, getSessionCookieOptions(ctx.req));
+  ctx.res.cookie(COOKIE_NAME, token, getSessionCookieOptions(ctx.req, rememberDevice));
 }
 
 async function requireLedger(ledgerId: number, userId: number) {
@@ -200,7 +211,15 @@ export const appRouter = router({
     login: publicProcedure
       .input(localAccountInput)
       .mutation(async ({ ctx, input }) => {
-        const user = await verifyLocalPassword(input.email, input.password);
+        let user;
+        try {
+          user = await verifyLocalPassword(input.email, input.password);
+        } catch (error) {
+          if (error instanceof Error && error.message === "LEGACY_PASSWORD_MIGRATION_EXPIRED") {
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: "舊帳密遷移期已結束，請使用已驗證的 Firebase 電子信箱登入。" });
+          }
+          throw error;
+        }
         if (!user) throw new TRPCError({ code: "UNAUTHORIZED", message: "電子信箱或密碼錯誤" });
         const token = await sdk.createSessionToken(user.openId, { name: user.name ?? "", sessionVersion: user.sessionVersion });
         persistLocalSessionCookie(ctx, token);
@@ -226,6 +245,18 @@ export const appRouter = router({
           } catch (error) {
             throw new TRPCError({ code: "CONFLICT", message: error instanceof Error ? error.message : "無法建立 Firebase 帳號連結。" });
           }
+        } else if (identity.email && user.email !== identity.email.toLowerCase()) {
+          try {
+            user = await syncFirebaseEmailForUser({ userId: user.id, firebaseUid: identity.uid, email: identity.email });
+            await writeAdminAccountAudit({
+              adminUserId: user.id,
+              targetUserId: user.id,
+              action: "emailChange",
+              summary: "使用者完成 Firebase 已驗證電子信箱變更",
+            });
+          } catch (error) {
+            throw new TRPCError({ code: "CONFLICT", message: error instanceof Error ? error.message : "無法同步已驗證的新電子信箱。" });
+          }
         }
         const token = await sdk.createSessionToken(user.openId, {
           name: user.name ?? "",
@@ -234,8 +265,40 @@ export const appRouter = router({
           // independent app JWT must expire quickly and be exchanged again.
           expiresInMs: FIREBASE_APP_SESSION_TTL_MS,
         });
-        persistLocalSessionCookie(ctx, token);
+        persistLocalSessionCookie(ctx, token, input.rememberDevice);
         return { token, user: { id: user.id, name: user.name, email: user.email, loginMethod: user.loginMethod, emailVerified: true } };
+      }),
+    syncFirebaseEmail: protectedProcedure
+      .input(firebaseIdTokenInput)
+      .mutation(async ({ ctx, input }) => {
+        let identity;
+        try {
+          identity = await verifyFirebaseIdentity(input.idToken);
+        } catch (error) {
+          throw new TRPCError({ code: "UNAUTHORIZED", message: error instanceof Error ? error.message : "Firebase 驗證失敗，請重新登入。" });
+        }
+        if (identity.uid !== ctx.user.firebaseUid || !identity.email) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Firebase 身分與目前共帳帳戶不一致。" });
+        }
+        let user;
+        try {
+          user = await syncFirebaseEmailForUser({ userId: ctx.user.id, firebaseUid: identity.uid, email: identity.email });
+          await writeAdminAccountAudit({
+            adminUserId: user.id,
+            targetUserId: user.id,
+            action: "emailChange",
+            summary: "使用者完成 Firebase 已驗證電子信箱變更",
+          });
+        } catch (error) {
+          throw new TRPCError({ code: "CONFLICT", message: error instanceof Error ? error.message : "無法同步已驗證的新電子信箱。" });
+        }
+        const token = await sdk.createSessionToken(user.openId, {
+          name: user.name ?? "",
+          sessionVersion: user.sessionVersion,
+          expiresInMs: FIREBASE_APP_SESSION_TTL_MS,
+        });
+        persistLocalSessionCookie(ctx, token, input.rememberDevice);
+        return { token, email: user.email, changed: true as const };
       }),
     linkFirebase: protectedProcedure
       .input(firebaseIdTokenInput)
@@ -322,6 +385,61 @@ export const appRouter = router({
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
       return { success: true } as const;
     }),
+  }),
+
+  admin: router({
+    summary: adminProcedure.query(async () => getAdminAccountSummary()),
+    authCleanupStatus: adminProcedure.query(async () => {
+      const status = await getAuthAutomationStatus();
+      return status ? {
+        configured: Boolean(status.scheduleCronTaskUid),
+        lastRunAt: status.lastRunAt,
+        lastRunStatus: status.lastRunStatus,
+        lastRunError: status.lastRunError ? "最近一次清理未成功，請由管理端查看排程執行紀錄。" : null,
+      } : { configured: false, lastRunAt: null, lastRunStatus: null, lastRunError: null };
+    }),
+    listUsers: adminProcedure
+      .input(z.object({ query: z.string().trim().max(120).default("") }))
+      .query(({ input }) => listAdminAccounts(input.query)),
+    audits: adminProcedure
+      .input(z.object({ limit: z.number().int().min(1).max(100).default(60) }))
+      .query(({ input }) => listAdminAccountAudits(input.limit)),
+    deleteUser: adminProcedure
+      .input(z.object({ targetUserId: z.number().int().positive(), confirmation: z.literal("DELETE") }))
+      .mutation(async ({ ctx, input }) => {
+        if (input.targetUserId === ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "管理員不可在此介面刪除自己的帳號。" });
+        }
+        const target = await getUserById(input.targetUserId);
+        if (!target || target.loginMethod === "deleted") {
+          throw new TRPCError({ code: "NOT_FOUND", message: "找不到可刪除的帳號。" });
+        }
+        if (target.role === "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "為避免失去管理權限，管理員帳號不可由此介面刪除。" });
+        }
+        try {
+          await deleteUserAccount(target.id);
+        } catch (error) {
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: error instanceof Error ? error.message : "刪除共帳帳戶失敗。" });
+        }
+        let firebaseIdentityDeleted = true;
+        if (target.firebaseUid) {
+          try {
+            await deleteFirebaseIdentity(target.firebaseUid);
+          } catch (error) {
+            firebaseIdentityDeleted = false;
+            console.error("[Admin] Firebase identity cleanup failed after account deletion", { targetUserId: target.id, message: error instanceof Error ? error.message : "unknown" });
+          }
+        }
+        await writeAdminAccountAudit({
+          adminUserId: ctx.user.id,
+          targetUserId: target.id,
+          action: "delete",
+          summary: "管理員刪除帳戶",
+          metadata: { firebaseIdentityDeleted },
+        });
+        return { success: true as const, firebaseIdentityDeleted };
+      }),
   }),
 
   ledger: router({

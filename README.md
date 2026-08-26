@@ -47,6 +47,10 @@ v1.3.14 起，新使用者以 **Firebase Authentication Email／Password** 建�
 
 v1.3.15 起，登入頁提供「**記住此裝置**」選項。勾選後只會保存受保護的 Firebase 與 app 工作階段憑證，讓下一次開啟時可安全恢復登入；**不會保存或自動填入密碼**。請只在個人且有螢幕鎖保護的裝置使用。未勾選時，Web／PWA 只保留目前瀏覽器工作階段，Android 下次冷啟動時會要求重新登入；主動登出、帳戶刪除或 session version 失效也會撤銷本機恢復狀態。
 
+v1.3.16 將忘記密碼與重寄驗證改為先輸入電子信箱的對話框；重寄驗證另要求輸入目前密碼，避免未授權重複寄信。註冊前會顯示必須由使用者手動關閉的提醒：未完成 Firebase Email 驗證的新身分會在註冊後至少 24 小時、每日清理工作實際執行時刪除，因此實際刪除時間可能落在 24 至 48 小時。既有本機帳密登入不再以大按鈕顯示，僅保留低顯著的 30 天遷移入口；到期後會顯示明確遷移訊息，不會無限期繞過 Firebase 安全控制。
+
+個人設定新增「修改電子信箱」兩步流程：先以目前 Firebase 密碼完成近期驗證，再輸入新信箱寄送驗證連結。驗證完成後請以新信箱重新登入；伺服器只會同步**同一 Firebase UID 且已驗證**的電子信箱，並撤銷舊 session。Web 版另提供僅限管理員的帳戶管理路由；每個帳戶清單、稽核紀錄與刪除動作皆由伺服器端 `adminProcedure` 驗證。管理員不能刪除自己或其他管理員，且刪除要求輸入固定確認字與留下稽核紀錄；介面不顯示密碼、Firebase UID、收據或交易明細。
+
 既有的本機帳密使用者不會因升級失去帳本、成員資格、交易或設定。請先以既有帳密登入，再從「個人設定 → 帳戶安全」用**完全相同且已驗證的電子信箱**完成 Firebase 綁定。綁定完成時，伺服器保留原有使用者 ID 和所有帳本關聯，並撤銷舊 app session；新登入使用一小時短效 app session，Android 在 Firebase 已驗證身份仍有效時會自動換發。Firebase 已綁定帳戶的刪除操作必須以 Firebase 密碼重新驗證，且伺服器會驗證近期 ID Token、UID 與電子信箱一致後再移除身份資料。
 
 > **管理員部署檢查：** Firebase Console 的 Authentication → Settings → Authorized domains 必須加入正式網站 `togetherapp-hdbmsjkf.manus.space`，才可讓驗證／重設信的 Firebase Hosted action page 完成後安全返回網站登入頁。另請在 **Authentication → Templates** 將驗證與重設範本設為繁體中文，固定寄件者名稱為「共帳 Together Ledger」並設定簡短主旨；詳見 [`docs/firebase-email-template-localization.md`](docs/firebase-email-template-localization.md)。GitHub Actions 另需設定僅供 Android client 使用的 `EXPO_PUBLIC_FIREBASE_API_KEY`、`EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN`、`EXPO_PUBLIC_FIREBASE_PROJECT_ID` 與 `EXPO_PUBLIC_FIREBASE_APP_ID` secrets；服務帳號 JSON 絕不可放進 APK 或 GitHub Actions client 環境。
@@ -81,7 +85,7 @@ Together Ledger 網頁版可安裝為 PWA，安裝後會以獨立視窗開啟，
 
 ## 下載、安裝與更新 Android App
 
-目前 Android App 版本為 **1.3.15**（versionCode 38）。此版本新增安全的「記住此裝置」登入選項；它只保存受保護工作階段而不保存密碼，並會在登出、帳戶刪除或 session 失效時撤銷。請僅從本專案的 [GitHub Releases](https://github.com/ben880320-boop/together-ledger/releases) 下載官方 APK，並以 Release 頁面附列的 SHA-256 檢查碼確認檔案來源。
+目前 Android App 版本為 **1.3.16**（versionCode 39）。此版本完成跨平台帳戶生命週期強化：記住此裝置傳遞至伺服器受保護 cookie、忘記密碼／重寄驗證使用 Email 對話框、新信箱必須近期驗證後完成 Firebase 驗證，以及 Web 專用的後端保護管理介面。請僅從本專案的 [GitHub Releases](https://github.com/ben880320-boop/together-ledger/releases) 下載官方 APK，並以 Release 頁面附列的 SHA-256 檢查碼確認檔案來源。
 
 | 步驟 | 操作 |
 | --- | --- |
@@ -92,7 +96,7 @@ Together Ledger 網頁版可安裝為 PWA，安裝後會以獨立視窗開啟，
 
 > 安裝 APK 的系統權限只用於完成你主動發起的更新安裝。請勿從非官方網站、聊天訊息或未知來源下載同名 APK。
 
-> **固定簽章更新：** v1.3.3 起，官方 APK 均使用同一組受保護簽章，可由已安裝的官方版本直接覆蓋更新；若裝置仍保有更早期、不同簽章的歷史安裝且顯示「無法更新」或「套件衝突」，請先移除舊版，再安裝 v1.3.15 官方 APK 一次。移除 App 不會刪除伺服器上的帳本資料。
+> **固定簽章更新：** v1.3.3 起，官方 APK 均使用同一組受保護簽章，可由已安裝的官方版本直接覆蓋更新；若裝置仍保有更早期、不同簽章的歷史安裝且顯示「無法更新」或「套件衝突」，請先移除舊版，再安裝 v1.3.16 官方 APK 一次。移除 App 不會刪除伺服器上的帳本資料。
 
 ## 隱私與資料安全
 

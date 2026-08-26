@@ -1,6 +1,7 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { ReleaseFooter } from "@/components/ReleaseFooter";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { COOKIE_NAME } from "@/const";
@@ -33,6 +34,12 @@ export default function WebAuth() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [rememberDevice, setRememberDevice] = useState(false);
+  const [authDialog, setAuthDialog] = useState<"reset" | "resend" | null>(null);
+  const [dialogEmail, setDialogEmail] = useState("");
+  const [dialogPassword, setDialogPassword] = useState("");
+  const [resendStep, setResendStep] = useState<"email" | "credential">("email");
+  const [registrationNoticeOpen, setRegistrationNoticeOpen] = useState(false);
+  const [registrationNoticeRead, setRegistrationNoticeRead] = useState(false);
   const [firebaseBusy, setFirebaseBusy] = useState(false);
   const [checkingSession, setCheckingSession] = useState(false);
   const firebaseRestoreAttempted = useRef(false);
@@ -86,8 +93,8 @@ export default function WebAuth() {
     onError: error => toast.error(messageOf(error), { duration: 7_000 }),
   });
 
-  const completeFirebaseSignIn = async (idToken: string) => {
-    const result = await exchangeFirebaseToken.mutateAsync({ idToken });
+  const completeFirebaseSignIn = async (idToken: string, remember = false) => {
+    const result = await exchangeFirebaseToken.mutateAsync({ idToken, rememberDevice: remember });
     await establishSession(result.token);
   };
 
@@ -98,7 +105,7 @@ export default function WebAuth() {
       setCheckingSession(true);
       try {
         const idToken = await getPersistedVerifiedFirebaseIdToken();
-        if (idToken) await completeFirebaseSignIn(idToken);
+        if (idToken) await completeFirebaseSignIn(idToken, true);
       } catch {
         // No visible error is needed when a remembered device has expired;
         // the normal login form remains the safe retry route.
@@ -114,6 +121,10 @@ export default function WebAuth() {
     setFirebaseBusy(true);
     try {
       if (mode === "register") {
+        if (!registrationNoticeRead) {
+          setRegistrationNoticeOpen(true);
+          return;
+        }
         if (!name.trim()) {
           toast.error("請輸入顯示暱稱。", { duration: 5_000 });
           return;
@@ -125,7 +136,7 @@ export default function WebAuth() {
         return;
       }
       const idToken = await signInFirebaseEmail(email, password, rememberDevice);
-      await completeFirebaseSignIn(idToken);
+      await completeFirebaseSignIn(idToken, rememberDevice);
     } catch (error) {
       toast.error(messageOfFirebaseError(error), { duration: 7_000 });
     } finally {
@@ -134,14 +145,15 @@ export default function WebAuth() {
   };
 
   const handlePasswordReset = async () => {
-    if (!email.trim()) {
-      toast.message("請先輸入電子信箱，再按一次「忘記密碼」。為保護帳號安全，系統不會顯示帳號是否存在。", { duration: 7_000 });
+    if (!dialogEmail.trim()) {
+      toast.message("請輸入註冊電子信箱。為保護帳號安全，系統不會顯示帳號是否存在。", { duration: 7_000 });
       return;
     }
     setFirebaseBusy(true);
     try {
-      await requestFirebasePasswordReset(email);
+      await requestFirebasePasswordReset(dialogEmail);
       toast.success("若此電子信箱已啟用共帳登入，重設密碼信已寄出。請查看收件匣與垃圾郵件匣。", { duration: 9_000 });
+      setAuthDialog(null);
     } catch (error) {
       const message = messageOfFirebaseError(error);
       if (message.includes("網路") || message.includes("尚未完成設定")) {
@@ -155,14 +167,25 @@ export default function WebAuth() {
   };
 
   const handleResendVerification = async () => {
-    if (!email.trim() || !password) {
-      toast.message("請輸入電子信箱與密碼，再按「重新寄送驗證信」。", { duration: 7_000 });
+    if (resendStep === "email") {
+      if (!dialogEmail.trim()) {
+        toast.message("請輸入註冊電子信箱後繼續。", { duration: 6_000 });
+        return;
+      }
+      setResendStep("credential");
+      return;
+    }
+    if (!dialogPassword) {
+      toast.message("請輸入目前密碼，以安全地重新驗證後寄送驗證信。", { duration: 6_000 });
       return;
     }
     setFirebaseBusy(true);
     try {
-      await resendFirebaseVerification(email, password);
+      await resendFirebaseVerification(dialogEmail, dialogPassword);
       toast.success("若帳號尚未驗證，共帳驗證信已重新寄送。請查看收件匣與垃圾郵件匣，完成驗證後再登入。", { duration: 9_000 });
+      setAuthDialog(null);
+      setResendStep("email");
+      setDialogPassword("");
     } catch (error) {
       toast.error(messageOfFirebaseError(error), { duration: 7_000 });
     } finally {
@@ -213,15 +236,36 @@ export default function WebAuth() {
                 {mode === "login" && <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-border/80 bg-muted/35 px-3 py-3 text-left"><input type="checkbox" checked={rememberDevice} onChange={event => setRememberDevice(event.target.checked)} className="mt-0.5 h-4 w-4 accent-primary" /><span><span className="block text-sm font-semibold text-foreground">記住此裝置</span><span className="mt-0.5 block text-xs leading-5 text-muted-foreground">僅限你自己的裝置。共帳不會保存密碼；未勾選時，關閉瀏覽器後需重新登入。</span></span></label>}
                 <Button type="submit" disabled={pending} aria-busy={pending} className="h-11 w-full rounded-xl bg-primary font-semibold text-primary-foreground shadow-[0_12px_24px_var(--scene-shadow)] hover:bg-primary/90">{pending && <LoaderCircle size={16} className="mr-2 animate-spin" />}{pending ? checkingSession ? "正在安全開啟帳本…" : "正在驗證帳號…" : mode === "login" ? "登入並開啟帳本" : "註冊並建立帳本"}</Button>
                 {pending && <p className="text-center text-xs text-muted-foreground" role="status">登入完成後會同步你的共同帳本，請勿關閉此頁。</p>}
-                {mode === "login" && <div className="flex flex-col gap-2 text-center text-sm sm:flex-row sm:justify-center"><button type="button" disabled={pending} onClick={handlePasswordReset} className="font-medium text-primary underline-offset-4 hover:underline">忘記密碼</button><span className="hidden text-muted-foreground sm:inline">·</span><button type="button" disabled={pending} onClick={handleResendVerification} className="font-medium text-primary underline-offset-4 hover:underline">重新寄送驗證信</button></div>}
-                {mode === "login" && <p className="text-center text-xs leading-5 text-muted-foreground">忘記密碼只需先填入電子信箱；寄信後請查看收件匣與垃圾郵件匣。</p>}
-                {mode === "login" && <p className="text-center text-xs leading-5 text-muted-foreground">既有共帳帳號尚未綁定 Firebase？請先使用下方的舊版帳密登入，再到個人設定完成電子信箱綁定。</p>}
-                {mode === "login" && <Button type="button" variant="outline" disabled={pending} onClick={handleLegacyLogin} className="h-10 w-full rounded-xl">使用既有帳密登入</Button>}
+                {mode === "login" && <div className="flex flex-col gap-2 text-center text-sm sm:flex-row sm:justify-center"><button type="button" disabled={pending} onClick={() => { setDialogEmail(email); setAuthDialog("reset"); }} className="font-medium text-primary underline-offset-4 hover:underline">忘記密碼</button><span className="hidden text-muted-foreground sm:inline">·</span><button type="button" disabled={pending} onClick={() => { setDialogEmail(email); setDialogPassword(""); setResendStep("email"); setAuthDialog("resend"); }} className="font-medium text-primary underline-offset-4 hover:underline">重新寄送驗證信</button></div>}
+                {mode === "login" && <p className="text-center text-xs leading-5 text-muted-foreground">忘記密碼與重寄驗證會先開啟安全視窗填寫註冊電子信箱；請查看收件匣與垃圾郵件匣。</p>}
+                {mode === "login" && <p className="text-center text-xs leading-5 text-muted-foreground">尚未綁定信箱的舊帳戶可在過渡期內選擇下方連結完成遷移。</p>}
+                {mode === "login" && <button type="button" disabled={pending} onClick={handleLegacyLogin} className="mx-auto block text-xs font-medium text-muted-foreground underline-offset-4 hover:text-primary hover:underline">舊帳戶遷移登入（暫時保留）</button>}
               </form>
             </div>
           </section>
         </div>
       </main>
+      <Dialog open={authDialog !== null} onOpenChange={open => { if (!open) { setAuthDialog(null); setResendStep("email"); setDialogPassword(""); } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader><DialogTitle>{authDialog === "reset" ? "重設密碼" : "重新寄送驗證信"}</DialogTitle><DialogDescription>{authDialog === "reset" ? "輸入註冊電子信箱後，我們會寄送重設連結。為帳戶安全，結果不會透露此信箱是否已註冊。" : resendStep === "email" ? "先輸入註冊電子信箱，再進行下一步安全驗證。" : "請輸入目前密碼以重新驗證身分；此密碼只用於本次操作，不會被保存。"}</DialogDescription></DialogHeader>
+          <div className="space-y-3"><Label htmlFor="auth-action-email">註冊電子信箱</Label><Input id="auth-action-email" type="email" autoComplete="email" value={dialogEmail} onChange={event => setDialogEmail(event.target.value)} autoFocus />{authDialog === "resend" && resendStep === "credential" && <><Label htmlFor="auth-action-password">目前密碼</Label><Input id="auth-action-password" type="password" autoComplete="current-password" value={dialogPassword} onChange={event => setDialogPassword(event.target.value)} /></>}</div>
+          <DialogFooter><Button type="button" disabled={firebaseBusy} onClick={authDialog === "reset" ? handlePasswordReset : handleResendVerification}>{firebaseBusy && <LoaderCircle size={16} className="mr-2 animate-spin" />}{authDialog === "reset" ? "寄送重設信" : resendStep === "email" ? "下一步" : "重新寄送驗證信"}</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={registrationNoticeOpen} onOpenChange={open => {
+        // Outside clicks and Escape are prevented below. Therefore a close event
+        // here represents the visible × control, which is the deliberate read
+        // acknowledgement required before Firebase registration can continue.
+        if (!open) {
+          setRegistrationNoticeRead(true);
+          setRegistrationNoticeOpen(false);
+        }
+      }}>
+        <DialogContent showCloseButton onPointerDownOutside={event => event.preventDefault()} onEscapeKeyDown={event => event.preventDefault()} className="sm:max-w-md">
+          <DialogHeader><DialogTitle>請先完成電子信箱驗證</DialogTitle><DialogDescription>為保護共同帳本資料，註冊後 24 小時內未完成電子信箱驗證的帳戶將被自動清理。尚未驗證的帳戶不能建立或加入帳本，因此不會影響既有帳本與交易。</DialogDescription></DialogHeader>
+          <p className="text-sm leading-6 text-muted-foreground">請閱讀後按右上角 × 關閉此提醒，再按一次「註冊並建立帳本」。驗證信可能出現在垃圾郵件匣。</p>
+        </DialogContent>
+      </Dialog>
       <ReleaseFooter />
     </div>
   );

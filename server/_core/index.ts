@@ -9,6 +9,8 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { processMonthlySettlementReminderForTask } from "../notifications";
 import { ensureDailySavingsAutomation, processDailySavingsAutomation } from "../savingsAutomation";
+import { processDailyAuthCleanupAutomation } from "../authAutomation";
+import { seedLegacyPasswordLoginDeadlines } from "../db";
 import { registerLedgerRealtimeRoute } from "../ledgerRealtime";
 import { sdk } from "./sdk";
 import { serveStatic, setupVite } from "./vite";
@@ -88,9 +90,34 @@ async function startServer() {
       });
     }
   });
+  app.post("/api/scheduled/unverified-auth-cleanup", async (req, res) => {
+    try {
+      const user = await sdk.authenticateRequest(req);
+      if (!user.isCron || !user.taskUid) {
+        return res.status(403).json({ error: "cron-only" });
+      }
+      const result = await processDailyAuthCleanupAutomation(user.taskUid);
+      return res.json({ ok: true, ...result, taskUid: user.taskUid });
+    } catch (error) {
+      const normalized = error instanceof Error ? error : new Error(String(error));
+      console.error("[Scheduled] unverified Firebase identity cleanup failed", normalized);
+      return res.status(500).json({
+        error: normalized.message,
+        stack: normalized.stack,
+        context: { path: req.path },
+        timestamp: new Date().toISOString(),
+      });
+    }
+  });
   void ensureDailySavingsAutomation().catch(error => {
     console.error("[Scheduled] could not ensure daily savings automation", error);
   });
+  void seedLegacyPasswordLoginDeadlines().catch(error => {
+    console.error("[Auth] could not seed legacy password migration deadlines", error);
+  });
+  // The new cleanup task is deliberately not created at startup. It is enabled
+  // only after this callback is checkpointed and the owner confirms production
+  // deployment, so no pre-release environment can delete Firebase identities.
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);

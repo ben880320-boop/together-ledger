@@ -1,5 +1,23 @@
 ## Together Ledger v1.3.8
 
+## Together Ledger v1.3.16
+
+### 帳戶生命週期與跨平台安全
+
+- 修正 Web／PWA 的「記住此裝置」登入交換會遺漏 `rememberDevice` 參數的問題；勾選後 Firebase persistence 與伺服器 HTTP-only cookie 均採 30 天受保護工作階段，未勾選則維持瀏覽器／冷啟動工作階段，且不保存明碼密碼。
+- Android、Web 與 PWA 的忘記密碼與重寄驗證改為先開啟 Email 對話框；重寄流程另要求目前密碼，以降低未授權的驗證信濫用。註冊前顯示必須手動關閉的 24 小時未驗證身分清理提醒。
+- 個人設定新增近期 Firebase 密碼驗證後的新信箱驗證流程。驗證連結完成後，使用者以新信箱重新登入，伺服器只同步同一 Firebase UID 的已驗證信箱並撤銷舊 session。
+- 既有本機帳密入口改為 30 天低顯著遷移連結；到期後伺服器明確拒絕舊密碼回退，避免繞過 Firebase 的驗證、重設與撤銷控制。
+
+### Web 專用管理保護與清理準備
+
+- Web 新增僅限管理員的帳戶管理頁，但帳戶摘要、搜尋、稽核與刪除均由後端 `adminProcedure` 驗證。介面不顯示密碼、Firebase UID、交易或收據資料；管理員不可刪除自己或其他管理員，刪除必須輸入 `DELETE` 並寫入稽核紀錄。
+- 新增每日未驗證 Firebase Email／Password 身分清理 handler。它僅處理超過 24 小時、尚未驗證、且僅存在於 Firebase 的身分，不會刪除既有共帳帳戶或帳本資料；正式每日排程會在部署完成並經管理員確認後啟用。
+
+### 發布與安全性
+
+- Android 版升級為 `versionName=1.3.16`、`versionCode=39`，維持固定受保護簽章與 SHA-256 校驗檔。
+
 ## Together Ledger v1.3.15
 
 ### 安全記住此裝置
