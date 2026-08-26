@@ -201,7 +201,7 @@ export const adminAccountAuditLogs = mysqlTable("adminAccountAuditLogs", {
   id: int("id").autoincrement().primaryKey(),
   adminUserId: int("adminUserId").notNull(),
   targetUserId: int("targetUserId"),
-  action: mysqlEnum("action", ["promote", "delete", "emailChange", "cleanup"]).notNull(),
+  action: mysqlEnum("action", ["promote", "delete", "emailChange", "cleanup", "sessionRevoke"]).notNull(),
   summary: varchar("summary", { length: 255 }).notNull(),
   metadata: text("metadata"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -301,6 +301,20 @@ export const diagnosticReports = mysqlTable("diagnosticReports", {
   stack: text("stack"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 }, (table) => [index("diagnosticReports_user_created_idx").on(table.userId, table.createdAt)]);
+
+/**
+ * Privacy-minimized operational signals for account security and synchronization.
+ * This table deliberately has no user, ledger, transaction, email, Firebase UID,
+ * IP address, token, message, or amount field.
+ */
+export const operationalSecurityEvents = mysqlTable("operationalSecurityEvents", {
+  id: int("id").autoincrement().primaryKey(),
+  event: mysqlEnum("event", ["rememberRestore", "sessionRevoke", "syncConflict"]).notNull(),
+  source: mysqlEnum("source", ["web", "pwa", "android", "server"]).notNull(),
+  outcome: mysqlEnum("outcome", ["success", "failure"]).notNull(),
+  code: varchar("code", { length: 64 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, (table) => [index("operationalSecurityEvents_event_created_idx").on(table.event, table.createdAt)]);
 
 /** Multiple phones may belong to one user; tokens are disabled rather than deleted when unregistered. */
 export const pushDevices = mysqlTable("pushDevices", {

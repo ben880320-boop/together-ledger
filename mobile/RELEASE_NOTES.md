@@ -1,16 +1,17 @@
 ## Together Ledger v1.3.8
 
-## Together Ledger v1.3.18
+## Together Ledger v1.3.19
 
-### 帳戶刪除防誤觸與告別互動
+### 記住裝置、安全撤銷與匿名可觀測性
 
-- Web、PWA 與 Android 的刪帳操作改為一致的兩階段流程：輸入目前密碼後，先顯示五秒倒數的最終確認。
-- 倒數只解除「永久刪除帳號」按鈕鎖定，**不會自動送出刪除**；使用者仍可隨時取消並保留帳號。
-- 刪除成功後會清除本機與 Firebase 工作階段，安全返回登入入口，並顯示一次性、可關閉的友善告別訊息，不保留已刪帳戶的敏感狀態。
+- 已記住的 Firebase Email／Password 身分在 Web、PWA 或 Android 的一小時 App 工作階段到期後，會以既有的受保護 Firebase persistence 安全換發短效 App 工作階段；不保存明碼密碼。
+- 暫時網路失敗不會清除已記住身分，只有主動登出、帳戶刪除，或 Firebase 明確回報 token 失效／撤銷時才會清除。Android 同時覆蓋未授權與 `auth.me` 暫無使用者的冷啟動路徑，且只會嘗試一次靜默恢復。
+- Web-only 管理介面新增非管理員帳戶的「撤銷所有登入」保護確認；後端會同時遞增 App `sessionVersion` 與撤銷 Firebase refresh tokens，管理員自身與其他管理員帳戶均受保護。
+- 新增沒有 Email、Firebase UID、帳本、交易、金額或 token 的匿名作業事件彙總，用於檢視記住裝置恢復、session 撤銷與同步衝突的成功／失敗趨勢。
 
 ### 發布
 
-- Android 版升級為 `versionName=1.3.18`、`versionCode=41`，維持固定受保護簽章與 SHA-256 校驗檔。
+- Android 版升級為 `versionName=1.3.19`、`versionCode=42`，維持固定受保護簽章與 SHA-256 校驗檔。
 
 ## Together Ledger v1.3.18
 

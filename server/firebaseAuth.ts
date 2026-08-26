@@ -50,6 +50,15 @@ export async function deleteFirebaseIdentity(firebaseUid: string) {
   await getFirebaseAuth().deleteUser(firebaseUid);
 }
 
+/**
+ * Invalidates every Firebase refresh token for an identity. This is used only
+ * after the application sessionVersion has been advanced, so remembered
+ * devices cannot silently exchange an older Firebase session for a new app JWT.
+ */
+export async function revokeFirebaseIdentitySessions(firebaseUid: string) {
+  await getFirebaseAuth().revokeRefreshTokens(firebaseUid);
+}
+
 export type UnverifiedFirebaseCleanupResult = {
   scanned: number;
   eligible: number;

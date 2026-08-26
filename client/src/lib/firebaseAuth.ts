@@ -63,6 +63,17 @@ export function messageOfFirebaseError(error: unknown) {
   return error instanceof Error ? error.message : "電子郵件驗證暫時無法完成，請稍後再試。";
 }
 
+function shouldClearPersistedFirebaseIdentity(error: unknown) {
+  const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
+  return [
+    "auth/user-disabled",
+    "auth/user-not-found",
+    "auth/user-token-expired",
+    "auth/user-token-revoked",
+    "auth/invalid-user-token",
+  ].includes(code);
+}
+
 export async function registerFirebaseEmail(input: { email: string; password: string; name: string }) {
   // 註冊後會立即登出，避免尚未驗證的帳戶殘留在裝置上。
   const auth = await configureFirebasePersistence(false);
@@ -146,9 +157,15 @@ export async function getPersistedVerifiedFirebaseIdToken() {
       return null;
     }
     return auth.currentUser.getIdToken(true);
-  } catch {
-    await signOut(auth);
-    return null;
+  } catch (error) {
+    // A transient network failure must not turn an opted-in remembered device
+    // into a forced logout. Only Firebase's definitive revocation signals clear
+    // the local refresh token; callers can surface a retry state otherwise.
+    if (shouldClearPersistedFirebaseIdentity(error)) {
+      await signOut(auth);
+      return null;
+    }
+    throw error;
   }
 }
 

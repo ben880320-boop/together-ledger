@@ -59,11 +59,14 @@ import {
   deleteUserAccount,
   getAdminAccountSummary,
   getAuthAutomationStatus,
+  getOperationalSecurityEventSummary,
   getUserByEmail,
   getUserByFirebaseUid,
   getUserById,
   listAdminAccountAudits,
   listAdminAccounts,
+  recordOperationalSecurityEvent,
+  revokeUserApplicationSessions,
   verifyLocalPassword,
   syncFirebaseEmailForUser,
   writeAdminAccountAudit,
@@ -87,6 +90,7 @@ import { invokeLLM } from "./_core/llm";
 import { sdk } from "./_core/sdk";
 import {
   deleteFirebaseIdentity,
+  revokeFirebaseIdentitySessions,
   verifyFirebaseIdentity,
   verifyRecentlyAuthenticatedFirebaseIdentity,
 } from "./firebaseAuth";
@@ -232,6 +236,14 @@ export const appRouter = router({
         try {
           identity = await verifyFirebaseIdentity(input.idToken);
         } catch (error) {
+          if (input.rememberDevice) {
+            void recordOperationalSecurityEvent({
+              event: "rememberRestore",
+              source: "server",
+              outcome: "failure",
+              code: "firebase_identity_rejected",
+            });
+          }
           throw new TRPCError({ code: "UNAUTHORIZED", message: error instanceof Error ? error.message : "Firebase 驗證失敗，請重新登入。" });
         }
         let user = await getUserByFirebaseUid(identity.uid);
@@ -266,6 +278,14 @@ export const appRouter = router({
           expiresInMs: FIREBASE_APP_SESSION_TTL_MS,
         });
         persistLocalSessionCookie(ctx, token, input.rememberDevice);
+        if (input.rememberDevice) {
+          void recordOperationalSecurityEvent({
+            event: "rememberRestore",
+            source: "server",
+            outcome: "success",
+            code: "firebase_session_exchanged",
+          });
+        }
         return { token, user: { id: user.id, name: user.name, email: user.email, loginMethod: user.loginMethod, emailVerified: true } };
       }),
     syncFirebaseEmail: protectedProcedure
@@ -409,6 +429,58 @@ export const appRouter = router({
     audits: adminProcedure
       .input(z.object({ limit: z.number().int().min(1).max(100).default(60) }))
       .query(({ input }) => listAdminAccountAudits(input.limit)),
+    operationalOverview: adminProcedure
+      .input(z.object({ days: z.number().int().min(1).max(30).default(7) }))
+      .query(({ input }) => getOperationalSecurityEventSummary(input.days)),
+    revokeUserSessions: adminProcedure
+      .input(z.object({ targetUserId: z.number().int().positive(), confirmation: z.literal("REVOKE") }))
+      .mutation(async ({ ctx, input }) => {
+        if (input.targetUserId === ctx.user.id) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "請使用一般登出功能結束自己的登入狀態。" });
+        }
+        const target = await getUserById(input.targetUserId);
+        if (!target || target.loginMethod === "deleted") {
+          throw new TRPCError({ code: "NOT_FOUND", message: "找不到可管理的帳戶。" });
+        }
+        if (target.role === "admin") {
+          throw new TRPCError({ code: "FORBIDDEN", message: "管理員帳戶不可由此介面撤銷登入，避免中斷管理權限。" });
+        }
+        try {
+          const revoked = await revokeUserApplicationSessions(target.id);
+          if (!revoked) throw new Error("帳戶 session 狀態未更新。");
+          if (target.firebaseUid) await revokeFirebaseIdentitySessions(target.firebaseUid);
+        } catch (error) {
+          void recordOperationalSecurityEvent({
+            event: "sessionRevoke",
+            source: "server",
+            outcome: "failure",
+            code: "admin_revoke_failed",
+          });
+          console.error("[Admin] account session revocation failed", {
+            targetUserId: target.id,
+            stage: target.firebaseUid ? "application-or-firebase" : "application",
+            error: error instanceof Error ? error.name : "unknown",
+          });
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "無法撤銷帳戶登入，請稍後重試。",
+          });
+        }
+        await writeAdminAccountAudit({
+          adminUserId: ctx.user.id,
+          targetUserId: target.id,
+          action: "sessionRevoke",
+          summary: "管理員撤銷帳戶登入 session",
+          metadata: { firebaseLinked: Boolean(target.firebaseUid) },
+        });
+        void recordOperationalSecurityEvent({
+          event: "sessionRevoke",
+          source: "server",
+          outcome: "success",
+          code: target.firebaseUid ? "app_and_firebase" : "app_only",
+        });
+        return { success: true as const, firebaseSessionsRevoked: Boolean(target.firebaseUid) };
+      }),
     deleteUser: adminProcedure
       .input(z.object({ targetUserId: z.number().int().positive(), confirmation: z.literal("DELETE") }))
       .mutation(async ({ ctx, input }) => {
@@ -912,6 +984,7 @@ export const appRouter = router({
             return bucket;
           } catch (error) {
             if (error instanceof Error && error.message === "SAVINGS_BUCKET_CONFLICT") {
+              void recordOperationalSecurityEvent({ event: "syncConflict", source: "server", outcome: "failure", code: "savings_bucket_update" });
               throw new TRPCError({ code: "CONFLICT", message: "此儲蓄桶已被其他成員修改，請重新整理後再編輯。" });
             }
             throw error;
@@ -927,6 +1000,7 @@ export const appRouter = router({
             return id;
           } catch (error) {
             if (error instanceof Error && error.message === "SAVINGS_BUCKET_CONFLICT") {
+              void recordOperationalSecurityEvent({ event: "syncConflict", source: "server", outcome: "failure", code: "savings_bucket_stop" });
               throw new TRPCError({ code: "CONFLICT", message: "此儲蓄桶已被其他成員修改，請重新整理後再編輯。" });
             }
             throw error;
@@ -941,7 +1015,10 @@ export const appRouter = router({
             await logActivity({ ledgerId: input.ledgerId, userId: ctx.user.id, action: "update", entityType: "savingsBucket", entityId: id, summary: "封存已達標儲蓄桶" });
             return id;
           } catch (error) {
-            if (error instanceof Error && error.message === "SAVINGS_BUCKET_CONFLICT") throw new TRPCError({ code: "CONFLICT", message: "此儲蓄桶已被其他成員修改，請重新整理後再編輯。" });
+            if (error instanceof Error && error.message === "SAVINGS_BUCKET_CONFLICT") {
+              void recordOperationalSecurityEvent({ event: "syncConflict", source: "server", outcome: "failure", code: "savings_bucket_archive" });
+              throw new TRPCError({ code: "CONFLICT", message: "此儲蓄桶已被其他成員修改，請重新整理後再編輯。" });
+            }
             throw error;
           }
         }),
@@ -958,6 +1035,7 @@ export const appRouter = router({
             return await addSavingsDeposit({ ...input, userId: ctx.user.id });
           } catch (error) {
             if (error instanceof Error && error.message === "SAVINGS_BUCKET_CONFLICT") {
+              void recordOperationalSecurityEvent({ event: "syncConflict", source: "server", outcome: "failure", code: "savings_bucket_deposit" });
               throw new TRPCError({ code: "CONFLICT", message: "此儲蓄桶已被其他成員修改，請重新整理後再存入。" });
             }
             throw error;
@@ -972,7 +1050,10 @@ export const appRouter = router({
             await logActivity({ ledgerId: input.ledgerId, userId: ctx.user.id, action: "update", entityType: "savingsBucket", entityId: id, summary: "重新顯示已封存儲蓄桶" });
             return id;
           } catch (error) {
-            if (error instanceof Error && error.message === "SAVINGS_BUCKET_CONFLICT") throw new TRPCError({ code: "CONFLICT", message: "此儲蓄桶已被其他成員修改，請重新整理後再編輯。" });
+            if (error instanceof Error && error.message === "SAVINGS_BUCKET_CONFLICT") {
+              void recordOperationalSecurityEvent({ event: "syncConflict", source: "server", outcome: "failure", code: "savings_bucket_restore" });
+              throw new TRPCError({ code: "CONFLICT", message: "此儲蓄桶已被其他成員修改，請重新整理後再編輯。" });
+            }
             throw error;
           }
         }),

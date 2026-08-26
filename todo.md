@@ -729,3 +729,14 @@
 - [x] 設計 Web／PWA／Android 一致的帳戶刪除倒數最終確認流程，防止誤觸並維持近期 Firebase 驗證機制
 - [x] 在跨平台帳戶刪除成功後顯示友善告別訊息與安全的登入頁返回流程，不保留已刪帳戶的本機敏感狀態
 - [x] 補齊倒數確認、取消、刪除成功與失敗重試的型別、單元與 Android 核心流程驗收，更新文件並依 feature branch＋PR 發布
+
+## v1.3.19 持久登入、帳戶管理與 P0 可靠性
+
+- [x] 盤點並重現 Web／PWA／Android「記住此裝置」的 session、refresh token、Firebase persistence 與本機啟動流程，定位閒置後被登出的根因
+- [x] 修復跨平台持久登入與失敗重試，保留明確登出、sessionVersion 撤銷與不保存明碼密碼的安全邊界
+- [x] 擴充 Web-only 管理員帳戶介面：搜尋、篩選、安全帳戶狀態檢視與可稽核的 session 撤銷，所有管理 procedure 維持 admin 權限驗證
+- [x] 加入去識別化帳戶生命週期與同步異常稽核事件，避免記錄 Email、Firebase UID、密碼或金額明細
+- [x] 建立非正式測試帳戶的跨端帳戶生命週期驗收劇本與自動化安全檢查，不對真實帳戶執行不可逆刪除
+- [ ] 在 GitHub 啟用 main 分支保護與必過 CI，避免未驗證變更直接進入正式發布
+- [ ] 補齊型別、單元、核心流程、建置與跨平台視覺驗收，更新 README／Wiki／Release 文件並依 feature branch＋PR 發布
+- [x] 修正 Web 管理員帳戶清單在手機版的欄位擁擠與安全操作可用性

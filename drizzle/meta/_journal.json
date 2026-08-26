@@ -169,6 +169,20 @@
       "when": 1787746855089,
       "tag": "0023_flippant_ink",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "5",
+      "when": 1787762459624,
+      "tag": "0024_silly_professor_monster",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "5",
+      "when": 1787763635139,
+      "tag": "0025_demonic_shadow_king",
+      "breakpoints": true
     }
   ]
 }

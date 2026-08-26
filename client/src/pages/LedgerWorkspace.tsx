@@ -27,7 +27,7 @@ import { useLocation } from "wouter";
 
 type Page = "overview" | "records" | "calendar" | "analysis" | "planning" | "settings" | "profile";
 type Sheet = "ledger" | "join" | "transaction" | "budget" | "total-budget" | "recurring" | "travel" | "category" | "payment" | "manage" | null;
-const APP_VERSION = "1.3.18";
+const APP_VERSION = "1.3.19";
 function StableTransactionDialog(props: any) {
   const workspaceSnapshot = useRef<any>(null);
   const activeDraftKey = useRef<string | null>(null);
