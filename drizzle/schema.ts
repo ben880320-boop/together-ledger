@@ -21,6 +21,8 @@ export const users = mysqlTable("users", {
   firebaseUid: varchar("firebaseUid", { length: 128 }).unique(),
   /** Increments when an identity-security event must invalidate existing app sessions. */
   sessionVersion: int("sessionVersion").default(0).notNull(),
+  /** Optional per-account legacy password migration deadline; null means no legacy-password grace period is active. */
+  legacyPasswordLoginDeadline: timestamp("legacyPasswordLoginDeadline"),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -182,6 +184,31 @@ export const savingsAutomationSettings = mysqlTable("savingsAutomationSettings",
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
+
+/** Durable status for the daily cleanup of Firebase identities that never completed email verification. */
+export const authAutomationSettings = mysqlTable("authAutomationSettings", {
+  id: int("id").autoincrement().primaryKey(),
+  scheduleCronTaskUid: varchar("scheduleCronTaskUid", { length: 65 }).unique(),
+  lastRunAt: timestamp("lastRunAt"),
+  lastRunStatus: varchar("lastRunStatus", { length: 32 }),
+  lastRunError: varchar("lastRunError", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+/** Immutable, minimum-necessary audit record for privileged account administration. */
+export const adminAccountAuditLogs = mysqlTable("adminAccountAuditLogs", {
+  id: int("id").autoincrement().primaryKey(),
+  adminUserId: int("adminUserId").notNull(),
+  targetUserId: int("targetUserId"),
+  action: mysqlEnum("action", ["promote", "delete", "emailChange", "cleanup"]).notNull(),
+  summary: varchar("summary", { length: 255 }).notNull(),
+  metadata: text("metadata"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+}, table => ({
+  adminCreatedIdx: index("admin_account_audit_admin_created_idx").on(table.adminUserId, table.createdAt),
+  targetCreatedIdx: index("admin_account_audit_target_created_idx").on(table.targetUserId, table.createdAt),
+}));
 
 export const activityLogs = mysqlTable("activityLogs", {
   id: int("id").autoincrement().primaryKey(),

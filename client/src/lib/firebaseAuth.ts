@@ -1,5 +1,6 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
 import {
+  EmailAuthProvider,
   browserLocalPersistence,
   browserSessionPersistence,
   createUserWithEmailAndPassword,
@@ -9,7 +10,9 @@ import {
   setPersistence,
   signInWithEmailAndPassword,
   signOut,
+  reauthenticateWithCredential,
   updateProfile,
+  verifyBeforeUpdateEmail,
   type User,
 } from "firebase/auth";
 
@@ -92,6 +95,38 @@ export async function requestFirebasePasswordReset(email: string) {
   // Firebase intentionally returns a generic success path in the UI below so
   // this action does not reveal whether an email address owns an account.
   await sendPasswordResetEmail(auth, email.trim(), actionCodeSettings());
+}
+
+function currentFirebaseUserForEmail(currentEmail: string) {
+  const auth = firebaseAuth();
+  const user = auth.currentUser;
+  if (!user || !user.email) throw new Error("登入狀態已過期，請重新登入後再修改電子信箱。");
+  if (user.email.trim().toLowerCase() !== currentEmail.trim().toLowerCase()) {
+    throw new Error("目前 Firebase 身分與共帳帳戶不一致，請重新登入後再試。");
+  }
+  return user;
+}
+
+/** Re-authenticates a Firebase-linked account before a sensitive email change. */
+export async function reauthenticateFirebaseEmail(currentEmail: string, currentPassword: string) {
+  const user = currentFirebaseUserForEmail(currentEmail);
+  const credential = EmailAuthProvider.credential(user.email!, currentPassword);
+  await reauthenticateWithCredential(user, credential);
+}
+
+/**
+ * Sends Firebase's hosted verification action to the new address. The email is
+ * not updated locally or on our server until the recipient completes that
+ * Firebase-hosted action and signs in with the verified address again.
+ */
+export async function requestFirebaseEmailChangeVerification(currentEmail: string, newEmail: string) {
+  const user = currentFirebaseUserForEmail(currentEmail);
+  const verifiedCurrentEmail = user.email!;
+  const nextEmail = newEmail.trim().toLowerCase();
+  if (!nextEmail || nextEmail === verifiedCurrentEmail.trim().toLowerCase()) {
+    throw new Error("請輸入與目前電子信箱不同的新電子信箱。");
+  }
+  await verifyBeforeUpdateEmail(user, nextEmail, actionCodeSettings());
 }
 
 /**

@@ -22,8 +22,9 @@ function isSecureRequest(req: Request) {
 }
 
 export function getSessionCookieOptions(
-  req: Request
-): Pick<CookieOptions, "domain" | "httpOnly" | "path" | "sameSite" | "secure"> {
+  req: Request,
+  rememberDevice = false,
+): Pick<CookieOptions, "domain" | "httpOnly" | "path" | "sameSite" | "secure" | "maxAge"> {
   // const hostname = req.hostname;
   // const shouldSetDomain =
   //   hostname &&
@@ -44,5 +45,9 @@ export function getSessionCookieOptions(
     path: "/",
     sameSite: "none",
     secure: isSecureRequest(req),
+    // A session cookie is discarded by the browser when the user has not
+    // explicitly trusted this device. The JWT itself still has its own short
+    // expiry and is validated against users.sessionVersion on every request.
+    ...(rememberDevice ? { maxAge: 30 * 24 * 60 * 60 * 1000 } : {}),
   };
 }

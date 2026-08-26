@@ -3,7 +3,7 @@ import { ReleaseFooter } from "@/components/ReleaseFooter";
 import { setPwaDraftSafety } from "@/components/PwaInstallPanel";
 import { SavingsBucketsPanel } from "@/components/SavingsBucketsPanel";
 import { WebAppearancePanel } from "@/components/WebAppearancePanel";
-import { firebaseSignOut, requestFirebasePasswordReset, signInFirebaseEmail } from "@/lib/firebaseAuth";
+import { firebaseSignOut, reauthenticateFirebaseEmail, requestFirebaseEmailChangeVerification, requestFirebasePasswordReset, signInFirebaseEmail } from "@/lib/firebaseAuth";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -27,7 +27,7 @@ import { useLocation } from "wouter";
 
 type Page = "overview" | "records" | "calendar" | "analysis" | "planning" | "settings" | "profile";
 type Sheet = "ledger" | "join" | "transaction" | "budget" | "total-budget" | "recurring" | "travel" | "category" | "payment" | "manage" | null;
-const APP_VERSION = "1.3.15";
+const APP_VERSION = "1.3.16";
 function StableTransactionDialog(props: any) {
   const workspaceSnapshot = useRef<any>(null);
   const activeDraftKey = useRef<string | null>(null);
@@ -526,6 +526,10 @@ function Profile({ workspace, onRefresh }: any) {
   const [password, setPassword] = useState("");
   const [firebasePassword, setFirebasePassword] = useState("");
   const [isFirebaseDialogOpen, setFirebaseDialogOpen] = useState(false);
+  const [isEmailChangeDialogOpen, setEmailChangeDialogOpen] = useState(false);
+  const [emailChangeStep, setEmailChangeStep] = useState<"password" | "email" | "sent">("password");
+  const [emailChangePassword, setEmailChangePassword] = useState("");
+  const [newEmail, setNewEmail] = useState("");
   const updateName = trpc.profile.updateName.useMutation({ onSuccess: () => { toast.success("暱稱已儲存。"); onRefresh(); }, onError: fail });
   const deleteAccountMutation = trpc.auth.deleteAccount.useMutation({ onSuccess: async () => { try { await firebaseSignOut(); } catch { /* Firebase identity may already have been removed server-side. */ } await logout(); navigate("/"); }, onError: fail });
   const firebaseStatus = trpc.auth.firebaseStatus.useQuery(undefined, { retry: false });
@@ -578,12 +582,38 @@ function Profile({ workspace, onRefresh }: any) {
       toast.success("若此電子信箱已啟用共帳登入，密碼重設信已寄出。請查看收件匣與垃圾郵件匣；為保護安全，不會顯示帳號是否存在。", { duration: 8_000 });
     }
   };
+  const closeEmailChangeDialog = () => {
+    setEmailChangeDialogOpen(false);
+    setEmailChangeStep("password");
+    setEmailChangePassword("");
+    setNewEmail("");
+  };
+  const submitEmailChange = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!user?.email) return toast.error("此帳戶沒有可使用的電子信箱。");
+    try {
+      if (emailChangeStep === "password") {
+        await reauthenticateFirebaseEmail(user.email, emailChangePassword);
+        setEmailChangePassword("");
+        setEmailChangeStep("email");
+        return;
+      }
+      if (emailChangeStep === "email") {
+        await requestFirebaseEmailChangeVerification(user.email, newEmail);
+        setEmailChangeStep("sent");
+        toast.success("新信箱驗證連結已寄出。請查看收件匣與垃圾郵件匣。", { duration: 8_000 });
+      }
+    } catch (error) {
+      fail(error);
+    }
+  };
 
   return <div className="grid gap-5 xl:grid-cols-2">
     <Card title="個人資料" text="暱稱會在所有共同帳本與 Android App 顯示。"><form className="flex flex-col gap-2 sm:flex-row" onSubmit={event => { event.preventDefault(); updateName.mutate({ name: name.trim() } as any); }}><Input value={name} onChange={event => setName(event.target.value)} required maxLength={64} /><Button type="submit" className="bg-[#B56C78]">儲存暱稱</Button></form></Card>
-    <Card title="更新與帳號安全" text={`目前網頁版本 ${APP_VERSION}；Android App 可從下方下載。`}><div className="space-y-4"><div className="flex flex-wrap gap-2"><a href="https://github.com/ben880320-boop/together-ledger/releases" target="_blank" rel="noreferrer" className="inline-flex rounded-xl border border-[#DDC7C0] bg-white px-4 py-2 text-sm font-medium text-[#875A61]">查看版本更新歷程</a><a href="https://github.com/ben880320-boop/together-ledger/wiki" target="_blank" rel="noreferrer" className="inline-flex rounded-xl border border-[#DDC7C0] bg-white px-4 py-2 text-sm font-medium text-[#875A61]">使用說明 Wiki</a></div><div className="rounded-2xl border border-[#E8D7D1] bg-[#FFF9F7] p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><Label>Firebase 電子信箱安全</Label><p className="mt-1 text-sm leading-6 text-[#846E66]">{firebaseStatus.data?.firebaseLinked ? "已綁定。可使用已驗證的電子信箱登入與重設 Firebase 密碼。" : "尚未綁定。綁定後不會建立新帳本，也不會變更既有帳本資料。"}</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${firebaseStatus.data?.firebaseLinked ? "bg-[#E8F4EA] text-[#42734E]" : "bg-[#F5E8E5] text-[#9A6570]"}`}>{firebaseStatus.data?.firebaseLinked ? "已綁定" : "待綁定"}</span></div><div className="mt-3 flex flex-wrap gap-2">{!firebaseStatus.data?.firebaseLinked && <Button type="button" variant="outline" onClick={() => setFirebaseDialogOpen(true)} className="border-[#DDBFB7] bg-white text-[#875A61]">綁定 Firebase 信箱</Button>}<Button type="button" variant="outline" onClick={() => void resetFirebasePassword()} className="border-[#DDBFB7] bg-white text-[#875A61]">忘記 Firebase 密碼</Button></div><p className="mt-3 text-xs leading-5 text-[#8A756B]">驗證信或重設信寄出後，請先查看收件匣；若數分鐘內未收到，也請檢查垃圾郵件匣。</p>{firebaseStatus.error && <p className="mt-2 text-xs text-[#A65F68]">帳號安全狀態暫時無法讀取，請重新整理後重試。</p>}</div><form className="border-t border-[#F0E7E2] pt-4" onSubmit={event => { event.preventDefault(); if (window.confirm("確定要永久刪除帳號嗎？此動作不可復原。")) deleteAccount.mutate({ password } as any); }}><Label>刪除帳號前請輸入密碼</Label><div className="mt-2 flex flex-col gap-2 sm:flex-row"><Input type="password" value={password} onChange={event => setPassword(event.target.value)} required /><Button type="submit" variant="destructive">刪除帳號</Button></div></form></div></Card>
+    <Card title="更新與帳號安全" text={`目前網頁版本 ${APP_VERSION}；Android App 可從下方下載。`}><div className="space-y-4"><div className="flex flex-wrap gap-2"><a href="https://github.com/ben880320-boop/together-ledger/releases" target="_blank" rel="noreferrer" className="inline-flex rounded-xl border border-[#DDC7C0] bg-white px-4 py-2 text-sm font-medium text-[#875A61]">查看版本更新歷程</a><a href="https://github.com/ben880320-boop/together-ledger/wiki" target="_blank" rel="noreferrer" className="inline-flex rounded-xl border border-[#DDC7C0] bg-white px-4 py-2 text-sm font-medium text-[#875A61]">使用說明 Wiki</a>{user?.role === "admin" && <Button type="button" variant="outline" onClick={() => navigate("/admin")} className="border-[#DDBFB7] bg-white text-[#875A61]">管理員使用者管理</Button>}</div><div className="rounded-2xl border border-[#E8D7D1] bg-[#FFF9F7] p-4"><div className="flex flex-wrap items-start justify-between gap-3"><div><Label>Firebase 電子信箱安全</Label><p className="mt-1 text-sm leading-6 text-[#846E66]">{firebaseStatus.data?.firebaseLinked ? "已綁定。可使用已驗證的電子信箱登入、修改電子信箱與重設 Firebase 密碼。" : "尚未綁定。綁定後不會建立新帳本，也不會變更既有帳本資料。"}</p></div><span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${firebaseStatus.data?.firebaseLinked ? "bg-[#E8F4EA] text-[#42734E]" : "bg-[#F5E8E5] text-[#9A6570]"}`}>{firebaseStatus.data?.firebaseLinked ? "已綁定" : "待綁定"}</span></div><div className="mt-3 flex flex-wrap gap-2">{!firebaseStatus.data?.firebaseLinked && <Button type="button" variant="outline" onClick={() => setFirebaseDialogOpen(true)} className="border-[#DDBFB7] bg-white text-[#875A61]">綁定 Firebase 信箱</Button>}{firebaseStatus.data?.firebaseLinked && <Button type="button" variant="outline" onClick={() => setEmailChangeDialogOpen(true)} className="border-[#DDBFB7] bg-white text-[#875A61]">修改電子信箱</Button>}<Button type="button" variant="outline" onClick={() => void resetFirebasePassword()} className="border-[#DDBFB7] bg-white text-[#875A61]">忘記 Firebase 密碼</Button></div><p className="mt-3 text-xs leading-5 text-[#8A756B]">驗證信或重設信寄出後，請先查看收件匣；若數分鐘內未收到，也請檢查垃圾郵件匣。</p>{firebaseStatus.error && <p className="mt-2 text-xs text-[#A65F68]">帳號安全狀態暫時無法讀取，請重新整理後重試。</p>}</div><form className="border-t border-[#F0E7E2] pt-4" onSubmit={event => { event.preventDefault(); if (window.confirm("確定要永久刪除帳號嗎？此動作不可復原。")) deleteAccount.mutate({ password } as any); }}><Label>刪除帳號前請輸入密碼</Label><div className="mt-2 flex flex-col gap-2 sm:flex-row"><Input type="password" value={password} onChange={event => setPassword(event.target.value)} required /><Button type="submit" variant="destructive">刪除帳號</Button></div></form></div></Card>
     <Card title="Android App 與登入" text="使用官方 GitHub Release 下載 APK；登出不會刪除共同帳本資料。"><div className="flex flex-col gap-3 sm:flex-row"><a href="https://github.com/ben880320-boop/together-ledger/releases/latest" target="_blank" rel="noreferrer" className="inline-flex min-h-11 flex-1 items-center justify-center rounded-xl bg-[#B56C78] px-4 py-2 text-sm font-semibold text-white"><Download size={16} className="mr-2" />下載 Together Ledger App</a><Button type="button" variant="outline" onClick={() => void leave()} className="min-h-11 border-[#DDC7C0] text-[#875A61]"><LogOut size={16} className="mr-2" />登出</Button></div></Card>
     <Dialog open={isFirebaseDialogOpen} onOpenChange={setFirebaseDialogOpen}><DialogContent className="rounded-3xl sm:max-w-md"><DialogHeader><DialogTitle>綁定 Firebase 電子信箱</DialogTitle><DialogDescription>請輸入與目前共帳帳戶相同信箱的 Firebase 密碼。系統只接受已驗證的同一信箱，且不會修改任何帳本資料。</DialogDescription></DialogHeader><form className="mt-3 space-y-4" onSubmit={event => void linkFirebaseAccount(event)}><Field label="共帳電子信箱"><Input value={user?.email || ""} disabled /></Field><Field label="Firebase 密碼"><Input type="password" value={firebasePassword} onChange={event => setFirebasePassword(event.target.value)} autoComplete="current-password" minLength={8} required /></Field><p className="text-xs leading-5 text-[#8A756B]">尚未建立 Firebase 帳號時，請先登出並使用同一信箱在登入頁選擇「註冊」。共帳驗證信寄出後，請查看收件匣與垃圾郵件匣；完成驗證後再回此處綁定。</p><div className="flex flex-col gap-2 sm:flex-row"><Button type="submit" disabled={linkFirebase.isPending} className="flex-1 bg-[#B56C78]">{linkFirebase.isPending ? "正在安全綁定…" : "驗證並綁定"}</Button><Button type="button" variant="outline" onClick={() => void resetFirebasePassword()} className="border-[#DDBFB7] text-[#875A61]">忘記密碼</Button></div></form></DialogContent></Dialog>
+    <Dialog open={isEmailChangeDialogOpen} onOpenChange={open => { if (!open) closeEmailChangeDialog(); }}><DialogContent className="rounded-3xl sm:max-w-md"><DialogHeader><DialogTitle>修改 Firebase 電子信箱</DialogTitle><DialogDescription>{emailChangeStep === "password" ? "為保護帳戶安全，請先輸入目前 Firebase 密碼完成近期驗證。" : emailChangeStep === "email" ? "近期驗證已完成。請輸入新的電子信箱，我們會寄出驗證連結。" : "新信箱驗證連結已寄出。完成驗證後，請用新電子信箱重新登入共帳。"}</DialogDescription></DialogHeader>{emailChangeStep === "sent" ? <div className="mt-3 space-y-4"><div className="rounded-2xl bg-[#FFF7F2] p-4 text-sm leading-6 text-[#785F56]">Firebase 會在驗證連結完成後才真正更換信箱。請檢查新信箱的收件匣與垃圾郵件匣，完成驗證後登出，再使用新信箱登入；系統會以同一 Firebase 身分安全同步您的共帳帳戶。</div><Button type="button" onClick={closeEmailChangeDialog} className="w-full bg-[#B56C78]">我知道了</Button></div> : <form className="mt-3 space-y-4" onSubmit={event => void submitEmailChange(event)}>{emailChangeStep === "password" ? <><Field label="目前電子信箱"><Input value={user?.email || ""} disabled /></Field><Field label="目前 Firebase 密碼"><Input type="password" value={emailChangePassword} onChange={event => setEmailChangePassword(event.target.value)} autoComplete="current-password" minLength={8} required /></Field></> : <><Field label="目前電子信箱"><Input value={user?.email || ""} disabled /></Field><Field label="新的電子信箱"><Input type="email" value={newEmail} onChange={event => setNewEmail(event.target.value)} autoComplete="email" required /></Field><p className="text-xs leading-5 text-[#8A756B]">新信箱尚未驗證前，不會變更您的共帳帳戶資料。</p></>}<div className="flex flex-col gap-2 sm:flex-row"><Button type="submit" className="flex-1 bg-[#B56C78]">{emailChangeStep === "password" ? "驗證目前密碼" : "寄送新信箱驗證連結"}</Button>{emailChangeStep === "email" && <Button type="button" variant="outline" onClick={() => setEmailChangeStep("password")} className="border-[#DDBFB7] text-[#875A61]">上一步</Button>}</div></form>}</DialogContent></Dialog>
   </div>;
 }
 function CheckBox({ label, name, checked }: { label: string; name: string; checked: boolean }) { return <label className="flex items-center justify-between text-sm"><span>{label}</span><input name={name} type="checkbox" defaultChecked={checked} className="h-4 w-4 accent-[#B56C78]" /></label> }

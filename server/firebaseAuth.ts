@@ -49,3 +49,57 @@ export async function verifyRecentlyAuthenticatedFirebaseIdentity(
 export async function deleteFirebaseIdentity(firebaseUid: string) {
   await getFirebaseAuth().deleteUser(firebaseUid);
 }
+
+export type UnverifiedFirebaseCleanupResult = {
+  scanned: number;
+  eligible: number;
+  deleted: number;
+  failed: number;
+};
+
+/**
+ * Deletes Firebase-only registrations that never verified their email address.
+ * Federated identities and verified Email/Password identities are deliberately
+ * excluded, and no application database records are touched here.
+ */
+export async function cleanupUnverifiedEmailPasswordFirebaseIdentities(
+  now = new Date(),
+  minimumAgeMs = 24 * 60 * 60 * 1000,
+): Promise<UnverifiedFirebaseCleanupResult> {
+  const auth = getFirebaseAuth();
+  const cutoffMs = now.getTime() - minimumAgeMs;
+  let pageToken: string | undefined;
+  let scanned = 0;
+  let eligible = 0;
+  let deleted = 0;
+  let failed = 0;
+
+  do {
+    const page = await auth.listUsers(1_000, pageToken);
+    pageToken = page.pageToken;
+    for (const user of page.users) {
+      scanned += 1;
+      const createdAtMs = Date.parse(user.metadata.creationTime);
+      const hasPasswordProvider = user.providerData.some(provider => provider.providerId === "password");
+      if (user.emailVerified || !user.email || !hasPasswordProvider || !Number.isFinite(createdAtMs) || createdAtMs > cutoffMs) {
+        continue;
+      }
+      eligible += 1;
+      try {
+        await auth.deleteUser(user.uid);
+        deleted += 1;
+      } catch (error) {
+        const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
+        // A concurrent user verification/deletion can make a listed UID absent;
+        // treating that response as completed preserves the task's idempotence.
+        if (code === "auth/user-not-found") deleted += 1;
+        else {
+          failed += 1;
+          console.error("[Firebase] unverified identity cleanup failed", { code: code || "unknown" });
+        }
+      }
+    }
+  } while (pageToken);
+
+  return { scanned, eligible, deleted, failed };
+}

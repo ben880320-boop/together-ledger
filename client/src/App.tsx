@@ -7,6 +7,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import Home from "./pages/Home";
 import InviteJoin from "./pages/InviteJoin";
+import AdminConsole from "./pages/AdminConsole";
 import LedgerWorkspace from "./pages/LedgerWorkspace";
 import WebAuth from "./pages/WebAuth";
 
@@ -18,6 +19,7 @@ function Router() {
       <Route path={"/login"} component={WebAuth} />
       <Route path={"/invite"} component={InviteJoin} />
       <Route path={"/app"} component={LedgerWorkspace} />
+      <Route path={"/admin"} component={AdminConsole} />
       <Route path={"/404"} component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />

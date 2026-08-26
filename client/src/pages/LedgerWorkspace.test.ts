@@ -22,9 +22,10 @@ describe("Together Ledger 真實網頁帳本入口", () => {
     expect(workspace).toContain("收支已新增。");
   });
 
-  it("讓網頁版帳密登入沿用 Android App 的電子信箱帳號資料", () => {
+  it("保留受限的既有帳密遷移入口，但不再提供顯著登入按鈕", () => {
     expect(auth).toContain("trpc.auth.login.useMutation");
-    expect(auth).toContain("使用既有帳密登入");
+    expect(auth).toContain("舊帳戶遷移登入（暫時保留）");
+    expect(auth).not.toContain("使用既有帳密登入");
     expect(auth).toContain("manus-cookie");
     expect(auth).toContain("登入並開啟帳本");
   });
@@ -145,7 +146,7 @@ describe("Together Ledger 真實網頁帳本入口", () => {
   });
 
   it("提供可辨識的發布資訊與重新取得最新版本操作", () => {
-    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.15"');
+    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.16"');
     expect(footer).toContain("WEB_BUILD_TIMESTAMP");
     expect(footer).toContain("formatTaipeiTimestamp");
     expect(footer).toContain("重新載入最新版本");
