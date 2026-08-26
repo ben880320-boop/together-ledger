@@ -9,8 +9,8 @@ import { createHeartbeatJob, listHeartbeatJobs } from "./_core/heartbeat";
 
 const DAILY_AUTH_CLEANUP_JOB_NAME = "together-ledger-unverified-firebase-cleanup-daily";
 const DAILY_AUTH_CLEANUP_JOB_PATH = "/api/scheduled/unverified-auth-cleanup";
-// 00:15 UTC = 08:15 Asia/Taipei. A once-daily job gives a documented 24–48h window.
-const DAILY_AUTH_CLEANUP_CRON = "0 15 0 * * *";
+// 00:00 UTC = 08:00 Asia/Taipei. A once-daily job gives a documented 24–48h window.
+const DAILY_AUTH_CLEANUP_CRON = "0 0 0 * * *";
 const SYSTEM_AUDIT_ACTOR_ID = 0;
 
 /** Creates or recovers the single project-level daily account cleanup job. */
