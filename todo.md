@@ -721,4 +721,4 @@
 - [x] 驗證並保存首頁「Android 與 Web 同步更新 · v1.3.16」版本標示的使用者直接編輯（桌機與手機首屏均已確認）
 - [x] 追查並修復 Web／Android 在已輸入 Firebase 密碼後仍無法刪除帳戶的近期驗證、tRPC 與資料清理流程
 - [x] 補齊帳戶刪除成功、近期驗證失敗與 Firebase-only／舊帳戶相容性測試，完成跨平台驗收
-- [ ] 以 feature branch＋PR 發布 v1.3.17／versionCode 40 帳戶刪除修復，並驗證官方 Android APK 與 SHA-256
+- [x] 以 feature branch＋PR 發布 v1.3.17／versionCode 40 帳戶刪除修復，並驗證官方 Android APK 與 SHA-256
