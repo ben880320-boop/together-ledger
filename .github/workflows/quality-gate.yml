@@ -47,6 +47,7 @@ jobs:
         env:
           JWT_SECRET: quality-gate-test-only-secret
           OAUTH_SERVER_URL: https://oauth.invalid
+          VITE_APP_ID: quality-gate-test-app
 
       - name: Build Web and PWA production bundle
         run: pnpm build
