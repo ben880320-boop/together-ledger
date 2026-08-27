@@ -295,18 +295,19 @@ button { cursor: pointer; }
 .web-auth-panel { border-color: var(--border); background: color-mix(in srgb, var(--card) 88%, transparent); box-shadow: 0 24px 70px var(--scene-shadow); }
 .web-auth-hero { background: linear-gradient(145deg, var(--scene-hero), color-mix(in srgb, var(--scene-hero) 68%, var(--primary))); color: var(--scene-hero-foreground); }
 .web-auth-form { background: var(--card); color: var(--card-foreground); }
-.web-public-landing > .pointer-events-none { background: radial-gradient(circle at 18% 8%, color-mix(in srgb, var(--primary) 22%, transparent), transparent 31%), radial-gradient(circle at 82% 19%, color-mix(in srgb, var(--scene-income) 20%, transparent), transparent 29%), linear-gradient(145deg, color-mix(in srgb, var(--card) 88%, var(--background)) 0%, var(--background) 55%, color-mix(in srgb, var(--primary) 7%, var(--background)) 100%); }
-.web-public-landing [class*="bg-[#B56C78]"] { background-color: var(--primary); }
-.web-public-landing [class*="hover:bg-[#A55D6A]"], .web-public-landing [class*="hover:bg-[#A35B68]"] { background-color: color-mix(in srgb, var(--primary) 88%, var(--foreground)); }
-.web-public-landing [class*="text-[#B56C78]"], .web-public-landing [class*="text-[#A35F6D]"], .web-public-landing [class*="text-[#9E5C69]"], .web-public-landing [class*="text-[#87555F]"] { color: var(--primary); }
-.web-public-landing [class*="text-[#3C2D2A]"], .web-public-landing [class*="text-[#4A3833]"], .web-public-landing [class*="text-[#6C514B]"] { color: var(--foreground); }
-.web-public-landing [class*="text-[#78655F]"], .web-public-landing [class*="text-[#98837C]"], .web-public-landing [class*="text-[#8A756D]"], .web-public-landing [class*="text-[#88736B]"], .web-public-landing [class*="text-[#A18A82]"], .web-public-landing [class*="text-[#9B817B]"] { color: var(--muted-foreground); }
-.web-public-landing [class*="bg-[#fffdfb]"], .web-public-landing [class*="bg-[#FFFDFC]"], .web-public-landing [class*="bg-white/"] { background-color: color-mix(in srgb, var(--card) 94%, transparent); }
-.web-public-landing [class*="border-white/"], .web-public-landing [class*="border-[#EADFD9]"], .web-public-landing [class*="border-[#F0E6E1]"], .web-public-landing [class*="border-[#DDBBB6]"], .web-public-landing [class*="border-[#DDC8C1]"] { border-color: var(--border); }
-.web-public-landing [class*="bg-[#F8E6E6]"], .web-public-landing [class*="bg-[#F9F3EF]"], .web-public-landing [class*="bg-[#F9F4F1]"] { background-color: color-mix(in srgb, var(--primary) 14%, var(--card)); }
-.web-public-landing [class*="bg-[#EAF4EC]"], .web-public-landing [class*="bg-[#EEF5F0]"], .web-public-landing [class*="bg-[#F4F7F5]"] { background-color: color-mix(in srgb, var(--scene-income) 15%, var(--card)); }
-.web-public-landing [class*="text-[#5D8968]"], .web-public-landing [class*="text-[#669174]"], .web-public-landing [class*="text-[#718478]"], .web-public-landing [class*="text-[#879B8C]"] { color: var(--scene-income); }
-.web-public-landing [class*="bg-[linear-gradient(135deg,#B56C78,#D89094)]"] { background: linear-gradient(135deg, var(--scene-hero), color-mix(in srgb, var(--scene-hero) 70%, var(--primary))); color: var(--scene-hero-foreground); }
+.web-public-landing { background-color: #fffaf7; color: #42322e; }
+.web-public-landing > .pointer-events-none { background: radial-gradient(circle at 18% 8%, rgba(244, 204, 207, 0.88), transparent 31%), radial-gradient(circle at 82% 19%, rgba(209, 225, 216, 0.82), transparent 29%), linear-gradient(145deg, #fffaf7 0%, #f6ede8 55%, #eff0ed 100%); }
+.web-public-landing [class*="bg-[#B56C78]"] { background-color: #b56c78; }
+.web-public-landing [class*="hover:bg-[#A55D6A]"], .web-public-landing [class*="hover:bg-[#A35B68]"] { background-color: #a55d6a; }
+.web-public-landing [class*="text-[#B56C78]"], .web-public-landing [class*="text-[#A35F6D]"], .web-public-landing [class*="text-[#9E5C69]"], .web-public-landing [class*="text-[#87555F]"] { color: #a35f6d; }
+.web-public-landing [class*="text-[#3C2D2A]"], .web-public-landing [class*="text-[#4A3833]"], .web-public-landing [class*="text-[#6C514B]"] { color: #42322e; }
+.web-public-landing [class*="text-[#78655F]"], .web-public-landing [class*="text-[#98837C]"], .web-public-landing [class*="text-[#8A756D]"], .web-public-landing [class*="text-[#88736B]"], .web-public-landing [class*="text-[#A18A82]"], .web-public-landing [class*="text-[#9B817B]"] { color: #846f68; }
+.web-public-landing [class*="bg-[#fffdfb]"], .web-public-landing [class*="bg-[#FFFDFC]"], .web-public-landing [class*="bg-white/"] { background-color: rgba(255, 253, 251, 0.94); }
+.web-public-landing [class*="border-white/"], .web-public-landing [class*="border-[#EADFD9]"], .web-public-landing [class*="border-[#F0E6E1]"], .web-public-landing [class*="border-[#DDBBB6]"], .web-public-landing [class*="border-[#DDC8C1]"] { border-color: #eadfd9; }
+.web-public-landing [class*="bg-[#F8E6E6]"], .web-public-landing [class*="bg-[#F9F3EF]"], .web-public-landing [class*="bg-[#F9F4F1]"] { background-color: #f8e6e6; }
+.web-public-landing [class*="bg-[#EAF4EC]"], .web-public-landing [class*="bg-[#EEF5F0]"], .web-public-landing [class*="bg-[#F4F7F5]"] { background-color: #eef5f0; }
+.web-public-landing [class*="text-[#5D8968]"], .web-public-landing [class*="text-[#669174]"], .web-public-landing [class*="text-[#718478]"], .web-public-landing [class*="text-[#879B8C]"] { color: #668575; }
+.web-public-landing [class*="bg-[linear-gradient(135deg,#B56C78,#D89094)]"] { background: linear-gradient(135deg, #b56c78, #d89094); color: #fff; }
 .web-ledger-shell [class*="bg-[#5B4142]"] { background-color: var(--scene-hero); color: var(--scene-hero-foreground); }
 .web-ledger-shell [class*="bg-[#B56C78]"] { background-color: var(--primary); color: var(--primary-foreground); }
 .web-ledger-shell [class*="hover:bg-[#A35B68]"], .web-ledger-shell [class*="hover:bg-[#A55D6A]"] { background-color: color-mix(in srgb, var(--primary) 88%, var(--foreground)); }
@@ -317,7 +318,7 @@ button { cursor: pointer; }
 .web-ledger-shell [class*="text-[#AD5D68]"] { color: var(--scene-expense); }
 .web-ledger-shell [class*="text-white"] { color: var(--primary-foreground); }
 .web-ledger-shell .ledger-home-hero [class*="text-[#"], .web-ledger-shell .ledger-hero [class*="text-[#"] { color: var(--scene-hero-foreground); }
-:root.dark .web-public-landing [class*="bg-white/"], :root.dark .web-public-landing [class*="bg-[#fffdfb]"], :root.dark .web-public-landing [class*="bg-[#FFFDFC]"] { background-color: color-mix(in srgb, var(--card) 96%, transparent); }
+:root.dark .web-public-landing [class*="bg-white/"], :root.dark .web-public-landing [class*="bg-[#fffdfb]"], :root.dark .web-public-landing [class*="bg-[#FFFDFC]"] { background-color: rgba(255, 253, 251, 0.94); }
 :root[data-scene="ocean"] .web-ledger-shell { background-image: radial-gradient(ellipse at 15% 0%, #1d6d88 0%, transparent 42%), radial-gradient(ellipse at 86% 65%, #0d405b 0%, transparent 48%), linear-gradient(160deg, #062638, #0b4f67 55%, #031a2b); }
 :root[data-scene="starry"] .web-ledger-shell { background-image: radial-gradient(circle at 12% 18%, #fff 0 1px, transparent 2px), radial-gradient(circle at 80% 10%, #c9ccff 0 1px, transparent 2px), radial-gradient(circle at 62% 48%, #fff 0 1px, transparent 2px), radial-gradient(ellipse at 50% 100%, #242553 0%, transparent 55%), linear-gradient(145deg, #060a1d, #121a3b); background-size: 97px 91px, 131px 109px, 159px 143px, auto, auto; }
 :root[data-scene="forest"] .web-ledger-shell { background-image: radial-gradient(ellipse at 12% 0%, #bfdab9 0%, transparent 45%), radial-gradient(ellipse at 85% 90%, #9fc8ad 0%, transparent 42%), linear-gradient(155deg, #f1f7f0, #dfeee1); }

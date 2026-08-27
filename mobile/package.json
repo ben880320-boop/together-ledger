@@ -1,6 +1,6 @@
 {
   "name": "together-ledger-android",
-  "version": "1.3.20",
+  "version": "1.3.21",
   "private": true,
   "main": "expo-router/entry",
   "scripts": {
@@ -10,13 +10,15 @@
     "build:android:ci": "pnpm run prebuild:android && cd android && ./gradlew --no-daemon --stacktrace assembleDebug",
     "typecheck": "tsc --noEmit",
     "verify:core-flows": "node scripts/verify-core-flows.mjs",
-    "export:android": "expo export --platform android"
+    "export:android": "expo export --platform android",
+    "ios": "expo run:ios"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
     "@firebase/auth": "1.13.5",
     "@react-native-async-storage/async-storage": "^2.2.0",
     "@react-native-community/datetimepicker": "8.4.4",
+    "@react-native-google-signin/google-signin": "16.1.4",
     "@trpc/client": "^11.18.0",
     "base-64": "^1.0.0",
     "expo": "~54.0.0",

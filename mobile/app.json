@@ -3,14 +3,14 @@
     "owner": "chen880320s-team",
     "name": "共帳 Together Ledger",
     "slug": "together-ledger",
-    "version": "1.3.20",
+    "version": "1.3.21",
     "orientation": "portrait",
     "scheme": "togetherledger",
     "userInterfaceStyle": "light",
     "icon": "./assets/together-ledger-icon.png",
     "android": {
       "package": "com.togetherledger.app",
-      "versionCode": 43,
+      "versionCode": 44,
       "googleServicesFile": "./google-services.json",
       "softwareKeyboardLayoutMode": "resize",
       "permissions": ["REQUEST_INSTALL_PACKAGES"],
@@ -19,7 +19,7 @@
         "backgroundColor": "#C87A8A"
       }
     },
-    "plugins": ["expo-router", "expo-secure-store", "expo-web-browser", "expo-image-picker"],
+    "plugins": ["expo-router", "expo-secure-store", "expo-web-browser", "expo-image-picker", "@react-native-google-signin/google-signin"],
     "experiments": {
       "typedRoutes": true
     },

@@ -750,4 +750,24 @@
 - [x] 擴充管理員頁的安全帳戶摘要、已驗證 Email 狀態／篩選與受保護刪除操作，不呈現完整敏感資料或財務紀錄
 - [x] 為管理員頁加入安全的即時更新機制，避免必須手動重新整理並避免覆蓋使用中的篩選與輸入狀態
 - [x] 改善驗證 Email 的繁體中文說明與網頁樣式，釐清 Firebase 系統信件可設定範圍並更新文件
-- [ ] 補齊型別、單元、Android 核心流程、建置、視覺與測試帳戶驗收，更新 README／Wiki／Release 文件並以 feature branch＋PR 發布
+- [x] 補齊型別、單元、Android 核心流程、建置、視覺與測試帳戶驗收，更新 README／Wiki／Release 文件並以 feature branch＋PR 發布
+
+## v1.3.21 首頁隔離、管理稽核與 Google 登入
+
+- [x] 盤點首頁主題注入、帳本統計查詢、現有管理稽核資料與 Firebase 認證流程，確認資料最小化與跨端相容邊界
+- [x] 讓公開首頁採固定且獨立的視覺主題，不受登入使用者偏好或帳本主題影響
+- [x] 修正管理帳戶詳情的參與／擁有帳本數量，定義不重複且可驗證的統計口徑
+- [x] 新增僅限管理員、可依時間與事件結果篩選的撤銷登入稽核歷程，不暴露操作者、目標或帳本敏感身分資料
+- [x] 在 Web／PWA／Android 整合 Firebase Google 登入，並以重新驗證的 Google 身分取代密碼作為敏感操作確認方式
+- [ ] 補齊 tRPC 型別、資料庫 migration／rollback（如需）、單元與核心流程測試、跨端視覺驗收、README／Wiki／Release 文件及 feature branch＋PR 發布
+- [x] 更正 Web／Android Google OAuth Client ID 指派，並以 Firebase `google-services.json` 的用戶端類型完成非敏感設定比對驗證
+- [x] 重新下載 Android Firebase 設定後驗證原生 OAuth 用戶端，並確認正式 Web／PWA 網域列入 Google OAuth 授權 JavaScript 來源
+- [ ] 以 Expo 支援的原生 Google Sign-In config plugin 取代 Android 隱式 OAuth，使用 Firebase Web client 取得 ID token，並在正式 APK 驗證 callback 與近期重新驗證
+- [x] 修正 Android Google provider 的帳戶刪除接線與核心流程契約，確認不顯示不適用密碼／改信箱控制項且仍要求近期重新驗證
+- [x] 將 Android GitHub 發行工作流程的公開 Google Web Client ID 以 GitHub Actions secret 注入，並在建置前以非洩漏方式驗證設定存在
+- [x] 修正 Android 帳戶刪除密碼欄位的未定義狀態引用，並重新通過 Expo TypeScript、完整核心流程與發行前驗收
+- [x] 修正首頁 v1.3.21 公開更新字串的回歸斷言，並從型別檢查起重新執行完整發行前驗收
+- [x] 修正 Android 核心流程的 v1.3.21／versionCode 44 版本基準斷言，並重新執行完整發行前驗收
+- [x] 逐一盤點並同步 Android 發行版本來源，修復所有可重現驗收失敗後才建立 PR 與 APK 發行
+- [x] 補上 Web／PWA Google 登入的 popup 封鎖 redirect 備援，保留記住裝置與邀請導向並覆蓋回歸測試
+- [x] 修正 Google OAuth 設定測試在 GitHub Actions 品質門檻未注入 Web／Android 環境值時的失敗，保留不輸出識別碼的跨設定驗證

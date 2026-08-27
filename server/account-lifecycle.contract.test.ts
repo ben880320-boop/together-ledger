@@ -68,10 +68,11 @@ describe("帳戶生命週期安全契約", () => {
     expect(mobileApp).toContain("FirebaseEmailChangeModal");
   });
 
-  it("已綁定 Firebase 的電子信箱帳密帳戶可在近期驗證後自行刪除，非密碼帳戶仍會被拒絕", () => {
-    expect(routers).toContain('ctx.user.loginMethod === "firebase-email" && Boolean(ctx.user.firebaseUid)');
+  it("已綁定 Firebase 的電子信箱或 Google 帳戶都必須於近期 provider 驗證後才可自行刪除", () => {
+    expect(routers).toContain("if (ctx.user.firebaseUid)");
     expect(routers).toContain("verifyRecentlyAuthenticatedFirebaseIdentity(input.firebaseIdToken)");
-    expect(routers).toContain('message: "只有電子信箱帳密帳號可以在 App 內自行刪除。"');
+    expect(routers).toContain("identity.uid !== ctx.user.firebaseUid || identity.email?.toLowerCase() !== accountEmail.toLowerCase()");
+    expect(routers).toContain("請重新驗證 Google 或 Firebase 身分後再刪除帳號。");
   });
 
   it("管理員端點在後端強制授權，且拒絕自刪與刪除其他管理員", () => {
@@ -110,6 +111,37 @@ describe("帳戶生命週期安全契約", () => {
     expect(adminConsole).toContain("refetchIntervalInBackground: false");
     expect(adminConsole).toContain("帳戶安全詳情");
     expect(adminConsole).toContain("不含帳本名稱、收支、收據、密碼或外部身分識別碼");
+  });
+
+  it("帳本統計採目前擁有權與互斥共同參與口徑，且只計算仍存在的帳本", () => {
+    const accountsStart = db.indexOf("export async function listAdminAccounts");
+    const accountsEnd = db.indexOf("export async function getAdminAccountSummary", accountsStart);
+    const accountBlock = db.slice(accountsStart, accountsEnd);
+    expect(accountBlock).toContain("inner join ${ledgers} on ${ledgers.id} = ${ledgerMembers.ledgerId}");
+    expect(accountBlock).toContain("and ${ledgers.createdBy} <> ${users.id}");
+    expect(accountBlock).toContain("select count(*) from ${ledgers} where ${ledgers.createdBy} = ${users.id}");
+    expect(adminConsole).toContain("共同參與帳本");
+    expect(adminConsole).toContain("不含自己持有");
+    expect(adminConsole).toContain("目前擁有帳本");
+  });
+
+  it("撤銷登入稽核受管理員保護，可依時間與結果篩選且只回傳去識別化事件資料", () => {
+    const auditStart = db.indexOf("export async function listSessionRevocationAudits");
+    const auditEnd = db.indexOf("export async function getAuthAutomationStatus", auditStart);
+    const auditBlock = db.slice(auditStart, auditEnd);
+    expect(routers).toContain("sessionRevocationAudits: adminProcedure");
+    expect(routers).toContain('outcome: z.enum(["all", "complete", "partial", "failed", "unknown"])');
+    expect(routers).toContain("from: z.date().optional()");
+    expect(auditBlock).toContain('eq(adminAccountAuditLogs.action, "sessionRevoke")');
+    expect(auditBlock).toContain("const safeLimit = Math.max(1, Math.min(input.limit ?? 60, 100))");
+    expect(auditBlock).toContain(".limit(100)");
+    expect(auditBlock).not.toContain("userId:");
+    expect(auditBlock).not.toContain("ledgerId:");
+    expect(auditBlock).not.toContain("firebaseUid:");
+    expect(adminConsole).toContain("撤銷登入稽核");
+    expect(adminConsole).toContain("撤銷稽核期間");
+    expect(adminConsole).toContain("撤銷稽核結果");
+    expect(adminConsole).toContain("不含操作者、目標帳戶或帳本身分資料");
   });
 
   it("持久登入、管理員撤銷與同步衝突只留下去識別化作業事件，不記錄帳戶或財務資料", () => {

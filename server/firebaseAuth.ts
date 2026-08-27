@@ -19,14 +19,24 @@ function getFirebaseAuth() {
   return getAuth(app);
 }
 
-export type VerifiedFirebaseIdentity = Pick<DecodedIdToken, "uid" | "email" | "email_verified" | "auth_time"> & { name?: string };
+export type VerifiedFirebaseIdentity = Pick<DecodedIdToken, "uid" | "email" | "email_verified" | "auth_time"> & {
+  name?: string;
+  signInProvider?: string;
+};
 
 export async function verifyFirebaseIdentity(idToken: string): Promise<VerifiedFirebaseIdentity> {
   const decoded = await getFirebaseAuth().verifyIdToken(idToken, true);
   if (!decoded.email || !decoded.email_verified) {
     throw new Error("請先完成電子信箱驗證，再登入共帳。");
   }
-  return decoded;
+  return {
+    uid: decoded.uid,
+    email: decoded.email,
+    email_verified: decoded.email_verified,
+    auth_time: decoded.auth_time,
+    name: decoded.name,
+    signInProvider: decoded.firebase?.sign_in_provider,
+  };
 }
 
 /**
@@ -40,7 +50,7 @@ export async function verifyRecentlyAuthenticatedFirebaseIdentity(
   const identity = await verifyFirebaseIdentity(idToken);
   const ageSeconds = Math.floor(Date.now() / 1000) - identity.auth_time;
   if (!Number.isFinite(identity.auth_time) || ageSeconds < 0 || ageSeconds > maxAgeSeconds) {
-    throw new Error("為保護帳號安全，請重新輸入 Firebase 密碼後再刪除帳號。");
+    throw new Error("為保護帳號安全，請重新驗證 Google 或 Firebase 身分後再試一次。");
   }
   return identity;
 }

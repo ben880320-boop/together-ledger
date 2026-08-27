@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 const workspace = readFileSync(fileURLToPath(new URL("./LedgerWorkspace.tsx", import.meta.url)), "utf8");
 const savingsBuckets = readFileSync(fileURLToPath(new URL("../components/SavingsBucketsPanel.tsx", import.meta.url)), "utf8");
 const auth = readFileSync(fileURLToPath(new URL("./WebAuth.tsx", import.meta.url)), "utf8");
+const firebaseAuth = readFileSync(fileURLToPath(new URL("../lib/firebaseAuth.ts", import.meta.url)), "utf8");
 const inviteJoin = readFileSync(fileURLToPath(new URL("./InviteJoin.tsx", import.meta.url)), "utf8");
 const footer = readFileSync(fileURLToPath(new URL("../components/ReleaseFooter.tsx", import.meta.url)), "utf8");
 const pwa = readFileSync(fileURLToPath(new URL("../components/PwaInstallPanel.tsx", import.meta.url)), "utf8");
@@ -40,6 +41,20 @@ describe("Together Ledger 真實網頁帳本入口", () => {
     expect(auth).toContain("若此電子信箱已啟用共帳登入，重設密碼信已寄出");
     expect(auth).toContain("垃圾郵件匣");
     expect(auth).toContain("toast.success");
+  });
+
+  it("提供 Web／PWA Google popup 與行動 redirect 備援，且僅以 Firebase ID token 建立登入狀態", () => {
+    expect(auth).toContain("signInFirebaseGoogle");
+    expect(auth).toContain("getRedirectedFirebaseGoogleSignIn");
+    expect(auth).toContain("hasPendingGoogleRedirectSignIn");
+    expect(auth).toContain("正在開啟 Google 安全驗證頁，完成後會返回共帳。");
+    expect(auth).toContain("exchangeFirebaseToken");
+    expect(firebaseAuth).toContain("signInWithPopup");
+    expect(firebaseAuth).toContain("signInWithRedirect");
+    expect(firebaseAuth).toContain("getRedirectResult");
+    expect(firebaseAuth).toContain("GOOGLE_REDIRECT_INTENT_KEY");
+    expect(firebaseAuth).toContain("return user.getIdToken(true);");
+    expect(firebaseAuth).not.toContain("GoogleAuthProvider.credential");
   });
 
   it("在個人設定提供同信箱 Firebase 綁定，且不改變既有帳本資料", () => {
@@ -155,7 +170,7 @@ describe("Together Ledger 真實網頁帳本入口", () => {
   });
 
   it("提供可辨識的發布資訊與重新取得最新版本操作", () => {
-    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.20"');
+    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.21"');
     expect(footer).toContain("WEB_BUILD_TIMESTAMP");
     expect(footer).toContain("formatTaipeiTimestamp");
     expect(footer).toContain("重新載入最新版本");

@@ -59,12 +59,14 @@ import {
   getPersistedVerifiedFirebaseIdToken,
   messageOfFirebaseError,
   reauthenticateFirebaseEmail,
+  reauthenticateFirebaseGoogle,
   registerFirebaseEmailWithProfile,
   requestFirebaseEmailChangeVerification,
   requestFirebasePasswordReset,
   resendFirebaseEmailVerification,
   signOutFromFirebase,
   signInWithFirebaseEmail,
+  signInWithFirebaseGoogle,
 } from "../lib/firebaseAuth";
 import {
   CATEGORY_EMOJI_OPTIONS,
@@ -145,7 +147,7 @@ const appearanceDefaults: AppearancePreferences = {
   colorMode: "system",
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.3.20";
+const APP_VERSION = "1.3.21";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 const GITHUB_WIKI_URL = "https://github.com/ben880320-boop/together-ledger/wiki";
@@ -771,7 +773,7 @@ type ConfirmRequest = {
   onConfirm?: () => void | Promise<void>;
   options?: ConfirmOption[];
 };
-type User = { id: number; name: string | null; email: string | null };
+type User = { id: number; name: string | null; email: string | null; loginMethod?: "email" | "firebase-email" | "google" };
 type Ledger = { id: number; name: string; type: string; icon?: string | null; inviteCode: string };
 type LedgerMember = {
   member: { userId: number; role: "admin" | "member" | "viewer" };
@@ -1915,6 +1917,21 @@ function AppContent() {
       setReady(true);
     }
   };
+  const handleGoogleLogin = async (rememberDevice: boolean) => {
+    setError("");
+    setBusy(true);
+    try {
+      await setRememberDevicePreference(rememberDevice);
+      const idToken = await signInWithFirebaseGoogle();
+      await exchangeFirebaseSession(idToken);
+      await loadWorkspace();
+    } catch (loginError) {
+      showToast(messageOfFirebaseError(loginError), "error");
+    } finally {
+      setBusy(false);
+      setReady(true);
+    }
+  };
   const linkFirebaseAccount = async (password: string) => {
     if (!user?.email) {
       showToast("此帳號尚未有可綁定的電子信箱。請先聯絡支援人員。", "error");
@@ -2065,7 +2082,9 @@ function AppContent() {
     try {
       if (firebaseLinked) {
         if (!user?.email) throw new Error("目前帳戶缺少電子信箱，無法完成 Firebase 再驗證。");
-        const firebaseIdToken = await signInWithFirebaseEmail(user.email, password);
+        const firebaseIdToken = user.loginMethod === "google"
+          ? await reauthenticateFirebaseGoogle(user.email)
+          : await signInWithFirebaseEmail(user.email, password);
         await api.auth.deleteAccount.mutate({ firebaseIdToken });
       } else {
         await api.auth.deleteAccount.mutate({ password });
@@ -2409,7 +2428,7 @@ function AppContent() {
 
   if (!ready) return <AppBootstrapSkeleton />;
   if (!user)
-    return <View style={styles.flex}><LoginScreen busy={busy} sessionRevokedNotice={sessionRevokedNotice} onLogin={handleLogin} onNotice={showToast} /><SuccessToast toast={toast} onDismiss={dismissToast} /></View>;
+    return <View style={styles.flex}><LoginScreen busy={busy} sessionRevokedNotice={sessionRevokedNotice} onLogin={handleLogin} onGoogleLogin={handleGoogleLogin} onNotice={showToast} /><SuccessToast toast={toast} onDismiss={dismissToast} /></View>;
     const homeHeaderAction = (
     <View style={styles.headerActions}>
       <Pressable
@@ -2431,7 +2450,7 @@ function AppContent() {
 	          caption={homePage === "profile" ? "管理你的 App 偏好" : "建立你的共同財務空間"}
 	          action={homeHeaderAction}
 	        />
-	        <AccountDeletionModal visible={accountDeletionVisible} busy={busy} error={error} firebaseLinked={firebaseLinked === true} onClose={() => setAccountDeletionVisible(false)} onSubmit={deleteAccount} />
+	        <AccountDeletionModal visible={accountDeletionVisible} busy={busy} error={error} firebaseProvider={firebaseLinked === true ? user.loginMethod : undefined} onClose={() => setAccountDeletionVisible(false)} onSubmit={deleteAccount} />
 	        <FirebaseAccountLinkModal visible={firebaseLinkVisible} busy={busy} error={error} email={user.email} onClose={() => setFirebaseLinkVisible(false)} onSubmit={linkFirebaseAccount} onRequestPasswordReset={requestLinkedFirebasePasswordReset} />
 	        <FirebaseEmailChangeModal visible={firebaseEmailChangeVisible} busy={busy} error={error} email={user.email} onClose={() => setFirebaseEmailChangeVisible(false)} onReauthenticate={reauthenticateForFirebaseEmailChange} onSendVerification={requestFirebaseEmailChange} />
 	        {homePage === "profile" ? (
@@ -2479,7 +2498,7 @@ function AppContent() {
 	          caption={homePage === "profile" ? "管理你的 App 偏好" : "選擇要進入的共同空間"}
 	          action={homeHeaderAction}
 	        />
-	        <AccountDeletionModal visible={accountDeletionVisible} busy={busy} error={error} firebaseLinked={firebaseLinked === true} onClose={() => setAccountDeletionVisible(false)} onSubmit={deleteAccount} />
+	        <AccountDeletionModal visible={accountDeletionVisible} busy={busy} error={error} firebaseProvider={firebaseLinked === true ? user.loginMethod : undefined} onClose={() => setAccountDeletionVisible(false)} onSubmit={deleteAccount} />
 	        <FirebaseAccountLinkModal visible={firebaseLinkVisible} busy={busy} error={error} email={user.email} onClose={() => setFirebaseLinkVisible(false)} onSubmit={linkFirebaseAccount} onRequestPasswordReset={requestLinkedFirebasePasswordReset} />
 	        <FirebaseEmailChangeModal visible={firebaseEmailChangeVisible} busy={busy} error={error} email={user.email} onClose={() => setFirebaseEmailChangeVisible(false)} onReauthenticate={reauthenticateForFirebaseEmailChange} onSendVerification={requestFirebaseEmailChange} />
 	        {homePage === "profile" ? (
@@ -3057,11 +3076,13 @@ function LoginScreen({
   busy,
   sessionRevokedNotice,
   onLogin,
+  onGoogleLogin,
   onNotice,
 }: {
   busy: boolean;
   sessionRevokedNotice: boolean;
   onLogin: (input: { mode: "signIn" | "signUp"; email: string; password: string; name?: string; rememberDevice: boolean }) => void;
+  onGoogleLogin: (rememberDevice: boolean) => void;
   onNotice: (message: string, tone?: "success" | "error") => void;
 }) {
   const { palette } = useAppearance();
@@ -3199,15 +3220,16 @@ function LoginScreen({
               </View>
               <Switch value={rememberDevice} onValueChange={setRememberDevice} disabled={busy} trackColor={{ false: palette.border, true: palette.rose }} thumbColor={rememberDevice ? "#FFFFFF" : palette.surface} />
             </Pressable>}
-            <Pressable
-              disabled={busy}
-              onPress={submit}
+	            <Pressable
+	              disabled={busy}
+	              onPress={submit}
               style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed, busy && styles.disabled]}
             >
               <Text style={styles.primaryButtonText}>{busy ? "正在安全登入…" : isSignUp ? "建立帳號" : "登入"}</Text>
-              {busy ? <ActivityIndicator color="#FFFFFF" /> : <MaterialCommunityIcons name="arrow-right" size={19} color="#FFFFFF" />}
-            </Pressable>
-            {busy && <Text style={[styles.loginProgressText, { color: palette.muted }]} accessibilityLiveRegion="polite">登入完成後正在同步你的共同帳本，請稍候。</Text>}
+	              {busy ? <ActivityIndicator color="#FFFFFF" /> : <MaterialCommunityIcons name="arrow-right" size={19} color="#FFFFFF" />}
+	            </Pressable>
+	            {!isSignUp && <><View style={styles.authProviderDivider}><View style={[styles.authProviderDividerLine, { backgroundColor: palette.border }]} /><Text style={[styles.authProviderDividerText, { color: palette.muted }]}>或</Text><View style={[styles.authProviderDividerLine, { backgroundColor: palette.border }]} /></View><Pressable disabled={busy} onPress={() => onGoogleLogin(rememberDevice)} style={({ pressed }) => [styles.googleSignInButton, { borderColor: palette.border, backgroundColor: palette.surface }, pressed && styles.pressed, busy && styles.disabled]} accessibilityLabel="使用 Google 帳號登入"><MaterialCommunityIcons name="google" size={20} color="#4285F4" /><Text style={[styles.googleSignInButtonText, { color: palette.ink }]}>使用 Google 帳號登入</Text></Pressable><Text style={[styles.loginProgressText, { color: palette.muted }]}>Google 已驗證的電子信箱可直接登入；刪除帳戶等敏感操作仍會要求重新驗證 Google 身分。</Text></>}
+	            {busy && <Text style={[styles.loginProgressText, { color: palette.muted }]} accessibilityLiveRegion="polite">登入完成後正在同步你的共同帳本，請稍候。</Text>}
             {!isSignUp && (
               <View style={styles.authHelpRow}>
                 <Pressable disabled={busy || recoveryBusy} onPress={() => openEmailAction("reset")} hitSlop={8}>
@@ -4857,29 +4879,31 @@ style={styles.input}
           <MaterialCommunityIcons name="github" size={20} color={palette.rose} />
         </Pressable>
 	      </View>
-	      <View style={styles.preferenceRow} accessibilityLabel="Firebase 電子信箱帳號安全">
+	      <View style={styles.preferenceRow} accessibilityLabel={user.loginMethod === "google" ? "Google 帳號安全" : "Firebase 電子信箱帳號安全"}>
 	        <View style={styles.preferenceCopy}>
-	          <Text style={styles.rowTitle}>Firebase 電子信箱登入</Text>
-	          <Text style={styles.rowSubtitle}>
-	            {firebaseLinked === true
-	              ? "已綁定。可使用電子信箱驗證與忘記密碼登入，既有帳本資料不會變更。"
+		          <Text style={styles.rowTitle}>{user.loginMethod === "google" ? "Google 帳號登入" : "Firebase 電子信箱登入"}</Text>
+		          <Text style={styles.rowSubtitle}>
+		            {user.loginMethod === "google"
+		              ? "已以 Google 完成驗證。Google 電子信箱與帳戶安全設定由 Google 管理；刪除帳號時會要求重新驗證 Google 身分。"
+		              : firebaseLinked === true
+		              ? "已綁定。可使用電子信箱驗證與忘記密碼登入，既有帳本資料不會變更。"
 	              : firebaseLinked === false
 	                ? "尚未綁定。請以相同電子信箱完成驗證後綁定，原有帳本與成員關係會保留。"
 	                : "正在確認綁定狀態；可稍後重新開啟個人設定。"}
 	          </Text>
 	        </View>
 	        {firebaseLinked === true ? (
-	          <View style={[styles.accountSecurityStatus, { backgroundColor: palette.roseSoft }]}>
-	            <MaterialCommunityIcons name="shield-check-outline" size={17} color={palette.rose} />
-	            <Text style={[styles.accountSecurityStatusText, { color: palette.rose }]}>已綁定</Text>
-	          </View>
+		          <View style={[styles.accountSecurityStatus, { backgroundColor: palette.roseSoft }]}>
+		            <MaterialCommunityIcons name="shield-check-outline" size={17} color={palette.rose} />
+		            <Text style={[styles.accountSecurityStatusText, { color: palette.rose }]}>{user.loginMethod === "google" ? "已驗證" : "已綁定"}</Text>
+		          </View>
 	        ) : (
 	          <Pressable onPress={onLinkFirebase} style={({ pressed }) => [styles.iconButton, pressed && styles.pressed]} accessibilityLabel="綁定 Firebase 電子信箱">
 	            <MaterialCommunityIcons name="link-variant" size={20} color={palette.rose} />
 	          </Pressable>
 	        )}
 	      </View>
-	      {firebaseLinked === true && (
+	      {firebaseLinked === true && user.loginMethod !== "google" && (
 	        <View style={styles.preferenceRow} accessibilityLabel="修改 Firebase 電子信箱">
 	          <View style={styles.preferenceCopy}>
 	            <Text style={styles.rowTitle}>修改電子信箱</Text>
@@ -6117,14 +6141,14 @@ function AccountDeletionModal({
   visible,
   busy,
   error,
-  firebaseLinked,
+  firebaseProvider,
   onClose,
   onSubmit,
 }: {
   visible: boolean;
   busy: boolean;
   error: string;
-  firebaseLinked: boolean;
+  firebaseProvider?: "email" | "firebase-email" | "google";
   onClose: () => void;
   onSubmit: (password: string) => void | Promise<void>;
 }) {
@@ -6132,6 +6156,7 @@ function AccountDeletionModal({
   const [password, setPassword] = useState("");
   const [step, setStep] = useState<"password" | "countdown">("password");
   const [countdown, setCountdown] = useState(5);
+  const usesGoogleReauthentication = firebaseProvider === "google";
   useEffect(() => {
     if (!visible) {
       setPassword("");
@@ -6145,7 +6170,7 @@ function AccountDeletionModal({
     return () => clearTimeout(timer);
   }, [busy, countdown, step, visible]);
   const beginFinalConfirmation = () => {
-    if (!password.trim()) return;
+    if (!usesGoogleReauthentication && !password.trim()) return;
     setCountdown(5);
     setStep("countdown");
   };
@@ -6160,10 +6185,10 @@ function AccountDeletionModal({
             </View>
             <Text style={styles.confirmTitle}>永久刪除帳號</Text>
             <Text style={styles.confirmMessage}>這個動作無法復原。你會退出所有帳本；若你是有其他成員帳本的持有者，所有權會轉給最早加入的成員；若沒有其他成員，該帳本資料會一併刪除。</Text>
-            {step === "password" ? <><Text style={[styles.personalizationLabel, { color: palette.rose }]}>{firebaseLinked ? "重新輸入 Firebase 密碼以確認" : "輸入目前密碼以確認"}</Text><TextInput
-              value={password}
+	            {step === "password" ? (usesGoogleReauthentication ? <><Text style={[styles.personalizationLabel, { color: palette.rose }]}>使用 Google 重新驗證以確認</Text><Text style={[styles.rowSubtitle, { color: palette.muted }]}>下一步會開啟 Google 的安全驗證。共帳不會讀取或保存你的 Google 密碼。</Text></> : <><Text style={[styles.personalizationLabel, { color: palette.rose }]}>{firebaseProvider ? "重新輸入 Firebase 密碼以確認" : "輸入目前密碼以確認"}</Text><TextInput
+	              value={password}
               onChangeText={setPassword}
-              placeholder={firebaseLinked ? "Firebase 密碼" : "目前密碼"}
+              placeholder={firebaseProvider ? "Firebase 密碼" : "目前密碼"}
               placeholderTextColor={palette.muted}
               style={[styles.input, { backgroundColor: palette.surface, borderColor: palette.border, color: palette.ink }]}
               secureTextEntry
@@ -6172,18 +6197,18 @@ function AccountDeletionModal({
               autoComplete="current-password"
               textContentType="password"
               editable={!busy}
-              onSubmitEditing={beginFinalConfirmation}
-              returnKeyType="done"
-            /></> : <View style={[styles.accountDeletionCountdown, { backgroundColor: palette.roseSoft }]} accessibilityLiveRegion="polite"><Text style={[styles.accountDeletionCountdownTitle, { color: palette.ink }]}>{countdown > 0 ? `請再確認 ${countdown} 秒` : "已解除最後確認鎖定"}</Text><Text style={[styles.accountDeletionCountdownText, { color: palette.muted }]}>{countdown > 0 ? "倒數不會自動刪除帳號；你仍可取消並保留帳號。" : "若確定繼續，請主動按下永久刪除帳號。"}</Text></View>}
+	              onSubmitEditing={beginFinalConfirmation}
+	              returnKeyType="done"
+	            /></>) : <View style={[styles.accountDeletionCountdown, { backgroundColor: palette.roseSoft }]} accessibilityLiveRegion="polite"><Text style={[styles.accountDeletionCountdownTitle, { color: palette.ink }]}>{countdown > 0 ? `請再確認 ${countdown} 秒` : "已解除最後確認鎖定"}</Text><Text style={[styles.accountDeletionCountdownText, { color: palette.muted }]}>{countdown > 0 ? "倒數不會自動刪除帳號；你仍可取消並保留帳號。" : usesGoogleReauthentication ? "若確定繼續，按下永久刪除後將前往 Google 重新驗證身分。" : "若確定繼續，請主動按下永久刪除帳號。"}</Text></View>}
             {!!error && <Text style={styles.errorText}>{error}</Text>}
             <View style={styles.confirmActions}>
               <Pressable disabled={busy} onPress={onClose} style={[styles.confirmCancel, { borderColor: palette.border }, busy && styles.disabled]}>
                 <Text style={[styles.confirmCancelText, { color: palette.muted }]}>取消</Text>
               </Pressable>
               <Pressable
-                disabled={busy || !password || (step === "countdown" && countdown > 0)}
-                onPress={() => step === "password" ? beginFinalConfirmation() : void onSubmit(password)}
-                style={({ pressed }) => [styles.confirmPrimary, { backgroundColor: palette.rose }, (pressed || busy || !password || (step === "countdown" && countdown > 0)) && styles.pressed, (busy || !password || (step === "countdown" && countdown > 0)) && styles.disabled]}
+	              disabled={busy || (!usesGoogleReauthentication && !password) || (step === "countdown" && countdown > 0)}
+	              onPress={() => step === "password" ? beginFinalConfirmation() : void onSubmit(password)}
+	              style={({ pressed }) => [styles.confirmPrimary, { backgroundColor: palette.rose }, (pressed || busy || (!usesGoogleReauthentication && !password) || (step === "countdown" && countdown > 0)) && styles.pressed, (busy || (!usesGoogleReauthentication && !password) || (step === "countdown" && countdown > 0)) && styles.disabled]}
               >
                 {busy ? <ActivityIndicator color="#FFFFFF" /> : <Text style={styles.confirmPrimaryText}>{step === "password" ? "繼續前往最後確認" : countdown > 0 ? `永久刪除（${countdown}）` : "永久刪除帳號"}</Text>}
               </Pressable>
@@ -9079,6 +9104,25 @@ const createStyles = (palette: typeof colors, preferences: AppearancePreferences
     fontWeight: "700",
     letterSpacing: 0.5,
   },
+  authProviderDivider: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 16,
+    marginBottom: 12,
+  },
+  authProviderDividerLine: { flex: 1, height: 1 },
+  authProviderDividerText: { fontSize: 12, fontWeight: "600" },
+  googleSignInButton: {
+    minHeight: 50,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    borderWidth: 1,
+    borderRadius: 16,
+  },
+  googleSignInButtonText: { fontSize: 15, fontWeight: "700" },
   secondaryButton: {
     minHeight: 52,
     flexDirection: "row",

@@ -330,7 +330,12 @@ export async function getUserById(userId: number) {
  * Creates an app-local user only after Firebase has verified email ownership.
  * The local openId keeps existing session and ledger-authorisation code intact.
  */
-export async function createFirebaseUser(input: { firebaseUid: string; email: string; name?: string | null }) {
+export async function createFirebaseUser(input: {
+  firebaseUid: string;
+  email: string;
+  name?: string | null;
+  loginMethod?: "firebase-email" | "google";
+}) {
   const db = requireDb();
   const email = normalizeEmail(input.email);
   const [existingByEmail, existingByFirebaseUid] = await Promise.all([
@@ -345,7 +350,7 @@ export async function createFirebaseUser(input: { firebaseUid: string; email: st
     email,
     firebaseUid: input.firebaseUid,
     name: input.name?.trim().slice(0, 64) || email.split("@")[0],
-    loginMethod: "firebase-email",
+    loginMethod: input.loginMethod ?? "firebase-email",
     lastSignedIn: new Date(),
   });
   const userId = Number(result[0].insertId);
@@ -1422,7 +1427,15 @@ export async function listAdminAccounts(query = "", limit = 100) {
     firebaseUid: users.firebaseUid,
     createdAt: users.createdAt,
     lastSignedIn: users.lastSignedIn,
-    ledgerMembershipCount: sql<number>`(select count(*) from ${ledgerMembers} where ${ledgerMembers.userId} = ${users.id})`,
+    // 「共同參與」採互斥口徑：只計仍存在、由其他人持有且目前帳戶仍是成員的帳本。
+    // 這避免將自己持有的帳本同時顯示為「參與」與「擁有」。
+    ledgerMembershipCount: sql<number>`(
+      select count(distinct ${ledgerMembers.ledgerId})
+      from ${ledgerMembers}
+      inner join ${ledgers} on ${ledgers.id} = ${ledgerMembers.ledgerId}
+      where ${ledgerMembers.userId} = ${users.id}
+        and ${ledgers.createdBy} <> ${users.id}
+    )`,
     ownedLedgerCount: sql<number>`(select count(*) from ${ledgers} where ${ledgers.createdBy} = ${users.id})`,
   }).from(users).where(filter).orderBy(desc(users.lastSignedIn)).limit(Math.max(1, Math.min(limit, 100)));
   return rows.map(({ firebaseUid, ledgerMembershipCount, ownedLedgerCount, ...user }) => ({
@@ -1553,9 +1566,49 @@ export async function listAdminAccountAudits(limit = 60) {
     action: adminAccountAuditLogs.action,
     summary: adminAccountAuditLogs.summary,
     createdAt: adminAccountAuditLogs.createdAt,
-    adminUserId: adminAccountAuditLogs.adminUserId,
-    targetUserId: adminAccountAuditLogs.targetUserId,
   }).from(adminAccountAuditLogs).orderBy(desc(adminAccountAuditLogs.createdAt)).limit(Math.max(1, Math.min(limit, 100)));
+}
+
+export type SessionRevokeAuditOutcome = "complete" | "partial" | "failed" | "unknown";
+
+function getSessionRevokeAuditOutcome(metadata: string | null): SessionRevokeAuditOutcome {
+  if (!metadata) return "unknown";
+  try {
+    const value = JSON.parse(metadata) as { outcome?: unknown };
+    return value.outcome === "complete" || value.outcome === "partial" || value.outcome === "failed"
+      ? value.outcome
+      : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+/**
+ * Returns deidentified account-session revocation history for Web-only admins.
+ * The database record remains attributable for incident response, but this UI
+ * projection never returns operator/target IDs, email, Firebase data, or tokens.
+ */
+export async function listSessionRevocationAudits(input: {
+  limit?: number;
+  from?: Date;
+  to?: Date;
+  outcome?: "all" | SessionRevokeAuditOutcome;
+} = {}) {
+  const db = requireDb();
+  const safeLimit = Math.max(1, Math.min(input.limit ?? 60, 100));
+  const conditions = [eq(adminAccountAuditLogs.action, "sessionRevoke")];
+  if (input.from) conditions.push(gte(adminAccountAuditLogs.createdAt, input.from));
+  if (input.to) conditions.push(lte(adminAccountAuditLogs.createdAt, input.to));
+  const rows = await db.select({
+    id: adminAccountAuditLogs.id,
+    summary: adminAccountAuditLogs.summary,
+    createdAt: adminAccountAuditLogs.createdAt,
+    metadata: adminAccountAuditLogs.metadata,
+  }).from(adminAccountAuditLogs).where(and(...conditions)).orderBy(desc(adminAccountAuditLogs.createdAt)).limit(100);
+  return rows
+    .map(({ metadata, ...row }) => ({ ...row, outcome: getSessionRevokeAuditOutcome(metadata) }))
+    .filter(row => !input.outcome || input.outcome === "all" || row.outcome === input.outcome)
+    .slice(0, safeLimit);
 }
 
 export async function getAuthAutomationStatus() {

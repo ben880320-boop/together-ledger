@@ -4,13 +4,18 @@ import {
   browserLocalPersistence,
   browserSessionPersistence,
   createUserWithEmailAndPassword,
+  GoogleAuthProvider,
   getAuth,
+  getRedirectResult,
   sendEmailVerification,
   sendPasswordResetEmail,
   setPersistence,
   signInWithEmailAndPassword,
+  signInWithPopup,
+  signInWithRedirect,
   signOut,
   reauthenticateWithCredential,
+  reauthenticateWithPopup,
   updateProfile,
   verifyBeforeUpdateEmail,
   type User,
@@ -22,6 +27,12 @@ const config = {
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
+
+const GOOGLE_REDIRECT_INTENT_KEY = "together-ledger:google-redirect-intent";
+
+export type GoogleFirebaseSignInResult =
+  | { kind: "completed"; idToken: string }
+  | { kind: "redirecting" };
 
 function assertFirebaseConfig() {
   if (!config.apiKey || !config.authDomain || !config.projectId || !config.appId) {
@@ -60,7 +71,76 @@ export function messageOfFirebaseError(error: unknown) {
   if (code === "auth/weak-password") return "密碼強度不足，請使用至少 8 個字元。";
   if (code === "auth/too-many-requests") return "嘗試次數過多，請稍後再試或使用忘記密碼。";
   if (code === "auth/network-request-failed") return "網路連線失敗，請確認連線後重試。";
+  if (code === "auth/account-exists-with-different-credential") return "此 Google 電子信箱已用其他登入方式建立 Firebase 身分。請先用原登入方式登入，再從個人設定完成帳戶連結。";
+  if (code === "auth/popup-blocked") return "Google 登入視窗被瀏覽器封鎖。請允許本站開啟視窗後重試。";
+  if (code === "auth/popup-closed-by-user") return "已取消 Google 身分驗證。";
+  if (code === "auth/redirect-cancelled-by-user") return "已取消 Google 身分驗證。";
+  if (code === "auth/unauthorized-domain") return "此網站網域尚未授權 Google 登入，請確認使用正式共帳網址後重試。";
+  if (code === "auth/operation-not-allowed") return "Google 登入尚未啟用，請稍後再試。";
+  if (code === "auth/requires-recent-login") return "為保護帳號安全，請重新驗證 Google 或 Firebase 身分後再試一次。";
   return error instanceof Error ? error.message : "電子郵件驗證暫時無法完成，請稍後再試。";
+}
+
+function googleProvider() {
+  const provider = new GoogleAuthProvider();
+  // On shared devices an account picker prevents an unintended silent identity.
+  provider.setCustomParameters({ prompt: "select_account" });
+  return provider;
+}
+
+function prefersGoogleRedirect() {
+  if (typeof window === "undefined" || typeof navigator === "undefined") return false;
+  const isMobileBrowser = /Android|iP(?:hone|ad|od)|Mobile/i.test(navigator.userAgent);
+  const isStandalonePwa = window.matchMedia?.("(display-mode: standalone)").matches
+    || ("standalone" in navigator && Boolean((navigator as Navigator & { standalone?: boolean }).standalone));
+  return isMobileBrowser || isStandalonePwa;
+}
+
+function persistGoogleRedirectIntent(rememberDevice: boolean) {
+  try {
+    sessionStorage.setItem(GOOGLE_REDIRECT_INTENT_KEY, rememberDevice ? "remember" : "session");
+  } catch {
+    // Firebase redirect persistence remains authoritative. If private browsing
+    // blocks this marker, returning safely as session-only is preferred.
+  }
+}
+
+function consumeGoogleRedirectIntent() {
+  try {
+    const value = sessionStorage.getItem(GOOGLE_REDIRECT_INTENT_KEY);
+    sessionStorage.removeItem(GOOGLE_REDIRECT_INTENT_KEY);
+    return value === "remember";
+  } catch {
+    return false;
+  }
+}
+
+export function hasPendingGoogleRedirectSignIn() {
+  try {
+    return sessionStorage.getItem(GOOGLE_REDIRECT_INTENT_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
+async function finishGoogleCredential(user: User) {
+  if (!user.emailVerified) {
+    await signOut(firebaseAuth());
+    throw new Error("Google 身分未提供可驗證的電子信箱，無法登入共帳。");
+  }
+  return user.getIdToken(true);
+}
+
+async function startGoogleRedirect(auth: ReturnType<typeof firebaseAuth>, rememberDevice: boolean) {
+  // Keep only a persistence preference. Tokens, profile data, invite values,
+  // and sensitive-action continuations are never written to browser storage.
+  persistGoogleRedirectIntent(rememberDevice);
+  await signInWithRedirect(auth, googleProvider());
+  return { kind: "redirecting" } as const;
+}
+
+export function isGoogleFirebaseUser(user: User | null | undefined) {
+  return Boolean(user?.providerData.some(provider => provider.providerId === "google.com"));
 }
 
 function shouldClearPersistedFirebaseIdentity(error: unknown) {
@@ -94,6 +174,31 @@ export async function signInFirebaseEmail(email: string, password: string, remem
   return credential.user.getIdToken(true);
 }
 
+/** Returns only a Firebase ID token; no Google token is sent to our server. */
+export async function signInFirebaseGoogle(rememberDevice: boolean): Promise<GoogleFirebaseSignInResult> {
+  const auth = await configureFirebasePersistence(rememberDevice);
+  if (prefersGoogleRedirect()) return startGoogleRedirect(auth, rememberDevice);
+  try {
+    const credential = await signInWithPopup(auth, googleProvider());
+    return { kind: "completed", idToken: await finishGoogleCredential(credential.user) };
+  } catch (error) {
+    const code = typeof error === "object" && error && "code" in error ? String(error.code) : "";
+    if (code === "auth/popup-blocked" || code === "auth/operation-not-supported-in-this-environment") {
+      return startGoogleRedirect(auth, rememberDevice);
+    }
+    throw error;
+  }
+}
+
+/** Restores a deliberate Google login redirect once, without redirect loops. */
+export async function getRedirectedFirebaseGoogleSignIn(): Promise<{ idToken: string; rememberDevice: boolean } | null> {
+  if (!hasPendingGoogleRedirectSignIn()) return null;
+  const rememberDevice = consumeGoogleRedirectIntent();
+  const credential = await getRedirectResult(firebaseAuth());
+  if (!credential) return null;
+  return { idToken: await finishGoogleCredential(credential.user), rememberDevice };
+}
+
 export async function resendFirebaseVerification(email: string, password: string) {
   const auth = await configureFirebasePersistence(false);
   const credential = await signInWithEmailAndPassword(auth, email.trim(), password);
@@ -123,6 +228,16 @@ export async function reauthenticateFirebaseEmail(currentEmail: string, currentP
   const user = currentFirebaseUserForEmail(currentEmail);
   const credential = EmailAuthProvider.credential(user.email!, currentPassword);
   await reauthenticateWithCredential(user, credential);
+}
+
+/** Re-authenticates a Google-linked Firebase identity for a sensitive action. */
+export async function reauthenticateFirebaseGoogle(currentEmail: string) {
+  const user = currentFirebaseUserForEmail(currentEmail);
+  if (!isGoogleFirebaseUser(user)) {
+    throw new Error("目前 Firebase 身分不是 Google 帳戶，請使用原本的電子信箱密碼重新驗證。");
+  }
+  await reauthenticateWithPopup(user, googleProvider());
+  return user.getIdToken(true);
 }
 
 /**

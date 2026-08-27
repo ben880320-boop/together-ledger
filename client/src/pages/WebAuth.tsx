@@ -7,12 +7,15 @@ import { Label } from "@/components/ui/label";
 import { COOKIE_NAME } from "@/const";
 import {
   getPersistedVerifiedFirebaseIdToken,
+  getRedirectedFirebaseGoogleSignIn,
+  hasPendingGoogleRedirectSignIn,
   firebaseSignOut,
   messageOfFirebaseError,
   registerFirebaseEmail,
   requestFirebasePasswordReset,
   resendFirebaseVerification,
   signInFirebaseEmail,
+  signInFirebaseGoogle,
 } from "@/lib/firebaseAuth";
 import { trpc } from "@/lib/trpc";
 import { Heart, KeyRound, LoaderCircle, Mail, ShieldAlert, UserRound } from "lucide-react";
@@ -44,6 +47,7 @@ export default function WebAuth() {
   const [firebaseBusy, setFirebaseBusy] = useState(false);
   const [checkingSession, setCheckingSession] = useState(false);
   const firebaseRestoreAttempted = useRef(false);
+  const googleRedirectAttempted = useRef(false);
   const inviteCode = new URLSearchParams(window.location.search).get("invite")?.trim().toUpperCase();
   const emailActionComplete = new URLSearchParams(window.location.search).get("emailAction") === "complete";
   const sessionRevoked = new URLSearchParams(window.location.search).get("reason") === "session-revoked";
@@ -115,7 +119,26 @@ export default function WebAuth() {
   };
 
   useEffect(() => {
-    if (loading || user || sessionRevoked || mode !== "login" || firebaseRestoreAttempted.current) return;
+    if (loading || user || sessionRevoked || googleRedirectAttempted.current || !hasPendingGoogleRedirectSignIn()) return;
+    // Consume this browser-return marker before the normal remembered-session
+    // restore. This prevents a redirect callback from racing the refresh-token
+    // path or being replayed after a cancelled provider return.
+    googleRedirectAttempted.current = true;
+    void (async () => {
+      setCheckingSession(true);
+      try {
+        const redirected = await getRedirectedFirebaseGoogleSignIn();
+        if (redirected) await completeFirebaseSignIn(redirected.idToken, redirected.rememberDevice);
+      } catch (error) {
+        toast.error(messageOfFirebaseError(error), { duration: 7_000 });
+      } finally {
+        setCheckingSession(false);
+      }
+    })();
+  }, [loading, sessionRevoked, user]);
+
+  useEffect(() => {
+    if (loading || user || sessionRevoked || mode !== "login" || firebaseRestoreAttempted.current || googleRedirectAttempted.current || hasPendingGoogleRedirectSignIn()) return;
     firebaseRestoreAttempted.current = true;
     void (async () => {
       setCheckingSession(true);
@@ -153,6 +176,22 @@ export default function WebAuth() {
       }
       const idToken = await signInFirebaseEmail(email, password, rememberDevice);
       await completeFirebaseSignIn(idToken, rememberDevice);
+    } catch (error) {
+      toast.error(messageOfFirebaseError(error), { duration: 7_000 });
+    } finally {
+      setFirebaseBusy(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setFirebaseBusy(true);
+    try {
+      const result = await signInFirebaseGoogle(rememberDevice);
+      if (result.kind === "completed") {
+        await completeFirebaseSignIn(result.idToken, rememberDevice);
+      } else {
+        toast.message("正在開啟 Google 安全驗證頁，完成後會返回共帳。", { duration: 7_000 });
+      }
     } catch (error) {
       toast.error(messageOfFirebaseError(error), { duration: 7_000 });
     } finally {
@@ -259,6 +298,9 @@ export default function WebAuth() {
                 {mode === "login" && <p className="text-center text-xs leading-5 text-muted-foreground">尚未綁定信箱的舊帳戶可在過渡期內選擇下方連結完成遷移。</p>}
                 {mode === "login" && <button type="button" disabled={pending} onClick={handleLegacyLogin} className="mx-auto block text-xs font-medium text-muted-foreground underline-offset-4 hover:text-primary hover:underline">舊帳戶遷移登入（暫時保留）</button>}
               </form>
+              <div className="my-5 flex items-center gap-3" aria-hidden="true"><span className="h-px flex-1 bg-border" /><span className="text-xs text-muted-foreground">或</span><span className="h-px flex-1 bg-border" /></div>
+              <Button type="button" variant="outline" disabled={pending} onClick={() => void handleGoogleSignIn()} className="h-11 w-full rounded-xl border-border bg-card font-semibold text-foreground hover:bg-muted"><span className="mr-2 flex h-5 w-5 items-center justify-center rounded-full bg-[#4285F4] text-xs font-bold text-white" aria-hidden="true">G</span>{pending ? "正在安全驗證…" : "使用 Google 帳戶繼續"}</Button>
+              <p className="mt-3 text-center text-xs leading-5 text-muted-foreground">Google 會直接驗證電子信箱；共帳不會接收或保存 Google 密碼、存取權杖。</p>
             </div>
           </section>
         </div>
