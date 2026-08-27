@@ -61,6 +61,8 @@ v1.3.20 讓三端能辨識伺服器**已確認**的 `sessionVersion` 撤銷，�
 
 v1.3.21 新增 **Google Firebase 登入**，支援 Android 原生登入、Web 與 PWA；行動瀏覽器若無法開啟登入視窗，會安全改走 Firebase redirect 回呼。伺服器只接收並驗證 Firebase ID Token，**不會接收、保存或顯示 Google access token、OAuth client secret、密碼、Firebase UID 或 Google 個人資料**。Google 帳戶進行刪除帳號等敏感操作時，須完成 Google／Firebase 的五分鐘內近期重新驗證，而不是輸入不存在的共帳密碼；既有同信箱本機帳戶不會被自動合併。
 
+v1.3.22 修正 Google 帳戶在**主動登出**後再次登入時自動沿用前次帳號的問題。Web、PWA 與 Android 現會清除對應的本機 Firebase／原生 Google Sign-In 狀態，使下一次 Google 登入明確顯示帳號選擇器。此清除不套用於暫時離線、逾時或未確認的工作階段恢復失敗，避免使用者失去安全重試入口。
+
 此版本也將公開首頁固定為獨立的品牌主題，登入後帳本或個人化主題不會影響訪客頁。Web-only 管理頁的「擁有帳本」採目前 `createdBy` 擁有權計算；「參與帳本」僅計算目前仍參與、且非本人擁有的帳本。撤銷登入稽核可依期間與結果篩選，且僅保留去識別化摘要、建立時間與衍生結果；不顯示使用者／管理員 ID、電子信箱、帳本、交易、金額、收據、IP、Firebase UID、token 或密碼。
 
 既有的本機帳密使用者不會因升級失去帳本、成員資格、交易或設定。請先以既有帳密登入，再從「個人設定 → 帳戶安全」用**完全相同且已驗證的電子信箱**完成 Firebase 綁定。綁定完成時，伺服器保留原有使用者 ID 和所有帳本關聯，並撤銷舊 app session；新登入使用一小時短效 app session，Android 在 Firebase 已驗證身份仍有效時會自動換發。Firebase 已綁定帳戶的刪除操作必須以登入供應者完成近期驗證；伺服器會驗證近期 Firebase ID Token、UID 與電子信箱一致後，才移除身份資料。
@@ -97,7 +99,7 @@ Together Ledger 網頁版可安裝為 PWA，安裝後會以獨立視窗開啟，
 
 ## 下載、安裝與更新 Android App
 
-目前 Android App 版本為 **1.3.21**（versionCode 44）。此版本新增跨 Web／PWA／Android 的 Google Firebase 登入與供應者近期重新驗證、公開首頁固定主題、正確區分擁有／參與帳本的管理摘要，以及去識別化、可篩選的撤銷登入稽核歷程。請僅從本專案的 [GitHub Releases](https://github.com/ben880320-boop/together-ledger/releases) 下載官方 APK，並以 Release 頁面附列的 SHA-256 檢查碼確認檔案來源。
+目前 Android App 版本為 **1.3.22**（versionCode 45）。此修正版讓 Google 使用者主動登出後於下一次登入可明確選擇帳號；v1.3.21 的跨 Web／PWA／Android Google Firebase 登入與供應者近期重新驗證、公開首頁固定主題、正確區分擁有／參與帳本的管理摘要，以及去識別化、可篩選的撤銷登入稽核歷程均維持不變。請僅從本專案的 [GitHub Releases](https://github.com/ben880320-boop/together-ledger/releases) 下載官方 APK，並以 Release 頁面附列的 SHA-256 檢查碼確認檔案來源。
 
 | 步驟 | 操作 |
 | --- | --- |
@@ -108,7 +110,7 @@ Together Ledger 網頁版可安裝為 PWA，安裝後會以獨立視窗開啟，
 
 > 安裝 APK 的系統權限只用於完成你主動發起的更新安裝。請勿從非官方網站、聊天訊息或未知來源下載同名 APK。
 
-> **固定簽章更新：** v1.3.3 起，官方 APK 均使用同一組受保護簽章，可由已安裝的官方版本直接覆蓋更新；若裝置仍保有更早期、不同簽章的歷史安裝且顯示「無法更新」或「套件衝突」，請先移除舊版，再安裝 v1.3.21 官方 APK 一次。移除 App 不會刪除伺服器上的帳本資料。
+> **固定簽章更新：** v1.3.3 起，官方 APK 均使用同一組受保護簽章，可由已安裝的官方版本直接覆蓋更新；若裝置仍保有更早期、不同簽章的歷史安裝且顯示「無法更新」或「套件衝突」，請先移除舊版，再安裝 v1.3.22 官方 APK 一次。移除 App 不會刪除伺服器上的帳本資料。
 
 ## 隱私與資料安全
 

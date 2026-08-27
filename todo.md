@@ -737,8 +737,8 @@
 - [x] 擴充 Web-only 管理員帳戶介面：搜尋、篩選、安全帳戶狀態檢視與可稽核的 session 撤銷，所有管理 procedure 維持 admin 權限驗證
 - [x] 加入去識別化帳戶生命週期與同步異常稽核事件，避免記錄 Email、Firebase UID、密碼或金額明細
 - [x] 建立非正式測試帳戶的跨端帳戶生命週期驗收劇本與自動化安全檢查，不對真實帳戶執行不可逆刪除
-- [ ] 在 GitHub 啟用 main 分支保護與必過 CI，避免未驗證變更直接進入正式發布
-- [ ] 補齊型別、單元、核心流程、建置與跨平台視覺驗收，更新 README／Wiki／Release 文件並依 feature branch＋PR 發布
+- [x] 在 GitHub 啟用 main 分支保護與必過 CI，避免未驗證變更直接進入正式發布
+- [x] 補齊型別、單元、核心流程、建置與跨平台視覺驗收，更新 README／Wiki／Release 文件並依 feature branch＋PR 發布
 - [x] 修正 Web 管理員帳戶清單在手機版的欄位擁擠與安全操作可用性
 - [x] 修正 GitHub 品質閘門的隔離測試環境與 Android 依賴安裝順序，重新取得遠端全綠驗證
 
@@ -771,3 +771,8 @@
 - [x] 逐一盤點並同步 Android 發行版本來源，修復所有可重現驗收失敗後才建立 PR 與 APK 發行
 - [x] 補上 Web／PWA Google 登入的 popup 封鎖 redirect 備援，保留記住裝置與邀請導向並覆蓋回歸測試
 - [x] 修正 Google OAuth 設定測試在 GitHub Actions 品質門檻未注入 Web／Android 環境值時的失敗，保留不輸出識別碼的跨設定驗證
+- [x] 修正 Web／PWA／Android 主動登出 Google 後的再次登入行為，必須顯示帳號選擇而非自動沿用先前帳號
+- [ ] 補齊 Google 帳號選擇的跨端回歸測試，完成驗收、Pull Request、修正版 APK 發行與獨立驗證
+- [x] 同步 v1.3.22／versionCode 45 的 Web、Android、核心流程與發布文件版本來源，避免發行基準不一致
+- [x] 調查並修正手機管理頁帳戶清單的可重現讀取錯誤，補齊回歸驗證後才發布 v1.3.22
+- [x] 將 auth.me 回應改為最小化公開帳戶資料，不得回傳密碼雜湊、Firebase UID、sessionVersion 或其他伺服器專用敏感欄位

@@ -1,4 +1,5 @@
 import { startLogin } from "@/const";
+import { firebaseSignOut } from "@/lib/firebaseAuth";
 import { trpc } from "@/lib/trpc";
 import { TRPCClientError } from "@trpc/client";
 import { useCallback, useEffect, useMemo } from "react";
@@ -39,6 +40,10 @@ export function useAuth(options?: UseAuthOptions) {
       }
       throw error;
     } finally {
+      // A user-initiated app logout must also clear Firebase persistence. The
+      // Google provider's select_account prompt then asks for an account on the
+      // next login instead of silently restoring this Firebase identity.
+      await firebaseSignOut().catch(() => undefined);
       // Clear the Preview auto-login token mirrored into sessionStorage, so
       // header-based sessions (Safari ITP / WebView) are logged out too. The
       // backend cookie is cleared by the logout mutation.

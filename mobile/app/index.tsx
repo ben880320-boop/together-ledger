@@ -147,7 +147,7 @@ const appearanceDefaults: AppearancePreferences = {
   colorMode: "system",
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.3.21";
+const APP_VERSION = "1.3.22";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 const GITHUB_WIKI_URL = "https://github.com/ben880320-boop/together-ledger/wiki";
@@ -2055,7 +2055,7 @@ function AppContent() {
     await clearSessionToken();
     await setRememberDevicePreference(false);
     try {
-      await signOutFromFirebase();
+      await signOutFromFirebase({ forgetGoogleAccount: true });
     } catch {
       // 本機 app session 已清除；Firebase 登出失敗時不保留任何共帳存取權。
     }
@@ -2092,7 +2092,7 @@ function AppContent() {
       await clearSessionToken();
       await setRememberDevicePreference(false);
       try {
-        await signOutFromFirebase();
+        await signOutFromFirebase({ forgetGoogleAccount: true });
       } catch {
         // Firebase identity is already deleted on the server; local session removal remains authoritative.
       }

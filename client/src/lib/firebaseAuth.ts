@@ -287,6 +287,15 @@ export async function getPersistedVerifiedFirebaseIdToken() {
 export async function firebaseSignOut() {
   const auth = firebaseAuth();
   await signOut(auth);
+  // Drop an abandoned redirect marker on a deliberate sign-out. The next
+  // Google attempt still uses prompt=select_account; no Google session is
+  // globally revoked by the application.
+  try {
+    sessionStorage.removeItem(GOOGLE_REDIRECT_INTENT_KEY);
+  } catch {
+    // Private browsing can deny sessionStorage. Firebase sign-out remains
+    // successful and the next Google provider still requests an account pick.
+  }
 }
 
 export type { User as FirebaseUser };
