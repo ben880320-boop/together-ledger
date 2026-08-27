@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { COOKIE_NAME } from "@/const";
 import {
   getPersistedVerifiedFirebaseIdToken,
+  firebaseSignOut,
   messageOfFirebaseError,
   registerFirebaseEmail,
   requestFirebasePasswordReset,
@@ -14,7 +15,7 @@ import {
   signInFirebaseEmail,
 } from "@/lib/firebaseAuth";
 import { trpc } from "@/lib/trpc";
-import { Heart, KeyRound, LoaderCircle, Mail, UserRound } from "lucide-react";
+import { Heart, KeyRound, LoaderCircle, Mail, ShieldAlert, UserRound } from "lucide-react";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "wouter";
@@ -45,6 +46,8 @@ export default function WebAuth() {
   const firebaseRestoreAttempted = useRef(false);
   const inviteCode = new URLSearchParams(window.location.search).get("invite")?.trim().toUpperCase();
   const emailActionComplete = new URLSearchParams(window.location.search).get("emailAction") === "complete";
+  const sessionRevoked = new URLSearchParams(window.location.search).get("reason") === "session-revoked";
+  const [emailActionNoticeOpen, setEmailActionNoticeOpen] = useState(() => emailActionComplete);
   const afterAuthPath = inviteCode ? `/invite?code=${encodeURIComponent(inviteCode)}` : "/app";
 
   useEffect(() => {
@@ -54,10 +57,23 @@ export default function WebAuth() {
   useEffect(() => {
     if (!emailActionComplete) return;
     setMode("login");
-    toast.success("電子郵件操作已完成。若剛重設密碼，請使用新密碼登入；若剛完成信箱驗證，現在即可安全登入。", { duration: 7_000 });
+    setEmailActionNoticeOpen(true);
     const query = inviteCode ? `?invite=${encodeURIComponent(inviteCode)}` : "";
     window.history.replaceState(null, "", `/login${query}`);
   }, [emailActionComplete, inviteCode]);
+
+  useEffect(() => {
+    if (!sessionRevoked) return;
+    // This is reached only through the server's sessionVersion-mismatch
+    // contract. It deliberately clears the Firebase refresh session, unlike a
+    // normal token expiry or temporary network failure.
+    firebaseRestoreAttempted.current = true;
+    setMode("login");
+    try {
+      sessionStorage.removeItem("manus-cookie");
+    } catch {}
+    void firebaseSignOut().catch(() => undefined);
+  }, [sessionRevoked]);
 
   const establishSession = async (token: string) => {
     setCheckingSession(true);
@@ -99,7 +115,7 @@ export default function WebAuth() {
   };
 
   useEffect(() => {
-    if (loading || user || mode !== "login" || firebaseRestoreAttempted.current) return;
+    if (loading || user || sessionRevoked || mode !== "login" || firebaseRestoreAttempted.current) return;
     firebaseRestoreAttempted.current = true;
     void (async () => {
       setCheckingSession(true);
@@ -113,7 +129,7 @@ export default function WebAuth() {
         setCheckingSession(false);
       }
     })();
-  }, [loading, mode, user]);
+  }, [loading, mode, sessionRevoked, user]);
 
   const pending = firebaseBusy || legacyLogin.isPending || exchangeFirebaseToken.isPending || checkingSession;
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -229,6 +245,8 @@ export default function WebAuth() {
                 <h2 className="text-2xl font-bold tracking-tight">{mode === "login" ? "歡迎回來" : "建立你的帳號"}</h2>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">{mode === "login" ? "使用已驗證的電子信箱與密碼安全登入。" : "註冊後先驗證電子信箱，再建立帳本或輸入邀請碼加入對方的帳本。"}</p>
               </div>
+              {sessionRevoked && <div role="alert" className="mt-5 rounded-2xl border border-amber-500/35 bg-amber-500/10 px-4 py-3 text-sm text-foreground"><div className="flex gap-3"><ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" aria-hidden="true" /><div><p className="font-semibold">此裝置的登入已被撤銷</p><p className="mt-1 leading-5 text-muted-foreground">為保護帳本安全，管理員已要求此裝置重新驗證。帳本資料未被刪除，請重新輸入已驗證電子信箱與密碼登入。</p></div></div></div>}
+              {emailActionNoticeOpen && <div role="status" className="mt-5 rounded-2xl border border-primary/25 bg-primary/8 px-4 py-3 text-sm text-foreground"><p className="font-semibold">電子郵件操作已完成</p><p className="mt-1 leading-5 text-muted-foreground">若剛重設密碼，請以新密碼登入；若剛完成信箱驗證，現在可以安全登入。若尚未生效，請重新開啟驗證信中的連結或稍後再試。</p><button type="button" onClick={() => setEmailActionNoticeOpen(false)} className="mt-2 text-xs font-semibold text-primary underline-offset-4 hover:underline">關閉說明</button></div>}
               <form className="mt-7 space-y-5" onSubmit={handleSubmit}>
                 {mode === "register" && <div className="space-y-2"><Label htmlFor="web-auth-name">顯示暱稱</Label><div className="relative"><UserRound className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input id="web-auth-name" value={name} onChange={event => setName(event.target.value)} className="h-10 border-input pl-9" maxLength={64} autoComplete="name" /></div></div>}
                 <div className="space-y-2"><Label htmlFor="web-auth-email">電子信箱</Label><div className="relative"><Mail className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" /><Input id="web-auth-email" value={email} onChange={event => setEmail(event.target.value)} className="h-10 border-input pl-9" type="email" autoComplete="email" required /></div></div>

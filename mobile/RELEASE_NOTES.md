@@ -1,5 +1,18 @@
 ## Together Ledger v1.3.8
 
+## Together Ledger v1.3.20
+
+### 已撤銷登入可見性與安全管理
+
+- Web、PWA 與 Android 會區分一般工作階段遺失／暫時網路失敗，以及伺服器確認的 `sessionVersion` 撤銷。只有後者會顯示清楚的繁體中文重新登入說明，並清除本機 App 與 Firebase 記住裝置狀態；帳本資料不會被刪除。
+- Web-only 管理頁的撤銷操作新增兩階段警示、持續狀態回饋與可重試的部分完成結果。若 Firebase refresh token 撤銷暫時失敗，介面不會誤報完整成功，並明確要求管理員稍後重試。
+- 管理員可檢視僅含建立時間、最後登入時間、登入方式、Firebase 驗證狀態與帳本參與／擁有數量的最小化帳戶摘要，並以 30 秒前景更新加上動作後失效更新資料。介面不會顯示 Firebase UID、密碼、token、帳本名稱、交易、金額或收據。
+- Firebase 驗證完成後會回到共帳提供的繁體中文說明卡；Firebase 寄件內容與 Hosted action page 的語言／樣式仍由 Firebase Console 管理，詳見在地化文件。
+
+### 發布
+
+- Android 版升級為 `versionName=1.3.20`、`versionCode=43`，維持固定受保護簽章與 SHA-256 校驗檔。
+
 ## Together Ledger v1.3.19
 
 ### 記住裝置、安全撤銷與匿名可觀測性

@@ -1422,8 +1422,18 @@ export async function listAdminAccounts(query = "", limit = 100) {
     firebaseUid: users.firebaseUid,
     createdAt: users.createdAt,
     lastSignedIn: users.lastSignedIn,
+    ledgerMembershipCount: sql<number>`(select count(*) from ${ledgerMembers} where ${ledgerMembers.userId} = ${users.id})`,
+    ownedLedgerCount: sql<number>`(select count(*) from ${ledgers} where ${ledgers.createdBy} = ${users.id})`,
   }).from(users).where(filter).orderBy(desc(users.lastSignedIn)).limit(Math.max(1, Math.min(limit, 100)));
-  return rows.map(({ firebaseUid, ...user }) => ({ ...user, firebaseLinked: Boolean(firebaseUid) }));
+  return rows.map(({ firebaseUid, ledgerMembershipCount, ownedLedgerCount, ...user }) => ({
+    ...user,
+    firebaseLinked: Boolean(firebaseUid),
+    // Firebase-linked accounts reach this table only after verifyFirebaseIdentity
+    // validates `email_verified`. Older local rows cannot be asserted verified.
+    emailVerificationStatus: firebaseUid ? "firebase-verified" as const : "legacy-not-asserted" as const,
+    ledgerMembershipCount: Number(ledgerMembershipCount ?? 0),
+    ownedLedgerCount: Number(ownedLedgerCount ?? 0),
+  }));
 }
 
 export async function getAdminAccountSummary() {
@@ -1432,11 +1442,15 @@ export async function getAdminAccountSummary() {
     activeUsers: sql<number>`sum(case when ${users.loginMethod} <> 'deleted' then 1 else 0 end)`,
     adminUsers: sql<number>`sum(case when ${users.role} = 'admin' and ${users.loginMethod} <> 'deleted' then 1 else 0 end)`,
     firebaseLinkedUsers: sql<number>`sum(case when ${users.firebaseUid} is not null and ${users.loginMethod} <> 'deleted' then 1 else 0 end)`,
+    firebaseVerifiedUsers: sql<number>`sum(case when ${users.firebaseUid} is not null and ${users.loginMethod} <> 'deleted' then 1 else 0 end)`,
+    legacyEmailUsers: sql<number>`sum(case when ${users.firebaseUid} is null and ${users.email} is not null and ${users.loginMethod} <> 'deleted' then 1 else 0 end)`,
   }).from(users);
   return {
     activeUsers: Number(row?.activeUsers ?? 0),
     adminUsers: Number(row?.adminUsers ?? 0),
     firebaseLinkedUsers: Number(row?.firebaseLinkedUsers ?? 0),
+    firebaseVerifiedUsers: Number(row?.firebaseVerifiedUsers ?? 0),
+    legacyEmailUsers: Number(row?.legacyEmailUsers ?? 0),
   };
 }
 
