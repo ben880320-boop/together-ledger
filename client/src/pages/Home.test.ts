@@ -7,11 +7,11 @@ const globalStyles = readFileSync(fileURLToPath(new URL("../index.css", import.m
 
 describe("Together Ledger 網頁產品入口", () => {
   it("同步顯示 Android App 版本、更新歷程與跨裝置使用引導", () => {
-    expect(homePage).toContain("1.3.19");
-    expect(homePage).toContain("Android 與 Web 同步更新 · v1.3.19");
-    expect(homePage).toContain('{ version: "1.3.19", date: "最新版本"');
-    expect(homePage).toContain("記住裝置恢復與安全撤銷");
-    expect(homePage).toContain("短效 App 工作階段到期後");
+    expect(homePage).toContain("1.3.20");
+    expect(homePage).toContain("Android 與 Web 同步更新 · v1.3.20");
+    expect(homePage).toContain('{ version: "1.3.20", date: "最新版本"');
+    expect(homePage).toContain("撤銷登入提示與安全管理更新");
+    expect(homePage).toContain("Web、PWA 與 Android 現會明確提示已確認的登入撤銷");
     expect(homePage).toContain("SSE 即時同步與擴充帳本圖示");
     expect(homePage).toContain("可重連 SSE 事件流");
     expect(homePage).toContain("更新歷程");

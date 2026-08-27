@@ -12,8 +12,12 @@ const webMain = source("../client/src/main.tsx");
 const webAuth = source("../client/src/pages/WebAuth.tsx");
 const webFirebase = source("../client/src/lib/firebaseAuth.ts");
 const mobileApp = source("../mobile/app/index.tsx");
+const mobileApi = source("../mobile/lib/api.ts");
 const mobileFirebase = source("../mobile/lib/firebaseAuth.ts");
 const adminConsole = source("../client/src/pages/AdminConsole.tsx");
+const context = source("./_core/context.ts");
+const trpc = source("./_core/trpc.ts");
+const sharedConstants = source("../shared/const.ts");
 const lifecycleRunbook = source("../docs/test-account-cross-platform-lifecycle-v1.3.19.md");
 
 describe("帳戶生命週期安全契約", () => {
@@ -31,6 +35,20 @@ describe("帳戶生命週期安全契約", () => {
     expect(mobileApp).toContain("authState?.user ?? null");
     expect(mobileApp).toContain("if (await getRememberDevicePreference())");
     expect(mobileApp).toContain("isUnauthorized(loadError)");
+  });
+
+  it("僅 sessionVersion 已確認撤銷時才傳遞固定訊號、清除記住裝置並顯示重新登入說明", () => {
+    expect(sharedConstants).toContain("SESSION_REVOKED_ERR_MSG");
+    expect(context).toContain('authState: "anonymous" | "session-revoked" | "authenticated"');
+    expect(context).toContain("error instanceof SessionRevokedError");
+    expect(trpc).toContain("ctx.authState === \"session-revoked\"");
+    expect(webMain).toContain('reason=session-revoked');
+    expect(webAuth).toContain("session-revoked");
+    expect(webAuth).toContain("firebaseSignOut");
+    expect(mobileApi).toContain("isSessionRevoked");
+    expect(mobileApp).toContain("clearConfirmedRevokedDeviceState");
+    expect(mobileApp).toContain("此裝置的登入已被撤銷");
+    expect(mobileApp).toContain("setRememberDevicePreference(false)");
   });
 
   it("既有本機密碼只能在期限內作為遷移用途，過期後回傳可辨識的轉換錯誤", () => {
@@ -71,6 +89,27 @@ describe("帳戶生命週期安全契約", () => {
     expect(routers).toContain('action: "sessionRevoke"');
     expect(db).toContain("revokeUserApplicationSessions");
     expect(firebaseAuth).toContain("revokeFirebaseIdentitySessions");
+    expect(routers).toContain("firebase_revoke_retry_needed");
+    expect(routers).toContain("applicationSessionsRevoked: true as const");
+  });
+
+  it("管理清單只衍生驗證狀態與帳本數量，並在前景定期更新而不暴露敏感或財務資料", () => {
+    const accountsStart = db.indexOf("export async function listAdminAccounts");
+    const accountsEnd = db.indexOf("export async function getAdminAccountSummary", accountsStart);
+    const accountBlock = db.slice(accountsStart, accountsEnd);
+    expect(accountBlock).toContain('emailVerificationStatus: firebaseUid ? "firebase-verified"');
+    expect(accountBlock).toContain("ledgerMembershipCount");
+    expect(accountBlock).toContain("ownedLedgerCount");
+    const publicAccountOutput = accountBlock.slice(accountBlock.indexOf("return rows.map"));
+    expect(publicAccountOutput).not.toContain("firebaseUid:");
+    expect(accountBlock).not.toContain("passwordHash");
+    expect(accountBlock).not.toContain("receiptUrl");
+    expect(adminConsole).toContain("Firebase 已驗證信箱");
+    expect(adminConsole).toContain("舊有資料・未主張");
+    expect(adminConsole).toContain("refetchInterval: AUTO_REFRESH_MS");
+    expect(adminConsole).toContain("refetchIntervalInBackground: false");
+    expect(adminConsole).toContain("帳戶安全詳情");
+    expect(adminConsole).toContain("不含帳本名稱、收支、收據、密碼或外部身分識別碼");
   });
 
   it("持久登入、管理員撤銷與同步衝突只留下去識別化作業事件，不記錄帳戶或財務資料", () => {
@@ -92,7 +131,7 @@ describe("帳戶生命週期安全契約", () => {
     expect(summaryBlock).not.toContain("ledgerId");
     expect(summaryBlock).not.toContain("amount");
     expect(adminConsole).toContain("trpc.admin.operationalOverview.useQuery");
-    expect(adminConsole).toContain("不包含任何帳戶、帳本、交易、收支或 Firebase 身分資料。");
+    expect(adminConsole).toContain("不包含帳戶、帳本、交易、收支或 Firebase 身分資料。");
     expect(adminConsole).toContain("重新讀取");
   });
 

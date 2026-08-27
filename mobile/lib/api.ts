@@ -2,6 +2,7 @@ import { createTRPCProxyClient, httpBatchLink } from "@trpc/client";
 import superjson from "superjson";
 import * as SecureStore from "expo-secure-store";
 import type { AppRouter } from "../../server/routers";
+import { SESSION_REVOKED_ERR_MSG } from "../../shared/const";
 
 export const SESSION_KEY = "together-ledger-session-token";
 export const REMEMBER_DEVICE_KEY = "together-ledger-remember-device";
@@ -165,4 +166,9 @@ export function isUnauthorized(error: unknown) {
     "data" in error &&
     (error as { data?: { code?: string } }).data?.code === "UNAUTHORIZED"
   );
+}
+
+/** Matches the shared server contract, never an arbitrary translated message. */
+export function isSessionRevoked(error: unknown) {
+  return isUnauthorized(error) && error instanceof Error && error.message === SESSION_REVOKED_ERR_MSG;
 }

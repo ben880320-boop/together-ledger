@@ -49,6 +49,7 @@ import {
   clearSessionToken,
   getRememberDevicePreference,
   getSessionToken,
+  isSessionRevoked,
   isUnauthorized,
   saveSessionToken,
   setRememberDevicePreference,
@@ -144,7 +145,7 @@ const appearanceDefaults: AppearancePreferences = {
   colorMode: "system",
 };
 const appearanceStorageKey = "together-ledger-appearance-v1";
-const APP_VERSION = "1.3.19";
+const APP_VERSION = "1.3.20";
 const GITHUB_REPOSITORY_URL = "https://github.com/ben880320-boop/together-ledger";
 const GITHUB_RELEASES_URL = "https://github.com/ben880320-boop/together-ledger/releases";
 const GITHUB_WIKI_URL = "https://github.com/ben880320-boop/together-ledger/wiki";
@@ -1065,6 +1066,7 @@ function AppContent() {
   const [ledgerHome, setLedgerHome] = useState(false);
   const [homePage, setHomePage] = useState<"ledgers" | "profile">("ledgers");
   const [busy, setBusy] = useState(false);
+  const [sessionRevokedNotice, setSessionRevokedNotice] = useState(false);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [error, setError] = useState("");
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
@@ -1100,6 +1102,23 @@ function AppContent() {
 
   const showToast = useCallback((message: string, tone: "success" | "error" = "success") => {
     setToast({ id: ++toastSequenceRef.current, message, tone });
+  }, []);
+  const clearConfirmedRevokedDeviceState = useCallback(async () => {
+    // A sessionVersion mismatch is the only condition allowed to erase an
+    // opt-in Firebase identity. Offline or timeout errors do not enter here.
+    rememberedSessionRecoveryPendingRef.current = false;
+    await clearSessionToken();
+    await setRememberDevicePreference(false);
+    try {
+      await signOutFromFirebase();
+    } catch {
+      // App credentials and the remember-device preference are already gone.
+    }
+    setUser(null);
+    setFirebaseLinked(null);
+    setLedgers([]);
+    setActiveLedger(null);
+    setSessionRevokedNotice(true);
   }, []);
   const dismissToast = useCallback((id: number) => {
     setToast(current => current?.id === id ? null : current);
@@ -1435,6 +1454,10 @@ function AppContent() {
     try {
       const authState = await api.auth.me.query();
       const nextUser = authState?.user ?? null;
+      if (authState?.authState === "session-revoked") {
+        await clearConfirmedRevokedDeviceState();
+        return;
+      }
       if (!nextUser) {
         // Some expired App JWT responses resolve to { user: null } instead of
         // throwing a tRPC UNAUTHORIZED error. Treat both shapes identically so
@@ -1451,6 +1474,7 @@ function AppContent() {
         return;
       }
       setUser(nextUser as User);
+      setSessionRevokedNotice(false);
       void api.auth.firebaseStatus.query()
         .then(status => setFirebaseLinked(status.firebaseLinked))
         .catch(() => setFirebaseLinked(null));
@@ -1484,6 +1508,10 @@ function AppContent() {
         setActivityLogs([]);
       }
     } catch (loadError) {
+      if (isSessionRevoked(loadError)) {
+        await clearConfirmedRevokedDeviceState();
+        return;
+      }
       const message =
         loadError instanceof Error ? loadError.message : "無法載入帳本資料。";
       setError(message);
@@ -1515,7 +1543,7 @@ function AppContent() {
       setBusy(false);
       setReady(true);
     }
-  }, [reloadLedger]);
+  }, [clearConfirmedRevokedDeviceState, reloadLedger]);
 
   const exchangeFirebaseSession = useCallback(async (idToken: string) => {
     const rememberDevice = await getRememberDevicePreference();
@@ -2381,7 +2409,7 @@ function AppContent() {
 
   if (!ready) return <AppBootstrapSkeleton />;
   if (!user)
-    return <View style={styles.flex}><LoginScreen busy={busy} onLogin={handleLogin} onNotice={showToast} /><SuccessToast toast={toast} onDismiss={dismissToast} /></View>;
+    return <View style={styles.flex}><LoginScreen busy={busy} sessionRevokedNotice={sessionRevokedNotice} onLogin={handleLogin} onNotice={showToast} /><SuccessToast toast={toast} onDismiss={dismissToast} /></View>;
     const homeHeaderAction = (
     <View style={styles.headerActions}>
       <Pressable
@@ -3027,10 +3055,12 @@ function LedgerContentSkeleton() {
 
 function LoginScreen({
   busy,
+  sessionRevokedNotice,
   onLogin,
   onNotice,
 }: {
   busy: boolean;
+  sessionRevokedNotice: boolean;
   onLogin: (input: { mode: "signIn" | "signUp"; email: string; password: string; name?: string; rememberDevice: boolean }) => void;
   onNotice: (message: string, tone?: "success" | "error") => void;
 }) {
@@ -3122,6 +3152,7 @@ function LoginScreen({
             <Text style={styles.formBody}>
               使用已驗證的電子信箱與密碼登入；登入後可建立新帳本或透過邀請加入共同記帳空間。
             </Text>
+            {sessionRevokedNotice && <View accessibilityRole="alert" style={{ marginBottom: 14, borderWidth: 1, borderColor: palette.orange, backgroundColor: palette.roseSoft, borderRadius: 14, padding: 12 }}><View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}><MaterialCommunityIcons name="shield-alert-outline" size={20} color={palette.orange} /><View style={{ flex: 1 }}><Text style={{ color: palette.ink, fontWeight: "700", fontSize: 14 }}>此裝置的登入已被撤銷</Text><Text style={{ color: palette.muted, fontSize: 13, lineHeight: 19, marginTop: 3 }}>為保護帳本安全，管理員已要求此裝置重新驗證。帳本資料未被刪除，請重新輸入已驗證電子信箱與密碼登入。</Text></View></View></View>}
             {isSignUp && (
               <TextInput
                 value={name}

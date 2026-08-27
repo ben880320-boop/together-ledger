@@ -196,7 +196,10 @@ export const appRouter = router({
     // tRPC can omit a top-level null query result from the response stream.
     // Always wrap the optional account in an object so logged-out web sessions
     // receive a complete JSON response instead of waiting on an empty body.
-    me: publicProcedure.query(opts => ({ user: opts.ctx.user ?? null })),
+    me: publicProcedure.query(opts => ({
+      user: opts.ctx.user ?? null,
+      authState: opts.ctx.authState,
+    })),
     register: publicProcedure
       .input(localAccountInput.extend({ name: z.string().trim().min(1, "請輸入暱稱").max(64) }))
       .mutation(async ({ ctx, input }) => {
@@ -445,10 +448,10 @@ export const appRouter = router({
         if (target.role === "admin") {
           throw new TRPCError({ code: "FORBIDDEN", message: "管理員帳戶不可由此介面撤銷登入，避免中斷管理權限。" });
         }
+        let applicationSessionsRevoked = false;
         try {
-          const revoked = await revokeUserApplicationSessions(target.id);
-          if (!revoked) throw new Error("帳戶 session 狀態未更新。");
-          if (target.firebaseUid) await revokeFirebaseIdentitySessions(target.firebaseUid);
+          applicationSessionsRevoked = await revokeUserApplicationSessions(target.id);
+          if (!applicationSessionsRevoked) throw new Error("帳戶 session 狀態未更新。");
         } catch (error) {
           void recordOperationalSecurityEvent({
             event: "sessionRevoke",
@@ -466,6 +469,35 @@ export const appRouter = router({
             message: "無法撤銷帳戶登入，請稍後重試。",
           });
         }
+        if (target.firebaseUid) {
+          try {
+            await revokeFirebaseIdentitySessions(target.firebaseUid);
+          } catch (error) {
+            await writeAdminAccountAudit({
+              adminUserId: ctx.user.id,
+              targetUserId: target.id,
+              action: "sessionRevoke",
+              summary: "管理員已撤銷 App session；Firebase 登入撤銷待重試",
+              metadata: { applicationSessionsRevoked, firebaseSessionsRevoked: false },
+            });
+            void recordOperationalSecurityEvent({
+              event: "sessionRevoke",
+              source: "server",
+              outcome: "failure",
+              code: "firebase_revoke_retry_needed",
+            });
+            console.error("[Admin] Firebase session revocation failed after App session revocation", {
+              targetUserId: target.id,
+              error: error instanceof Error ? error.name : "unknown",
+            });
+            return {
+              success: false as const,
+              applicationSessionsRevoked: true as const,
+              firebaseSessionsRevoked: false as const,
+              retryable: true as const,
+            };
+          }
+        }
         await writeAdminAccountAudit({
           adminUserId: ctx.user.id,
           targetUserId: target.id,
@@ -479,7 +511,12 @@ export const appRouter = router({
           outcome: "success",
           code: target.firebaseUid ? "app_and_firebase" : "app_only",
         });
-        return { success: true as const, firebaseSessionsRevoked: Boolean(target.firebaseUid) };
+        return {
+          success: true as const,
+          applicationSessionsRevoked: true as const,
+          firebaseSessionsRevoked: Boolean(target.firebaseUid),
+          retryable: false as const,
+        };
       }),
     deleteUser: adminProcedure
       .input(z.object({ targetUserId: z.number().int().positive(), confirmation: z.literal("DELETE") }))

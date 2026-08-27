@@ -23,7 +23,7 @@ export function useAuth(options?: UseAuthOptions) {
 
   const logoutMutation = trpc.auth.logout.useMutation({
     onSuccess: () => {
-      utils.auth.me.setData(undefined, { user: null });
+      utils.auth.me.setData(undefined, { user: null, authState: "anonymous" });
     },
   });
 
@@ -45,16 +45,18 @@ export function useAuth(options?: UseAuthOptions) {
       try {
         sessionStorage.removeItem("manus-cookie");
       } catch {}
-      utils.auth.me.setData(undefined, { user: null });
+      utils.auth.me.setData(undefined, { user: null, authState: "anonymous" });
       await utils.auth.me.invalidate();
     }
   }, [logoutMutation, utils]);
 
   const state = useMemo(() => {
     const user = meQuery.data?.user ?? null;
+    const authState = meQuery.data?.authState ?? "anonymous";
     localStorage.setItem("manus-runtime-user-info", JSON.stringify(user));
     return {
       user,
+      authState,
       loading: meQuery.isLoading || logoutMutation.isPending,
       error: meQuery.error ?? logoutMutation.error ?? null,
       isAuthenticated: Boolean(user),
@@ -72,11 +74,14 @@ export function useAuth(options?: UseAuthOptions) {
     if (meQuery.isLoading || logoutMutation.isPending) return;
     if (state.user) return;
     if (typeof window === "undefined") return;
-    if (redirectPath && window.location.pathname === redirectPath) return;
+    const resolvedRedirectPath = state.authState === "session-revoked"
+      ? "/login?reason=session-revoked"
+      : redirectPath;
+    if (resolvedRedirectPath && `${window.location.pathname}${window.location.search}` === resolvedRedirectPath) return;
 
     // Navigate at this moment only. startLogin() mints the nonce + cookie itself.
-    if (redirectPath) {
-      window.location.href = redirectPath;
+    if (resolvedRedirectPath) {
+      window.location.href = resolvedRedirectPath;
     } else {
       startLogin();
     }
@@ -85,6 +90,7 @@ export function useAuth(options?: UseAuthOptions) {
     redirectPath,
     logoutMutation.isPending,
     meQuery.isLoading,
+    state.authState,
     state.user,
   ]);
 

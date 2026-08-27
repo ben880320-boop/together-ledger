@@ -324,7 +324,7 @@ class SDKServer {
     }
 
     if (session.sessionVersion !== user.sessionVersion) {
-      throw ForbiddenError("Session has been revoked");
+      throw new SessionRevokedError();
     }
 
     await db.upsertUser({
@@ -338,6 +338,20 @@ class SDKServer {
 
 const CRON_OPEN_ID_PREFIX = "cron_";
 const LOCAL_OPEN_ID_PREFIX = "local_";
+
+/**
+ * The only authentication failure which confirms an administrator invalidated
+ * an issued application session. Invalid, missing, and expired credentials
+ * deliberately continue to use the ordinary anonymous path.
+ */
+export class SessionRevokedError extends Error {
+  readonly code = "SESSION_REVOKED" as const;
+
+  constructor() {
+    super("Session has been revoked");
+    this.name = "SessionRevokedError";
+  }
+}
 
 /** Result of `sdk.authenticateRequest`. Cron callbacks set `isCron=true` and `taskUid`; see `/home/ubuntu/skills/webdev-periodic-updates/SKILL.md`. */
 export type AuthenticatedUser = User & {
