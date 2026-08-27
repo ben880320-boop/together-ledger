@@ -770,4 +770,4 @@
 - [x] 修正 Android 核心流程的 v1.3.21／versionCode 44 版本基準斷言，並重新執行完整發行前驗收
 - [x] 逐一盤點並同步 Android 發行版本來源，修復所有可重現驗收失敗後才建立 PR 與 APK 發行
 - [x] 補上 Web／PWA Google 登入的 popup 封鎖 redirect 備援，保留記住裝置與邀請導向並覆蓋回歸測試
-- [x] 修正 Google OAuth 設定測試在 GitHub Actions 未注入 Android 環境值時的失敗，保留不輸出識別碼的跨設定驗證
+- [x] 修正 Google OAuth 設定測試在 GitHub Actions 品質門檻未注入 Web／Android 環境值時的失敗，保留不輸出識別碼的跨設定驗證
