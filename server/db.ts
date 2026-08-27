@@ -1424,28 +1424,34 @@ export async function listAdminAccounts(query = "", limit = 100) {
     email: users.email,
     role: users.role,
     loginMethod: users.loginMethod,
-    firebaseUid: users.firebaseUid,
+    firebaseLinked: sql<number>`case when ${users.firebaseUid} is null then 0 else 1 end`,
     createdAt: users.createdAt,
     lastSignedIn: users.lastSignedIn,
+  }).from(users).where(filter).orderBy(desc(users.lastSignedIn)).limit(Math.max(1, Math.min(limit, 100)));
+  const accountIds = rows.map(row => row.id);
+  const [membershipRows, ownedRows] = accountIds.length === 0 ? [[], []] : await Promise.all([
     // 「共同參與」採互斥口徑：只計仍存在、由其他人持有且目前帳戶仍是成員的帳本。
     // 這避免將自己持有的帳本同時顯示為「參與」與「擁有」。
-    ledgerMembershipCount: sql<number>`(
-      select count(distinct ${ledgerMembers.ledgerId})
-      from ${ledgerMembers}
-      inner join ${ledgers} on ${ledgers.id} = ${ledgerMembers.ledgerId}
-      where ${ledgerMembers.userId} = ${users.id}
-        and ${ledgers.createdBy} <> ${users.id}
-    )`,
-    ownedLedgerCount: sql<number>`(select count(*) from ${ledgers} where ${ledgers.createdBy} = ${users.id})`,
-  }).from(users).where(filter).orderBy(desc(users.lastSignedIn)).limit(Math.max(1, Math.min(limit, 100)));
-  return rows.map(({ firebaseUid, ledgerMembershipCount, ownedLedgerCount, ...user }) => ({
+    db.select({ userId: ledgerMembers.userId, count: sql<number>`count(distinct ${ledgerMembers.ledgerId})` })
+      .from(ledgerMembers)
+      .innerJoin(ledgers, eq(ledgers.id, ledgerMembers.ledgerId))
+      .where(and(inArray(ledgerMembers.userId, accountIds), ne(ledgers.createdBy, ledgerMembers.userId)))
+      .groupBy(ledgerMembers.userId),
+    db.select({ userId: ledgers.createdBy, count: sql<number>`count(*)` })
+      .from(ledgers)
+      .where(inArray(ledgers.createdBy, accountIds))
+      .groupBy(ledgers.createdBy),
+  ]);
+  const membershipCounts = new Map(membershipRows.map(row => [row.userId, Number(row.count ?? 0)]));
+  const ownedCounts = new Map(ownedRows.map(row => [row.userId, Number(row.count ?? 0)]));
+  return rows.map(({ firebaseLinked, ...user }) => ({
     ...user,
-    firebaseLinked: Boolean(firebaseUid),
+    firebaseLinked: Boolean(firebaseLinked),
     // Firebase-linked accounts reach this table only after verifyFirebaseIdentity
     // validates `email_verified`. Older local rows cannot be asserted verified.
-    emailVerificationStatus: firebaseUid ? "firebase-verified" as const : "legacy-not-asserted" as const,
-    ledgerMembershipCount: Number(ledgerMembershipCount ?? 0),
-    ownedLedgerCount: Number(ownedLedgerCount ?? 0),
+    emailVerificationStatus: firebaseLinked ? "firebase-verified" as const : "legacy-not-asserted" as const,
+    ledgerMembershipCount: membershipCounts.get(user.id) ?? 0,
+    ownedLedgerCount: ownedCounts.get(user.id) ?? 0,
   }));
 }
 

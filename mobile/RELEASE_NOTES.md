@@ -1,5 +1,17 @@
 ## Together Ledger v1.3.8
 
+## Together Ledger v1.3.22
+
+### Google 主動登出後帳號選擇
+
+- Web、PWA 與 Android 的 Google 使用者主動登出後，下一次登入會顯示帳號選擇器，不會自動沿用前次帳號。
+- 帳號選擇清除只發生於明確登出或帳戶刪除；暫時離線、逾時與未確認的恢復失敗會保留重試能力。
+- Web/PWA 清除 Firebase 本機工作階段並以 `select_account` 重新開始 Google 流程；Android 也清除原生 Google Sign-In 的本機帳號狀態。共帳伺服器依然僅驗證 Firebase ID Token。
+
+### 發布
+
+- Android 版升級為 `versionName=1.3.22`、`versionCode=45`，維持固定受保護簽章、SHA-256 校驗檔與 GitHub Release 發布流程。
+
 ## Together Ledger v1.3.21
 
 ### Google 登入與近期身分確認

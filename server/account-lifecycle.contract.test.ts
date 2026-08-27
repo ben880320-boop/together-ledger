@@ -98,7 +98,7 @@ describe("帳戶生命週期安全契約", () => {
     const accountsStart = db.indexOf("export async function listAdminAccounts");
     const accountsEnd = db.indexOf("export async function getAdminAccountSummary", accountsStart);
     const accountBlock = db.slice(accountsStart, accountsEnd);
-    expect(accountBlock).toContain('emailVerificationStatus: firebaseUid ? "firebase-verified"');
+    expect(accountBlock).toContain('emailVerificationStatus: firebaseLinked ? "firebase-verified"');
     expect(accountBlock).toContain("ledgerMembershipCount");
     expect(accountBlock).toContain("ownedLedgerCount");
     const publicAccountOutput = accountBlock.slice(accountBlock.indexOf("return rows.map"));
@@ -117,9 +117,11 @@ describe("帳戶生命週期安全契約", () => {
     const accountsStart = db.indexOf("export async function listAdminAccounts");
     const accountsEnd = db.indexOf("export async function getAdminAccountSummary", accountsStart);
     const accountBlock = db.slice(accountsStart, accountsEnd);
-    expect(accountBlock).toContain("inner join ${ledgers} on ${ledgers.id} = ${ledgerMembers.ledgerId}");
-    expect(accountBlock).toContain("and ${ledgers.createdBy} <> ${users.id}");
-    expect(accountBlock).toContain("select count(*) from ${ledgers} where ${ledgers.createdBy} = ${users.id}");
+    expect(accountBlock).toContain("innerJoin(ledgers, eq(ledgers.id, ledgerMembers.ledgerId))");
+    expect(accountBlock).toContain("ne(ledgers.createdBy, ledgerMembers.userId)");
+    expect(accountBlock).toContain("groupBy(ledgerMembers.userId)");
+    expect(accountBlock).toContain("groupBy(ledgers.createdBy)");
+    expect(accountBlock).not.toContain('alias(users, "admin_account")');
     expect(adminConsole).toContain("共同參與帳本");
     expect(adminConsole).toContain("不含自己持有");
     expect(adminConsole).toContain("目前擁有帳本");

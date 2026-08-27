@@ -76,6 +76,21 @@ async function requestGoogleFirebaseCredential() {
   }
 }
 
+/**
+ * Clears only the native SDK's remembered Google account after an explicit
+ * Together Ledger logout. This never revokes Google access and is not used by
+ * offline recovery, so the next interactive login can present account choice.
+ */
+async function forgetNativeGoogleAccount() {
+  try {
+    configureNativeGoogleSignIn();
+    await GoogleSignin.signOut();
+  } catch {
+    // A Firebase email/password user or an already-cleared Google SDK session
+    // has nothing to forget. App-level logout remains complete either way.
+  }
+}
+
 function requireFirebaseConfig() {
   if (!firebaseConfig.apiKey || !firebaseConfig.authDomain || !firebaseConfig.projectId || !firebaseConfig.appId) {
     throw new Error("Firebase 登入尚未完成設定，請更新至最新版本後再試。");
@@ -221,8 +236,9 @@ export async function getPersistedVerifiedFirebaseIdToken() {
   }
 }
 
-export async function signOutFromFirebase() {
+export async function signOutFromFirebase(options: { forgetGoogleAccount?: boolean } = {}) {
   await signOut(getFirebaseAuth());
+  if (options.forgetGoogleAccount) await forgetNativeGoogleAccount();
 }
 
 export function messageOfFirebaseError(error: unknown) {

@@ -6,7 +6,7 @@
 
 ## 下載最新版本
 
-請從 [GitHub Releases](https://github.com/ben880320-boop/together-ledger/releases) 下載最新的 `together-ledger.apk`。目前正式版本為 **v1.3.21**（versionCode 44）。Android 可能會在首次安裝非商店來源的 APK 時要求允許此來源安裝應用程式；請只安裝本專案 Release 頁面所提供的檔案，並可比對同頁的 SHA-256 檢查碼。
+請從 [GitHub Releases](https://github.com/ben880320-boop/together-ledger/releases) 下載最新的 `together-ledger.apk`。目前正式版本為 **v1.3.22**（versionCode 45）。Android 可能會在首次安裝非商店來源的 APK 時要求允許此來源安裝應用程式；請只安裝本專案 Release 頁面所提供的檔案，並可比對同頁的 SHA-256 檢查碼。
 
 | 安裝步驟 | 說明 |
 | --- | --- |
@@ -15,7 +15,7 @@
 | 3 | 若系統詢問，僅對使用的瀏覽器或檔案管理器允許安裝未知來源 App。 |
 | 4 | 完成安裝後開啟 App，使用登入頁建立或登入帳戶。 |
 
-App 會在登入後檢查 GitHub 最新正式 Release；若偵測到較高版本，會顯示更新內容與安全性摘要、官方來源、下載進度、SHA-256 校驗提示及安裝診斷。個人設定頁也提供 GitHub 專案頁、版本下載與 Wiki 入口。v1.3.21 新增原生 Google Firebase 登入與供應者重新驗證；Google 帳戶執行刪除帳號等敏感操作時，需重新登入 Google／Firebase，而非輸入不存在的共帳密碼。伺服器只接收 Firebase ID Token，不接收或保存 Google access token。已確認撤銷登入時會顯示明確說明並清除記住裝置狀態；帳本資料不會被刪除。暫時網路錯誤不會清除記住狀態。勾選記住此裝置只保存受保護工作階段、從不保存密碼；請只在個人且有螢幕鎖保護的裝置選取。
+App 會在登入後檢查 GitHub 最新正式 Release；若偵測到較高版本，會顯示更新內容與安全性摘要、官方來源、下載進度、SHA-256 校驗提示及安裝診斷。個人設定頁也提供 GitHub 專案頁、版本下載與 Wiki 入口。v1.3.21 新增原生 Google Firebase 登入與供應者重新驗證；Google 帳戶執行刪除帳號等敏感操作時，需重新登入 Google／Firebase，而非輸入不存在的共帳密碼。v1.3.22 讓 Google 使用者在**主動登出**後的下一次登入明確選擇帳號，不會自動沿用上次帳號；暫時網路錯誤不會觸發此清除。伺服器只接收 Firebase ID Token，不接收或保存 Google access token。已確認撤銷登入時會顯示明確說明並清除記住裝置狀態；帳本資料不會被刪除。勾選記住此裝置只保存受保護工作階段、從不保存密碼；請只在個人且有螢幕鎖保護的裝置選取。
 
 ## 登入與敏感操作
 

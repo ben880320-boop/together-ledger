@@ -6,6 +6,7 @@ const workspace = readFileSync(fileURLToPath(new URL("./LedgerWorkspace.tsx", im
 const savingsBuckets = readFileSync(fileURLToPath(new URL("../components/SavingsBucketsPanel.tsx", import.meta.url)), "utf8");
 const auth = readFileSync(fileURLToPath(new URL("./WebAuth.tsx", import.meta.url)), "utf8");
 const firebaseAuth = readFileSync(fileURLToPath(new URL("../lib/firebaseAuth.ts", import.meta.url)), "utf8");
+const authHook = readFileSync(fileURLToPath(new URL("../_core/hooks/useAuth.ts", import.meta.url)), "utf8");
 const inviteJoin = readFileSync(fileURLToPath(new URL("./InviteJoin.tsx", import.meta.url)), "utf8");
 const footer = readFileSync(fileURLToPath(new URL("../components/ReleaseFooter.tsx", import.meta.url)), "utf8");
 const pwa = readFileSync(fileURLToPath(new URL("../components/PwaInstallPanel.tsx", import.meta.url)), "utf8");
@@ -55,6 +56,13 @@ describe("Together Ledger 真實網頁帳本入口", () => {
     expect(firebaseAuth).toContain("GOOGLE_REDIRECT_INTENT_KEY");
     expect(firebaseAuth).toContain("return user.getIdToken(true);");
     expect(firebaseAuth).not.toContain("GoogleAuthProvider.credential");
+  });
+
+  it("在使用者主動登出後清除 Firebase 本機工作階段，並要求 Google 顯示帳號選擇", () => {
+    expect(firebaseAuth).toContain('provider.setCustomParameters({ prompt: "select_account" })');
+    expect(firebaseAuth).toContain("sessionStorage.removeItem(GOOGLE_REDIRECT_INTENT_KEY)");
+    expect(authHook).toContain("await firebaseSignOut().catch(() => undefined);");
+    expect(authHook).toContain("select_account prompt then asks for an account");
   });
 
   it("在個人設定提供同信箱 Firebase 綁定，且不改變既有帳本資料", () => {
@@ -170,7 +178,7 @@ describe("Together Ledger 真實網頁帳本入口", () => {
   });
 
   it("提供可辨識的發布資訊與重新取得最新版本操作", () => {
-    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.21"');
+    expect(footer).toContain('WEB_RELEASE_VERSION = "1.3.22"');
     expect(footer).toContain("WEB_BUILD_TIMESTAMP");
     expect(footer).toContain("formatTaipeiTimestamp");
     expect(footer).toContain("重新載入最新版本");

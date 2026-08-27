@@ -161,6 +161,16 @@ const memberInput = z.object({ userId: z.number().int().positive(), shareAmount:
 const generateInviteCode = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 6);
 const FIREBASE_APP_SESSION_TTL_MS = 60 * 60 * 1000;
 
+function toPublicAccount(user: NonNullable<TrpcContext["user"]>) {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    loginMethod: user.loginMethod,
+  };
+}
+
 export const appRouter = router({
   system: systemRouter,
   notifications: router({
@@ -198,7 +208,7 @@ export const appRouter = router({
     // Always wrap the optional account in an object so logged-out web sessions
     // receive a complete JSON response instead of waiting on an empty body.
     me: publicProcedure.query(opts => ({
-      user: opts.ctx.user ?? null,
+      user: opts.ctx.user ? toPublicAccount(opts.ctx.user) : null,
       authState: opts.ctx.authState,
     })),
     register: publicProcedure
