@@ -6,11 +6,8 @@ const googleClientIdPattern = /^\d+-[a-z0-9-]+\.apps\.googleusercontent\.com$/;
 describe("Google OAuth 公開用戶端設定", () => {
   it("接受同一 Firebase 專案的 Web 與 Android Client ID，且 Google OIDC discovery 可用", async () => {
     const webClientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
-    const androidClientId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
 
     expect(webClientId).toMatch(googleClientIdPattern);
-    expect(androidClientId).toMatch(googleClientIdPattern);
-    expect(webClientId?.split("-")[0]).toBe(androidClientId?.split("-")[0]);
 
     const googleServices = JSON.parse(
       readFileSync(new URL("../mobile/google-services.json", import.meta.url), "utf8")
@@ -28,8 +25,13 @@ describe("Google OAuth 公開用戶端設定", () => {
       client.client_type === 1 && client.android_info?.package_name === "com.togetherledger.app"
     );
     const webOAuth = oauthClients.find(client => client.client_type === 3);
-    expect(androidOAuth?.client_id).toBe(androidClientId);
+    // The Android client is selected from the signed `google-services.json` by
+    // package and SHA-1. CI needs only the Web client ID injected for native
+    // Firebase credentials, so never require a duplicate Android environment
+    // value or expose either client ID in output.
+    expect(androidOAuth?.client_id).toMatch(googleClientIdPattern);
     expect(webOAuth?.client_id).toBe(webClientId);
+    expect(webClientId?.split("-")[0]).toBe(androidOAuth?.client_id?.split("-")[0]);
 
     const response = await fetch("https://accounts.google.com/.well-known/openid-configuration");
     expect(response.ok).toBe(true);
