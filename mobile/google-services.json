@@ -7,12 +7,25 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:825569282908:android:347438ad5075939bbc0f99",
+        "mobilesdk_app_id": "1:825569282908:android:ca745824cbfe24febc0f99",
         "android_client_info": {
           "package_name": "com.togetherledger.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "825569282908-envf20tbvtcp5dsb9l8gniman8qqql5d.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.togetherledger.app",
+            "certificate_hash": "26327c470f4fa9e59b536105aff021748a13c4ac"
+          }
+        },
+        {
+          "client_id": "825569282908-6j3lh1o5mfehg19ld21q7smsno8usphq.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyCQoMURGTfCIm5VFa3fKdDiSQkYrTBQFuw"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "825569282908-6j3lh1o5mfehg19ld21q7smsno8usphq.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }

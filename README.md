@@ -1,6 +1,6 @@
 # 共帳 Together Ledger
 
-**Together Ledger（共帳）** 是以「兩人共同生活」為核心的共享記帳服務。使用者可以透過 Android App 或網頁版，以同一組電子信箱與密碼登入同一份帳本資料；建立帳本、加入共同帳本、記錄收支、分攤款項、管理預算及檢視結算，都會同步反映於兩個平台。
+**Together Ledger（共帳）** 是以「兩人共同生活」為核心的共享記帳服務。使用者可透過 Android App、網頁版或 PWA，以已驗證的 Firebase Email／Password 或 Google 登入同一份帳本資料；建立帳本、加入共同帳本、記錄收支、分攤款項、管理預算及檢視結算，都會同步反映於各平台。
 
 > 本專案不會在新帳號或新帳本中建立範例交易、預設帳本或虛構資料。登入後，使用者會先進入「我的帳本」，再自行建立空白帳本或輸入邀請碼加入既有帳本。
 
@@ -15,7 +15,7 @@
 
 | 流程 | 說明 |
 | --- | --- |
-| 1. 註冊或登入 | 使用電子信箱與密碼建立帳號；新帳號必須先完成 Email 驗證，Android 與網頁版使用同一帳號。 |
+| 1. 註冊或登入 | 使用電子信箱與密碼建立帳號，或選擇 Google 登入；Email／Password 新帳號必須先完成 Email 驗證。Android、網頁版與 PWA 使用同一帳號。 |
 | 2. 建立或加入帳本 | 建立空白共同帳本時可選擇圖示或「無」；可輸入邀請碼，也可掃描 HTTPS QR Code／開啟邀請連結，在 App、Web 或 PWA 上登入後加入。 |
 | 3. 記錄共同收支 | 選擇付款人、分類、支付方式、日期及分攤規則；可新增、編輯或刪除。 |
 | 4. 查看生活財務 | 透過總覽、月曆與分析掌握近期收支、成員支付、分類支出及結算狀態；分類金額與比例集中於分析頁。 |
@@ -25,7 +25,7 @@
 
 | 功能領域 | 現有功能 | Android App | 網頁版 |
 | --- | --- | --- | --- |
-| 帳號與資料 | Firebase Email／Password 登入、新帳號 Email 驗證、重寄驗證信、忘記／重設密碼、既有本機帳戶同信箱綁定、帳本列表、建立空白帳本、70 個可選帳本圖示選項（含無圖示）、設定中修改名稱與圖示、邀請碼加入、同帳號資料同步 | 支援 | 支援 |
+| 帳號與資料 | Firebase Email／Password 與 Google 登入、Email 新帳號驗證、重寄驗證信、忘記／重設密碼、既有本機帳戶同信箱綁定、帳本列表、建立空白帳本、70 個可選帳本圖示選項（含無圖示）、設定中修改名稱與圖示、邀請碼加入、同帳號資料同步 | 支援 | 支援 |
 | 共同帳本 | 成員檢視、角色與權限、邀請碼複製、帳本名稱、所有權轉讓、退出及刪除確認 | 支援 | 支援 |
 | 收支 | 收入、支出、付款人、分類、支付方式、日期、平均／自訂／不分攤、編輯及刪除；轉帳僅由儲蓄桶系統流程建立 | 支援 | 支援 |
 | 總覽與結算 | 成員支付摘要、近期收支、完整收支檢視、每月結算快照的提出／第二位成員確認／管理員重新開啟；分類摘要於分析頁查看 | 支援 | 支援 |
@@ -33,7 +33,7 @@
 | 分析 | 收入、支出、餘額、分類統計、分類比例與月份比較 | 支援 | 支援 |
 | 規劃 | 月總／分類預算、固定收支、到期同步、獨立於月預算的出遊規劃，以及可額外存入、慶祝達標、封存／還原的不限數量儲蓄桶 | 支援 | 支援 |
 | 帳本設定 | 分類／支付方式新增、編輯、隱藏、恢復及刪除；可選擇不使用圖示、展開並以中文搜尋完整圖示庫；操作日誌與成員管理 | 支援 | 支援 |
-| 個人設定 | 暱稱、主題與顯示外觀、版本資訊、登出、刪除帳號，以及預設關閉的使用者同意式技術錯誤回報 | 支援 | 支援 |
+| 個人設定 | 暱稱、主題與顯示外觀、版本資訊、登出、刪除帳號，以及預設關閉的使用者同意式技術錯誤回報；Google 帳戶採供應者重新驗證，不顯示不適用的密碼／改信箱控制項 | 支援 | 支援 |
 | 收據掃描 | 以相機或相簿選擇收據，協助填入收支欄位；仍須使用者確認後儲存 | 支援 | 支援檔案選取 |
 | 更新與安裝 | GitHub Release 檢查、更新內容與安全性摘要、版本／下載／安裝診斷、APK 下載與安裝引導 | 支援 | 提供 PWA 主畫面安裝、離線介面快取、同步狀態中心與草稿安全新版套用入口 |
 
@@ -59,9 +59,13 @@ v1.3.19 修復了已記住裝置在一小時短效 app 工作階段到期後被�
 
 v1.3.20 讓三端能辨識伺服器**已確認**的 `sessionVersion` 撤銷，顯示「此裝置的登入已被撤銷」的繁體中文重新驗證提示，並只在這個情境清除 App 與 Firebase 記住裝置狀態；暫時離線或逾時仍保留既有重試能力，帳本資料不會被刪除。Web-only 管理頁新增衍生的 Firebase 驗證信箱篩選與最小化帳戶摘要（只含建立／最後登入時間、登入方式及帳本數量），每 30 秒在前景自動更新；不顯示 Firebase UID、密碼、token、帳本名稱、交易、金額或收據。撤銷 Firebase refresh token 若暫時失敗，介面會誠實標示 App session 已失效、Firebase 撤銷待重試，而不會誤報完整成功。
 
-既有的本機帳密使用者不會因升級失去帳本、成員資格、交易或設定。請先以既有帳密登入，再從「個人設定 → 帳戶安全」用**完全相同且已驗證的電子信箱**完成 Firebase 綁定。綁定完成時，伺服器保留原有使用者 ID 和所有帳本關聯，並撤銷舊 app session；新登入使用一小時短效 app session，Android 在 Firebase 已驗證身份仍有效時會自動換發。Firebase 已綁定帳戶的刪除操作必須以 Firebase 密碼重新驗證，且伺服器會驗證近期 ID Token、UID 與電子信箱一致後再移除身份資料。
+v1.3.21 新增 **Google Firebase 登入**，支援 Android 原生登入、Web 與 PWA；行動瀏覽器若無法開啟登入視窗，會安全改走 Firebase redirect 回呼。伺服器只接收並驗證 Firebase ID Token，**不會接收、保存或顯示 Google access token、OAuth client secret、密碼、Firebase UID 或 Google 個人資料**。Google 帳戶進行刪除帳號等敏感操作時，須完成 Google／Firebase 的五分鐘內近期重新驗證，而不是輸入不存在的共帳密碼；既有同信箱本機帳戶不會被自動合併。
 
-> **管理員部署檢查：** Firebase Console 的 Authentication → Settings → Authorized domains 必須加入正式網站 `togetherapp-hdbmsjkf.manus.space`，才可讓驗證／重設信的 Firebase Hosted action page 完成後安全返回網站登入頁。另請在 **Authentication → Templates** 將驗證與重設範本設為繁體中文，固定寄件者名稱為「共帳 Together Ledger」並設定簡短主旨；詳見 [`docs/firebase-email-template-localization.md`](docs/firebase-email-template-localization.md)。GitHub Actions 另需設定僅供 Android client 使用的 `EXPO_PUBLIC_FIREBASE_API_KEY`、`EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN`、`EXPO_PUBLIC_FIREBASE_PROJECT_ID` 與 `EXPO_PUBLIC_FIREBASE_APP_ID` secrets；服務帳號 JSON 絕不可放進 APK 或 GitHub Actions client 環境。
+此版本也將公開首頁固定為獨立的品牌主題，登入後帳本或個人化主題不會影響訪客頁。Web-only 管理頁的「擁有帳本」採目前 `createdBy` 擁有權計算；「參與帳本」僅計算目前仍參與、且非本人擁有的帳本。撤銷登入稽核可依期間與結果篩選，且僅保留去識別化摘要、建立時間與衍生結果；不顯示使用者／管理員 ID、電子信箱、帳本、交易、金額、收據、IP、Firebase UID、token 或密碼。
+
+既有的本機帳密使用者不會因升級失去帳本、成員資格、交易或設定。請先以既有帳密登入，再從「個人設定 → 帳戶安全」用**完全相同且已驗證的電子信箱**完成 Firebase 綁定。綁定完成時，伺服器保留原有使用者 ID 和所有帳本關聯，並撤銷舊 app session；新登入使用一小時短效 app session，Android 在 Firebase 已驗證身份仍有效時會自動換發。Firebase 已綁定帳戶的刪除操作必須以登入供應者完成近期驗證；伺服器會驗證近期 Firebase ID Token、UID 與電子信箱一致後，才移除身份資料。
+
+> **管理員部署檢查：** Firebase Console 的 Authentication → Settings → Authorized domains 必須加入正式網站 `togetherapp-hdbmsjkf.manus.space`，才可讓驗證／重設信及 Web／PWA Google redirect 安全返回網站登入頁；Google 供應者必須維持啟用。另請在 **Authentication → Templates** 將驗證與重設範本設為繁體中文，固定寄件者名稱為「共帳 Together Ledger」並設定簡短主旨；詳見 [`docs/firebase-email-template-localization.md`](docs/firebase-email-template-localization.md) 與 [`docs/google-sign-in-setup-v1.3.21.md`](docs/google-sign-in-setup-v1.3.21.md)。GitHub Actions 另需設定 `EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID` 與既有 Firebase 公開組態 secrets；服務帳號 JSON、OAuth client secret 與任何使用者 token 絕不可放進 APK、用戶端程式或 GitHub Actions client 環境。
 
 ## 跨平台邀請與每月結算快照
 
@@ -93,18 +97,18 @@ Together Ledger 網頁版可安裝為 PWA，安裝後會以獨立視窗開啟，
 
 ## 下載、安裝與更新 Android App
 
-目前 Android App 版本為 **1.3.20**（versionCode 43）。此版本新增跨 Web／PWA／Android 的明確撤銷登入提示、Web 管理員的安全帳戶摘要／已驗證信箱篩選／自動更新，以及 Firebase 驗證完成後的繁中回流說明。請僅從本專案的 [GitHub Releases](https://github.com/ben880320-boop/together-ledger/releases) 下載官方 APK，並以 Release 頁面附列的 SHA-256 檢查碼確認檔案來源。
+目前 Android App 版本為 **1.3.21**（versionCode 44）。此版本新增跨 Web／PWA／Android 的 Google Firebase 登入與供應者近期重新驗證、公開首頁固定主題、正確區分擁有／參與帳本的管理摘要，以及去識別化、可篩選的撤銷登入稽核歷程。請僅從本專案的 [GitHub Releases](https://github.com/ben880320-boop/together-ledger/releases) 下載官方 APK，並以 Release 頁面附列的 SHA-256 檢查碼確認檔案來源。
 
 | 步驟 | 操作 |
 | --- | --- |
 | 1 | 於 Android 裝置開啟 [最新 Release](https://github.com/ben880320-boop/together-ledger/releases/latest)，下載 `together-ledger` APK。 |
 | 2 | 開啟已下載的檔案，依 Android 系統提示允許目前瀏覽器或檔案管理器安裝應用程式。 |
-| 3 | 完成安裝後，新帳號請以完成 Email 驗證的電子信箱與密碼登入；既有帳戶可先用舊帳密登入，再於個人設定綁定相同信箱，不需要重新建立帳本。 |
+| 3 | 完成安裝後，可使用已完成驗證的電子信箱與密碼或 Google 登入；既有帳戶可先用舊帳密登入，再於個人設定綁定相同信箱，不需要重新建立帳本。 |
 | 4 | App 偵測到官方新版時，可先查看目前／最新版本、下載進度、官方來源、SHA-256 校驗提示與安裝診斷，再依提示下載及安裝。 |
 
 > 安裝 APK 的系統權限只用於完成你主動發起的更新安裝。請勿從非官方網站、聊天訊息或未知來源下載同名 APK。
 
-> **固定簽章更新：** v1.3.3 起，官方 APK 均使用同一組受保護簽章，可由已安裝的官方版本直接覆蓋更新；若裝置仍保有更早期、不同簽章的歷史安裝且顯示「無法更新」或「套件衝突」，請先移除舊版，再安裝 v1.3.20 官方 APK 一次。移除 App 不會刪除伺服器上的帳本資料。
+> **固定簽章更新：** v1.3.3 起，官方 APK 均使用同一組受保護簽章，可由已安裝的官方版本直接覆蓋更新；若裝置仍保有更早期、不同簽章的歷史安裝且顯示「無法更新」或「套件衝突」，請先移除舊版，再安裝 v1.3.21 官方 APK 一次。移除 App 不會刪除伺服器上的帳本資料。
 
 ## 隱私與資料安全
 

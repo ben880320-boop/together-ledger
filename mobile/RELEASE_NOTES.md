@@ -1,5 +1,23 @@
 ## Together Ledger v1.3.8
 
+## Together Ledger v1.3.21
+
+### Google 登入與近期身分確認
+
+- Web、PWA 與 Android 新增 Firebase Google 登入。Google 只用於取得經 Firebase 驗證的 ID token，再交換為共帳的短效工作階段；不會傳送或保存 Google access token、密碼、Firebase UID 或帳本資料。
+- Google 帳戶執行永久刪除帳號時，會先完成 Google provider 的近期重新驗證，伺服器再檢查五分鐘內 Firebase `auth_time`、UID 與 Email 是否匹配；既有 Firebase Email／Password 帳戶仍維持密碼重新驗證流程。
+- Android 採原生 Google Sign-In 與 Firebase 設定；正式 APK 以受控的公開 Web OAuth Client ID 建置，Android OAuth 用戶端與 APK 簽章維持由 Firebase 設定管理。
+
+### 公開首頁與管理安全
+
+- 公開首頁改用固定、獨立的品牌色彩與背景，不會因登入帳戶的深淺色模式或帳本情境主題而改變；帳本內個人主題設定維持原有行為。
+- 管理員帳戶摘要的「共同參與帳本」改為排除自己目前持有的帳本，「目前擁有帳本」則以當前持有者計算，避免轉讓帳本後的重複或過時計數。
+- 管理頁新增撤銷登入的可篩選、去識別化稽核歷程，可依 7／30／90 天或全部時間和結果篩選。稽核畫面不會顯示 UID、Email、token、IP、帳本、交易、金額或收據。
+
+### 發布
+
+- Android 版升級為 `versionName=1.3.21`、`versionCode=44`，維持固定受保護簽章、SHA-256 校驗檔與 GitHub Release 發布流程。
+
 ## Together Ledger v1.3.20
 
 ### 已撤銷登入可見性與安全管理

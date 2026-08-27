@@ -2,6 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getApp, getApps, initializeApp } from "firebase/app";
 import {
   EmailAuthProvider,
+  GoogleAuthProvider,
   createUserWithEmailAndPassword,
   getAuth,
   getReactNativePersistence,
@@ -9,12 +10,15 @@ import {
   reauthenticateWithCredential,
   sendEmailVerification,
   sendPasswordResetEmail,
+  signInWithCredential,
   signInWithEmailAndPassword,
   signOut,
   updateProfile,
   verifyBeforeUpdateEmail,
   type User,
 } from "@firebase/auth";
+import { GoogleSignin, isErrorWithCode, statusCodes } from "@react-native-google-signin/google-signin";
+
 
 const firebaseConfig = {
   apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
@@ -29,6 +33,48 @@ const firebaseEmailActionSettings = {
   url: "https://togetherapp-hdbmsjkf.manus.space/login?emailAction=complete",
   handleCodeInApp: false,
 };
+
+function getGoogleWebClientId() {
+  const clientId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID?.trim();
+  if (!clientId || !/^[0-9]+-[a-z0-9-]+\.apps\.googleusercontent\.com$/i.test(clientId)) {
+    throw new Error("Google 登入尚未完成設定，請更新至最新版本後再試。");
+  }
+  return clientId;
+}
+
+let nativeGoogleSignInConfigured = false;
+
+function configureNativeGoogleSignIn() {
+  if (nativeGoogleSignInConfigured) return;
+  // Firebase's Android flow requires the Web OAuth client here. The Android
+  // client and SHA-1 remain bound in google-services.json/config plugin.
+  GoogleSignin.configure({
+    webClientId: getGoogleWebClientId(),
+    scopes: ["openid", "profile", "email"],
+  });
+  nativeGoogleSignInConfigured = true;
+}
+
+async function requestGoogleFirebaseCredential() {
+  configureNativeGoogleSignIn();
+  try {
+    await GoogleSignin.hasPlayServices({ showPlayServicesUpdateDialog: true });
+    const result = await GoogleSignin.signIn();
+    if (result.type === "cancelled") {
+      throw new Error("GOOGLE_SIGN_IN_CANCELLED");
+    }
+    const idToken = result.data.idToken;
+    if (!idToken) {
+      throw new Error("Google 未回傳可驗證的身分資訊，請稍後再試。");
+    }
+    return GoogleAuthProvider.credential(idToken);
+  } catch (error) {
+    if (isErrorWithCode(error) && error.code === statusCodes.SIGN_IN_CANCELLED) {
+      throw new Error("GOOGLE_SIGN_IN_CANCELLED");
+    }
+    throw error;
+  }
+}
 
 function requireFirebaseConfig() {
   if (!firebaseConfig.apiKey || !firebaseConfig.authDomain || !firebaseConfig.projectId || !firebaseConfig.appId) {
@@ -89,6 +135,12 @@ export async function signInWithFirebaseEmail(email: string, password: string) {
   return verifiedIdToken(credential.user);
 }
 
+/** Uses Google only to obtain a Firebase credential; Google access tokens are never sent to our server. */
+export async function signInWithFirebaseGoogle() {
+  const credential = await signInWithCredential(getFirebaseAuth(), await requestGoogleFirebaseCredential());
+  return verifiedIdToken(credential.user);
+}
+
 export async function registerFirebaseEmail(email: string, password: string) {
   const credential = await createUserWithEmailAndPassword(getFirebaseAuth(), email, password);
   await sendEmailVerification(credential.user);
@@ -127,6 +179,13 @@ function currentFirebaseUserForEmail(currentEmail: string) {
 export async function reauthenticateFirebaseEmail(currentEmail: string, currentPassword: string) {
   const user = currentFirebaseUserForEmail(currentEmail);
   await reauthenticateWithCredential(user, EmailAuthProvider.credential(user.email!, currentPassword));
+}
+
+/** Returns a freshly minted Firebase ID token after the Google provider reauthenticates the current account. */
+export async function reauthenticateFirebaseGoogle(currentEmail: string) {
+  const user = currentFirebaseUserForEmail(currentEmail);
+  const credential = await reauthenticateWithCredential(user, await requestGoogleFirebaseCredential());
+  return credential.user.getIdToken(true);
 }
 
 /** Sends Firebase's hosted verification action to a new address without changing app data yet. */
@@ -173,5 +232,9 @@ export function messageOfFirebaseError(error: unknown) {
   if (code === "auth/weak-password") return "密碼強度不足，請使用至少 8 個字元。";
   if (code === "auth/too-many-requests") return "嘗試次數過多，請稍後再試或使用忘記密碼。";
   if (code === "auth/network-request-failed") return "網路連線失敗，請確認連線後重試。";
+  if (code === "auth/account-exists-with-different-credential") return "此 Google 電子信箱已使用其他登入方式建立帳戶。請先以原本方式登入，再於帳戶安全頁完成明確連結。";
+  if (code === statusCodes.PLAY_SERVICES_NOT_AVAILABLE) return "此裝置無法使用 Google Play 服務，請更新服務後再試。";
+  if (code === statusCodes.IN_PROGRESS) return "Google 身分驗證正在進行中，請稍候。";
+  if (error instanceof Error && error.message === "GOOGLE_SIGN_IN_CANCELLED") return "已取消 Google 身分驗證。";
   return error instanceof Error ? error.message : "電子郵件驗證暫時無法完成，請稍後再試。";
 }

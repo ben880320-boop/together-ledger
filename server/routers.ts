@@ -65,6 +65,7 @@ import {
   getUserById,
   listAdminAccountAudits,
   listAdminAccounts,
+  listSessionRevocationAudits,
   recordOperationalSecurityEvent,
   revokeUserApplicationSessions,
   verifyLocalPassword,
@@ -256,7 +257,12 @@ export const appRouter = router({
             throw new TRPCError({ code: "PRECONDITION_FAILED", message: "此電子信箱已有既有共帳帳號。請先以原本密碼登入，再到個人設定完成 Firebase 電子信箱綁定。" });
           }
           try {
-            user = await createFirebaseUser({ firebaseUid: identity.uid, email: identity.email!, name: identity.name });
+            user = await createFirebaseUser({
+              firebaseUid: identity.uid,
+              email: identity.email!,
+              name: identity.name,
+              loginMethod: identity.signInProvider === "google.com" ? "google" : "firebase-email",
+            });
           } catch (error) {
             throw new TRPCError({ code: "CONFLICT", message: error instanceof Error ? error.message : "無法建立 Firebase 帳號連結。" });
           }
@@ -345,7 +351,11 @@ export const appRouter = router({
           throw new TRPCError({ code: "CONFLICT", message: error instanceof Error ? error.message : "無法連結 Firebase 帳號。" });
         }
       }),
-    firebaseStatus: protectedProcedure.query(({ ctx }) => ({ email: ctx.user.email, firebaseLinked: Boolean(ctx.user.firebaseUid) })),
+    firebaseStatus: protectedProcedure.query(({ ctx }) => ({
+      email: ctx.user.email,
+      firebaseLinked: Boolean(ctx.user.firebaseUid),
+      loginMethod: ctx.user.loginMethod,
+    })),
     deleteAccount: protectedProcedure
       .input(z.object({
         password: z.string().min(1, "請輸入密碼").optional(),
@@ -353,16 +363,12 @@ export const appRouter = router({
       }))
       .mutation(async ({ ctx, input }) => {
         const accountEmail = ctx.user.email;
-        const canDeleteWithPassword =
-          Boolean(accountEmail) &&
-          (ctx.user.loginMethod === "email" ||
-            (ctx.user.loginMethod === "firebase-email" && Boolean(ctx.user.firebaseUid)));
-        if (!canDeleteWithPassword || !accountEmail) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "只有電子信箱帳密帳號可以在 App 內自行刪除。" });
+        if (!accountEmail) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "目前帳戶缺少電子信箱，無法安全刪除。" });
         }
         if (ctx.user.firebaseUid) {
           if (!input.firebaseIdToken) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: "請重新輸入 Firebase 密碼後再刪除帳號。" });
+            throw new TRPCError({ code: "BAD_REQUEST", message: "請重新驗證 Google 或 Firebase 身分後再刪除帳號。" });
           }
           let identity;
           try {
@@ -370,7 +376,7 @@ export const appRouter = router({
           } catch (error) {
             throw new TRPCError({ code: "UNAUTHORIZED", message: error instanceof Error ? error.message : "Firebase 再驗證失敗。" });
           }
-          if (identity.uid !== ctx.user.firebaseUid || identity.email !== ctx.user.email) {
+          if (identity.uid !== ctx.user.firebaseUid || identity.email?.toLowerCase() !== accountEmail.toLowerCase()) {
             throw new TRPCError({ code: "FORBIDDEN", message: "Firebase 身份與目前共帳帳戶不一致，無法刪除。" });
           }
           try {
@@ -432,6 +438,20 @@ export const appRouter = router({
     audits: adminProcedure
       .input(z.object({ limit: z.number().int().min(1).max(100).default(60) }))
       .query(({ input }) => listAdminAccountAudits(input.limit)),
+    sessionRevocationAudits: adminProcedure
+      .input(z.object({
+        limit: z.number().int().min(1).max(100).default(60),
+        from: z.date().optional(),
+        to: z.date().optional(),
+        outcome: z.enum(["all", "complete", "partial", "failed", "unknown"]).default("all"),
+      }).refine(input => !input.from || !input.to || input.from <= input.to, {
+        message: "稽核起始時間不可晚於結束時間。",
+        path: ["from"],
+      }).refine(input => !input.from || !input.to || input.to.getTime() - input.from.getTime() <= 90 * 24 * 60 * 60 * 1_000, {
+        message: "稽核查詢區間最長為 90 天。",
+        path: ["to"],
+      }))
+      .query(({ input }) => listSessionRevocationAudits(input)),
     operationalOverview: adminProcedure
       .input(z.object({ days: z.number().int().min(1).max(30).default(7) }))
       .query(({ input }) => getOperationalSecurityEventSummary(input.days)),
@@ -453,6 +473,13 @@ export const appRouter = router({
           applicationSessionsRevoked = await revokeUserApplicationSessions(target.id);
           if (!applicationSessionsRevoked) throw new Error("帳戶 session 狀態未更新。");
         } catch (error) {
+          await writeAdminAccountAudit({
+            adminUserId: ctx.user.id,
+            targetUserId: target.id,
+            action: "sessionRevoke",
+            summary: "管理員撤銷帳戶登入未完成",
+            metadata: { outcome: "failed", applicationSessionsRevoked: false, firebaseSessionsRevoked: false },
+          });
           void recordOperationalSecurityEvent({
             event: "sessionRevoke",
             source: "server",
@@ -478,7 +505,7 @@ export const appRouter = router({
               targetUserId: target.id,
               action: "sessionRevoke",
               summary: "管理員已撤銷 App session；Firebase 登入撤銷待重試",
-              metadata: { applicationSessionsRevoked, firebaseSessionsRevoked: false },
+              metadata: { outcome: "partial", applicationSessionsRevoked, firebaseSessionsRevoked: false },
             });
             void recordOperationalSecurityEvent({
               event: "sessionRevoke",
@@ -503,7 +530,7 @@ export const appRouter = router({
           targetUserId: target.id,
           action: "sessionRevoke",
           summary: "管理員撤銷帳戶登入 session",
-          metadata: { firebaseLinked: Boolean(target.firebaseUid) },
+          metadata: { outcome: "complete", firebaseLinked: Boolean(target.firebaseUid) },
         });
         void recordOperationalSecurityEvent({
           event: "sessionRevoke",
